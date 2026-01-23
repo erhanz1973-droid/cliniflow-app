@@ -1,0 +1,605 @@
+<!-- admin-travel.html
+✅ Cliniflow Admin Travel (Flight + Hotel) — TEK DOSYA
+- Hasta seç → mevcut travel verisini çek → düzenle → kaydet
+- Dış kütüphane yok
+- Varsayılan API: http://127.0.0.1:5050
+- Endpoint denemeleri:
+   1) GET  /api/patient/:id/travel
+   2) PUT  /api/admin/patient/:id/travel  (varsa)
+   3) PUT  /api/patient/:id/travel        (fallback)
+   4) POST /api/admin/patient/:id/travel  (fallback)
+   5) POST /api/patient/:id/travel        (fallback)
+
+Not: Backend tarafında PUT/POST hangi route varsa ona kaydeder. Bu dosya otomatik dener.
+-->
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cliniflow Admin – Travel</title>
+  <style>
+    :root{
+      --bg:#0b0f14;
+      --card:#121826;
+      --muted:#9aa4b2;
+      --text:#e5e7eb;
+      --line:#223043;
+      --ok:#22c55e;
+      --warn:#f59e0b;
+      --bad:#ef4444;
+      --btn:#2563eb;
+      --btn2:#334155;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      background:linear-gradient(180deg,#070a0f, #0b0f14);
+      color:var(--text);
+    }
+    .wrap{max-width:1100px;margin:24px auto;padding:0 16px}
+    h1{font-size:20px;margin:0 0 16px}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .card{
+      background:rgba(18,24,38,0.92);
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:14px;
+      box-shadow:0 10px 30px rgba(0,0,0,.25);
+    }
+    .card h2{margin:0 0 10px;font-size:14px;color:#cbd5e1}
+    .topbar{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
+    label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+    input, select, textarea{
+      width:100%;
+      background:#0b1220;
+      color:var(--text);
+      border:1px solid var(--line);
+      border-radius:10px;
+      padding:10px 10px;
+      outline:none;
+    }
+    textarea{min-height:90px;resize:vertical}
+    input:focus,select:focus,textarea:focus{border-color:#3b82f6}
+    .col{flex:1;min-width:260px}
+    .btn{
+      border:0;
+      background:var(--btn);
+      color:white;
+      padding:10px 12px;
+      border-radius:10px;
+      cursor:pointer;
+      font-weight:700;
+    }
+    .btn.secondary{background:var(--btn2)}
+    .btn.danger{background:var(--bad)}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .small{font-size:12px;color:var(--muted)}
+    .status{
+      font-size:12px;
+      padding:8px 10px;
+      border-radius:10px;
+      border:1px dashed var(--line);
+      background:#0b1220;
+      color:var(--muted);
+      white-space:pre-wrap;
+    }
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    @media(max-width:900px){.grid2{grid-template-columns:1fr}}
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      overflow:hidden;
+      border:1px solid var(--line);
+      border-radius:12px;
+    }
+    th,td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top}
+    th{font-size:12px;color:#cbd5e1;background:#0b1220;text-align:left}
+    td{font-size:13px}
+    tr:last-child td{border-bottom:0}
+    .pill{display:inline-block;font-size:11px;padding:4px 8px;border-radius:999px;border:1px solid var(--line);color:#cbd5e1;background:#0b1220}
+    .pill.ok{border-color:rgba(34,197,94,.5);color:#86efac}
+    .pill.warn{border-color:rgba(245,158,11,.5);color:#fcd34d}
+    .pill.bad{border-color:rgba(239,68,68,.5);color:#fca5a5}
+    .actions{display:flex;gap:10px;flex-wrap:wrap}
+    .divider{height:1px;background:var(--line);margin:12px 0}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <h1>Cliniflow Admin – Travel (Flight + Hotel)</h1>
+
+    <div class="card">
+      <div class="topbar">
+        <div class="col" style="min-width:280px">
+          <label>API Base URL</label>
+          <input id="baseUrl" class="mono" value="http://127.0.0.1:5050" />
+          <div class="small">Server farklıysa değiştir (örn: http://localhost:5050)</div>
+        </div>
+
+        <div class="col" style="min-width:260px">
+          <label>Patient ID</label>
+          <input id="patientId" placeholder="p2" value="p2" class="mono" />
+          <div class="small">V1: p1, p2 gibi. (İstersen aşağıdan listeden seç)</div>
+        </div>
+
+        <div style="min-width:220px" class="col">
+          <label>Quick Select</label>
+          <select id="patientSelect">
+            <option value="">(yüklenmedi)</option>
+          </select>
+          <div class="small">/api/patients varsa otomatik dolar</div>
+        </div>
+
+        <div class="actions">
+          <button class="btn secondary" id="btnLoadPatients">Patients Load</button>
+          <button class="btn" id="btnLoad">Load Travel</button>
+          <button class="btn" id="btnSave">Save Travel</button>
+          <button class="btn danger" id="btnReset">Reset Form</button>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+      <div id="status" class="status mono">Hazır.</div>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <div class="card col">
+        <h2>Hotel</h2>
+        <div class="grid2">
+          <div>
+            <label>Hotel Name</label>
+            <input id="hotelName" placeholder="Radisson Blu Tbilisi" />
+          </div>
+          <div>
+            <label>Google Maps Link</label>
+            <input id="hotelMaps" placeholder="https://maps.google.com/..." class="mono" />
+          </div>
+        </div>
+        <div style="margin-top:10px">
+          <label>Address / Notes</label>
+          <textarea id="hotelAddress" placeholder="Adres, check-in bilgisi, oda tipi..."></textarea>
+        </div>
+      </div>
+
+      <div class="card col">
+        <h2>Travel Notes</h2>
+        <label>Notes (Admin)</label>
+        <textarea id="travelNotes" placeholder="Hastanın transferi, sürücü telefonu, randevu saatleri vs."></textarea>
+        <div class="small">Hasta uygulamasında sadece okunur.</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <h2>Flights</h2>
+      <div class="small">En az 1 “arrival” + 1 “return” eklemen iyi olur.</div>
+
+      <div class="divider"></div>
+
+      <div class="actions" style="margin-bottom:10px">
+        <button class="btn secondary" id="btnAddArrival">+ Add Arrival</button>
+        <button class="btn secondary" id="btnAddReturn">+ Add Return</button>
+        <button class="btn secondary" id="btnAddOther">+ Add Other</button>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width:120px">Type</th>
+            <th style="width:160px">Date (YYYY-MM-DD)</th>
+            <th style="width:110px">Time (HH:MM)</th>
+            <th style="width:90px">From</th>
+            <th style="width:90px">To</th>
+            <th style="width:130px">Flight No</th>
+            <th>Airline / Notes</th>
+            <th style="width:110px">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="flightsBody"></tbody>
+      </table>
+
+      <div class="divider"></div>
+
+      <h2>Timeline Preview (Auto)</h2>
+      <div class="small">V1 için timeline backend’de de üretebilirsin; burada sadece önizleme.</div>
+      <div id="timelinePreview" class="status" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <h2>Raw JSON (Debug)</h2>
+      <div class="small">Kaydetmeden önce oluşan JSON’u gör.</div>
+      <textarea id="rawJson" class="mono" style="min-height:180px"></textarea>
+    </div>
+  </div>
+
+<script>
+/** =========================
+ *  Helpers
+ *  ========================= */
+const $ = (id) => document.getElementById(id);
+const statusEl = $("status");
+
+function setStatus(msg, kind="info"){
+  const tag = kind==="ok" ? "[OK]" : kind==="warn" ? "[WARN]" : kind==="bad" ? "[ERR]" : "[..]";
+  statusEl.textContent = `${tag} ${msg}`;
+}
+
+function safeJsonParse(s, fallback){
+  try{ return JSON.parse(s); }catch(e){ return fallback; }
+}
+
+function normalizeBaseUrl(u){
+  u = (u||"").trim();
+  if(!u) return "http://127.0.0.1:5050";
+  return u.replace(/\/+$/,"");
+}
+
+async function httpJson(url, opts={}){
+  const res = await fetch(url, {
+    ...opts,
+    headers: {
+      "Content-Type":"application/json",
+      ...(opts.headers||{})
+    }
+  });
+  const text = await res.text();
+  const json = safeJsonParse(text, null);
+  return { ok: res.ok, status: res.status, text, json };
+}
+
+function ymdToday(){
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,"0");
+  const da = String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${da}`;
+}
+
+function makeFlight(type){
+  return {
+    type,
+    date: ymdToday(),
+    time: "",
+    from: "",
+    to: "",
+    flightNo: "",
+    airline: "",
+    notes: ""
+  };
+}
+
+/** =========================
+ *  Flights UI
+ *  ========================= */
+let flights = []; // array of objects
+
+function flightRowHtml(f, idx){
+  const typeOptions = ["arrival","return","other"].map(t => {
+    const sel = (f.type===t) ? "selected" : "";
+    return `<option value="${t}" ${sel}>${t}</option>`;
+  }).join("");
+
+  return `
+    <tr data-idx="${idx}">
+      <td>
+        <select class="f-type">${typeOptions}</select>
+      </td>
+      <td><input class="f-date mono" placeholder="2026-01-12" value="${escapeHtml(f.date||"")}" /></td>
+      <td><input class="f-time mono" placeholder="14:35" value="${escapeHtml(f.time||"")}" /></td>
+      <td><input class="f-from mono" placeholder="LHR" value="${escapeHtml(f.from||"")}" /></td>
+      <td><input class="f-to mono" placeholder="TBS" value="${escapeHtml(f.to||"")}" /></td>
+      <td><input class="f-no mono" placeholder="TK123" value="${escapeHtml(f.flightNo||"")}" /></td>
+      <td>
+        <input class="f-airline" placeholder="Turkish Airlines" value="${escapeHtml(f.airline||"")}" />
+        <div style="height:6px"></div>
+        <input class="f-notes" placeholder="bagaj, terminal, PNR..." value="${escapeHtml(f.notes||"")}" />
+      </td>
+      <td>
+        <button class="btn secondary btn-mini" data-act="dup" style="padding:7px 10px">Dup</button>
+        <div style="height:6px"></div>
+        <button class="btn danger btn-mini" data-act="del" style="padding:7px 10px">Del</button>
+      </td>
+    </tr>
+  `;
+}
+
+function escapeHtml(s){
+  return String(s ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#39;");
+}
+
+function renderFlights(){
+  const body = $("flightsBody");
+  body.innerHTML = flights.map((f, i) => flightRowHtml(f, i)).join("");
+  wireFlightsEvents();
+  refreshRawJson();
+  renderTimelinePreview();
+}
+
+function wireFlightsEvents(){
+  const body = $("flightsBody");
+  body.querySelectorAll("tr").forEach(tr => {
+    const idx = Number(tr.dataset.idx);
+
+    // inputs
+    tr.querySelector(".f-type").addEventListener("change", e => { flights[idx].type = e.target.value; refreshRawJson(); renderTimelinePreview(); });
+    tr.querySelector(".f-date").addEventListener("input", e => { flights[idx].date = e.target.value; refreshRawJson(); renderTimelinePreview(); });
+    tr.querySelector(".f-time").addEventListener("input", e => { flights[idx].time = e.target.value; refreshRawJson(); });
+    tr.querySelector(".f-from").addEventListener("input", e => { flights[idx].from = e.target.value; refreshRawJson(); });
+    tr.querySelector(".f-to").addEventListener("input", e => { flights[idx].to = e.target.value; refreshRawJson(); });
+    tr.querySelector(".f-no").addEventListener("input", e => { flights[idx].flightNo = e.target.value; refreshRawJson(); });
+    tr.querySelector(".f-airline").addEventListener("input", e => { flights[idx].airline = e.target.value; refreshRawJson(); });
+    tr.querySelector(".f-notes").addEventListener("input", e => { flights[idx].notes = e.target.value; refreshRawJson(); });
+
+    // buttons
+    tr.querySelectorAll("button[data-act]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const act = btn.dataset.act;
+        if(act==="del"){
+          flights.splice(idx,1);
+          renderFlights();
+        }
+        if(act==="dup"){
+          flights.splice(idx+1,0, JSON.parse(JSON.stringify(flights[idx])));
+          renderFlights();
+        }
+      });
+    });
+  });
+}
+
+/** =========================
+ *  Timeline Preview (auto)
+ *  ========================= */
+function renderTimelinePreview(){
+  const el = $("timelinePreview");
+  const items = [];
+
+  const arr = flights.filter(f => (f.type||"").toLowerCase()==="arrival" && f.date).sort((a,b)=> (a.date||"").localeCompare(b.date||""));
+  const ret = flights.filter(f => (f.type||"").toLowerCase()==="return" && f.date).sort((a,b)=> (a.date||"").localeCompare(b.date||""));
+
+  if(arr[0]){
+    items.push({ date: arr[0].date, title: "Arrival", meta: `${arr[0].from||"?"} → ${arr[0].to||"?"} ${arr[0].flightNo||""}`.trim() });
+  }
+  // “Clinic Days” placeholder (istersen backend’de treatments tarihinden üret)
+  // burada sadece kullanıcıya fikir olsun diye, arrival ile return arasına 1 gün koyuyoruz
+  if(arr[0] && ret[0]){
+    const d1 = new Date(arr[0].date + "T00:00:00");
+    const d2 = new Date(ret[0].date + "T00:00:00");
+    if(!isNaN(d1) && !isNaN(d2)){
+      const diff = Math.round((d2 - d1) / (1000*60*60*24));
+      if(diff >= 2){
+        const mid = new Date(d1.getTime() + 24*60*60*1000);
+        const y = mid.getFullYear();
+        const m = String(mid.getMonth()+1).padStart(2,"0");
+        const da = String(mid.getDate()).padStart(2,"0");
+        items.push({ date: `${y}-${m}-${da}`, title:"Clinic / Treatment (placeholder)", meta:"(treatments tarihinden otomatik üretilebilir)" });
+      }
+    }
+  }
+  if(ret[0]){
+    items.push({ date: ret[0].date, title: "Return", meta: `${ret[0].from||"?"} → ${ret[0].to||"?"} ${ret[0].flightNo||""}`.trim() });
+  }
+
+  if(items.length===0){
+    el.textContent = "Timeline için en az 1 arrival/return uçuş tarihi gir.";
+    return;
+  }
+
+  el.textContent = items
+    .sort((a,b)=> (a.date||"").localeCompare(b.date||""))
+    .map(x => `📅 ${x.date} — ${x.title}${x.meta ? " • " + x.meta : ""}`)
+    .join("\n");
+}
+
+/** =========================
+ *  Form -> JSON
+ *  ========================= */
+function buildPayload(){
+  const hotel = {
+    name: $("hotelName").value.trim(),
+    address: $("hotelAddress").value.trim(),
+    maps: $("hotelMaps").value.trim()
+  };
+
+  // normalize flights
+  const cleanFlights = (flights||[]).map(f => ({
+    type: (f.type||"other").trim(),
+    date: (f.date||"").trim(),
+    time: (f.time||"").trim(),
+    from: (f.from||"").trim(),
+    to: (f.to||"").trim(),
+    flightNo: (f.flightNo||"").trim(),
+    airline: (f.airline||"").trim(),
+    notes: (f.notes||"").trim()
+  })).filter(f => f.type || f.date || f.flightNo || f.from || f.to);
+
+  const notes = $("travelNotes").value.trim();
+
+  // timeline: (opsiyonel) backend’de üretmek daha doğru.
+  // burada yine de payload içine koyuyoruz, backend isterse ignore eder.
+  const timeline = buildTimelineFromFlights(cleanFlights);
+
+  return {
+    schemaVersion: 1,
+    updatedAt: Date.now(),
+    hotel,
+    flights: cleanFlights,
+    timeline,
+    notes
+  };
+}
+
+function buildTimelineFromFlights(cleanFlights){
+  const items = [];
+  const arr = cleanFlights.filter(f => f.type==="arrival" && f.date).sort((a,b)=> a.date.localeCompare(b.date));
+  const ret = cleanFlights.filter(f => f.type==="return" && f.date).sort((a,b)=> a.date.localeCompare(b.date));
+  if(arr[0]) items.push({ date: arr[0].date, title:"Arrival" });
+  if(ret[0]) items.push({ date: ret[0].date, title:"Return" });
+  return items;
+}
+
+function refreshRawJson(){
+  $("rawJson").value = JSON.stringify(buildPayload(), null, 2);
+}
+
+/** =========================
+ *  Load / Save
+ *  ========================= */
+async function loadPatients(){
+  const base = normalizeBaseUrl($("baseUrl").value);
+  setStatus("Patients yükleniyor...", "info");
+
+  // Bu endpoint sende varsa otomatik doldurur.
+  const r = await httpJson(`${base}/api/patients`, { method:"GET" });
+  if(!r.ok){
+    setStatus(`Patients list yok (/api/patients). Devam. HTTP ${r.status}`, "warn");
+    return;
+  }
+
+  const list = Array.isArray(r.json) ? r.json : (Array.isArray(r.json?.patients) ? r.json.patients : []);
+  const sel = $("patientSelect");
+  sel.innerHTML = `<option value="">Select...</option>` + list.map(p => {
+    const id = p.patientId || p.id || p;
+    const name = p.name ? ` (${p.name})` : "";
+    return `<option value="${escapeHtml(id)}">${escapeHtml(id)}${escapeHtml(name)}</option>`;
+  }).join("");
+
+  setStatus(`Patients yüklendi: ${list.length}`, "ok");
+}
+
+async function loadTravel(){
+  const base = normalizeBaseUrl($("baseUrl").value);
+  const pid = $("patientId").value.trim();
+  if(!pid){ setStatus("patientId boş.", "bad"); return; }
+
+  setStatus(`Travel yükleniyor: ${pid} ...`, "info");
+
+  // 1) GET patient travel
+  const r = await httpJson(`${base}/api/patient/${encodeURIComponent(pid)}/travel`, { method:"GET" });
+
+  if(!r.ok){
+    setStatus(`GET travel başarısız. HTTP ${r.status}. (Endpoint var mı?)`, "bad");
+    return;
+  }
+
+  const data = r.json || {};
+  // fill hotel
+  $("hotelName").value = data?.hotel?.name || "";
+  $("hotelAddress").value = data?.hotel?.address || "";
+  $("hotelMaps").value = data?.hotel?.maps || "";
+  $("travelNotes").value = data?.notes || "";
+
+  // flights
+  flights = Array.isArray(data?.flights) ? data.flights : [];
+  // backward compatible: flights might be null
+  if(!Array.isArray(flights)) flights = [];
+
+  renderFlights();
+  setStatus(`Travel yüklendi. flights=${flights.length}`, "ok");
+}
+
+async function saveTravel(){
+  const base = normalizeBaseUrl($("baseUrl").value);
+  const pid = $("patientId").value.trim();
+  if(!pid){ setStatus("patientId boş.", "bad"); return; }
+
+  const payload = buildPayload();
+
+  // küçük validasyon
+  const hasHotel = payload.hotel?.name || payload.hotel?.maps || payload.hotel?.address;
+  const hasFlights = Array.isArray(payload.flights) && payload.flights.length>0;
+  if(!hasHotel && !hasFlights){
+    setStatus("Kaydetmeye değer veri yok (otel/uçuş boş).", "warn");
+    return;
+  }
+
+  setStatus("Kaydediliyor... (endpoint deneniyor)", "info");
+
+  // Sırasıyla dene: PUT admin, PUT patient, POST admin, POST patient
+  const endpoints = [
+    { method:"PUT",  url:`${base}/api/admin/patient/${encodeURIComponent(pid)}/travel` },
+    { method:"PUT",  url:`${base}/api/patient/${encodeURIComponent(pid)}/travel` },
+    { method:"POST", url:`${base}/api/admin/patient/${encodeURIComponent(pid)}/travel` },
+    { method:"POST", url:`${base}/api/patient/${encodeURIComponent(pid)}/travel` }
+  ];
+
+  let last;
+  for(const e of endpoints){
+    last = await httpJson(e.url, { method:e.method, body: JSON.stringify(payload) });
+    if(last.ok){
+      setStatus(`Kaydedildi ✅ (${e.method} ${new URL(e.url).pathname})`, "ok");
+      // server response varsa tekrar dolduralım
+      if(last.json){
+        // bazı server'lar direkt kaydı döndürür
+        const d = last.json;
+        $("hotelName").value = d?.hotel?.name || $("hotelName").value;
+        $("hotelAddress").value = d?.hotel?.address || $("hotelAddress").value;
+        $("hotelMaps").value = d?.hotel?.maps || $("hotelMaps").value;
+        $("travelNotes").value = d?.notes || $("travelNotes").value;
+        flights = Array.isArray(d?.flights) ? d.flights : flights;
+        renderFlights();
+      }
+      return;
+    }
+    // 404/405 ise bir sonrakini dene, diğer durumlarda da deniyoruz ama status gösteriyoruz
+    if([400,401,403].includes(last.status)){
+      setStatus(`Kaydetme reddedildi HTTP ${last.status}: ${last.text.slice(0,180)}`, "bad");
+      return;
+    }
+  }
+
+  setStatus(`Kaydetme başarısız. Son deneme HTTP ${last?.status}. Response: ${String(last?.text||"").slice(0,200)}`, "bad");
+}
+
+function resetForm(){
+  $("hotelName").value = "";
+  $("hotelAddress").value = "";
+  $("hotelMaps").value = "";
+  $("travelNotes").value = "";
+  flights = [];
+  renderFlights();
+  setStatus("Form sıfırlandı.", "ok");
+}
+
+/** =========================
+ *  Wire main events
+ *  ========================= */
+$("btnLoadPatients").addEventListener("click", loadPatients);
+
+$("patientSelect").addEventListener("change", () => {
+  const v = $("patientSelect").value;
+  if(v){
+    $("patientId").value = v;
+    setStatus(`Seçildi: ${v}`, "ok");
+  }
+});
+
+$("btnLoad").addEventListener("click", loadTravel);
+$("btnSave").addEventListener("click", saveTravel);
+$("btnReset").addEventListener("click", resetForm);
+
+$("btnAddArrival").addEventListener("click", () => { flights.push(makeFlight("arrival")); renderFlights(); });
+$("btnAddReturn").addEventListener("click", () => { flights.push(makeFlight("return")); renderFlights(); });
+$("btnAddOther").addEventListener("click", () => { flights.push(makeFlight("other")); renderFlights(); });
+
+// hotel / notes input -> raw json refresh
+["hotelName","hotelAddress","hotelMaps","travelNotes"].forEach(id => {
+  $(id).addEventListener("input", () => { refreshRawJson(); });
+});
+
+// initial state
+renderFlights();
+refreshRawJson();
+setStatus("Hazır. Load Travel ile başla.", "ok");
+</script>
+</body>
+</html>

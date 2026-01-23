@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "Clinifly",
+    "slug": "clinifly",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "clinifly",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.clinifly.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Clinifly uses the camera to capture dental images for your treatment records.",
+        "NSMicrophoneUsageDescription": "Clinifly uses the microphone for video recording during consultations.",
+        "NSPhotoLibraryUsageDescription": "Clinifly accesses your photo library to upload dental images.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.clinifly.app",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Clinifly uses the camera to capture dental images for your treatment records."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Clinifly accesses your photo library to upload dental images."
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-router"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "e0ac1304-7841-4e28-bbde-6bf8d53a6533"
+      }
+    },
+    "owner": "erhanz"
+  }
+}

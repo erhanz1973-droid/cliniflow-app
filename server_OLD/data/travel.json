@@ -1,0 +1,10 @@
+{
+  "p2": {
+    "hotel": {
+      "name": "Radisson Blu",
+      "googleMapsUrl": "https://maps.app.goo.gl/test"
+    },
+    "schemaVersion": 1,
+    "updatedAt": 1766933885186
+  }
+}

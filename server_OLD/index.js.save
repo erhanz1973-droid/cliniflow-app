@@ -1,0 +1,81 @@
+sed -n '1,5p' index.js
+node index.js
+
+import "dotenv/config";
+import express from "express";
+import cors from "cors";
+import twilio from "twilio";
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const {
+  TWILIO_ACCOUNT_SID,
+  TWILIO_AUTH_TOKEN,
+  TWILIO_VERIFY_SERVICE_SID,
+  PORT = 5050,
+} = process.env;
+
+if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_VERIFY_SERVICE_SID) {
+  console.error("❌ Twilio ENV eksik. server/.env dosyasını kontrol et");
+  process.exit(1);
+}
+
+const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+
+// Health check
+app.get("/health", (req, res) => {
+  res.json({ ok: true });
+});
+
+// SMS gönder
+app.post("/auth/start", async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) {
+      return res.status(400).json({ error: "phone_required" });
+    }
+
+    const result = await client.verify.v2
+      .services(TWILIO_VERIFY_SERVICE_SID)
+      .verifications.create({
+        to: phone,
+        channel: "sms",
+      });
+
+    res.json({ status: result.status });
+  } catch (err) {
+    console.error("SMS ERROR:", err?.message || err);
+    res.status(500).json({ error: "sms_failed" });
+  }
+});
+
+// OTP doğrula
+app.post("/auth/check", async (req, res) => {
+  try {
+    const { phone, code } = req.body;
+    if (!phone || !code) {
+      return res.status(400).json({ error: "phone_and_code_required" });
+    }
+
+    const result = await client.verify.v2
+      .services(TWILIO_VERIFY_SERVICE_SID)
+      .verificationChecks.create({
+        to: phone,
+        code,
+      });
+
+    res.json({
+      status: result.status,
+      valid: result.status === "approved",
+    });
+  } catch (err) {
+    console.error("VERIFY ERROR:", err?.message || err);
+    res.status(500).json({ error: "verify_failed" });
+  }
+});
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Twilio SMS API running on http://localhost:${PORT}`);
+});

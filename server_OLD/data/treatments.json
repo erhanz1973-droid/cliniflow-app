@@ -1,0 +1,44 @@
+{
+  "p1": {
+    "schemaVersion": 1,
+    "teeth": [
+      {
+        "jaw": "upper",
+        "toothId": "18",
+        "procedures": [
+          {
+            "id": "1766927956961-da7d228862fd5",
+            "type": "FILLING",
+            "status": "PLANNED",
+            "createdAt": 1766927956961
+          }
+        ]
+      }
+    ],
+    "updatedAt": 1766927956961
+  },
+  "p2": {
+    "schemaVersion": 1,
+    "teeth": [
+      {
+        "jaw": "upper",
+        "toothId": "11",
+        "procedures": [
+          {
+            "id": "1766928418443-f121db9bd99d6",
+            "type": "CROWN",
+            "status": "PLANNED",
+            "createdAt": 1766928418443
+          },
+          {
+            "id": "1766928537943-ee38478ac9561",
+            "type": "CROWN",
+            "status": "PLANNED",
+            "createdAt": 1766928537943
+          }
+        ]
+      }
+    ],
+    "updatedAt": 1766928537943
+  }
+}

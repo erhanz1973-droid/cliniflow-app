@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": 1767122222151,
+  "patientId": "p2",
+  "teeth": [
+    {
+      "jaw": "upper",
+      "toothId": "11",
+      "procedures": [
+        {
+          "id": "x1",
+          "type": "CROWN",
+          "status": "PLANNED",
+          "createdAt": 1
+        }
+      ]
+    }
+  ]
+}

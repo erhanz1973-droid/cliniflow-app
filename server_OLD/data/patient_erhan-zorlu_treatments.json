@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": 1767033270708,
+  "teeth": [
+    {
+      "jaw": "upper",
+      "toothId": "11",
+      "procedures": [
+        {
+          "id": "1766956315715-31008af7c5a808",
+          "type": "CROWN",
+          "status": "PLANNED",
+          "createdAt": 1766956315715
+        },
+        {
+          "id": "1766956323982-e1066c4853549",
+          "type": "ROOT_CANAL",
+          "status": "PLANNED",
+          "createdAt": 1766956323982
+        },
+        {
+          "id": "1766956351640-e34cdc6694a5c",
+          "type": "CROWN",
+          "status": "IN_PROGRESS",
+          "createdAt": 1766956351640
+        },
+        {
+          "id": "1766956606379-de1a352169723",
+          "type": "CROWN",
+          "status": "IN_PROGRESS",
+          "plannedAt": 1768075200000,
+          "createdAt": 1766956606379,
+          "updatedAt": 1767033240083
+        },
+        {
+          "id": "1766956858610-6cefa936dbd9e8",
+          "type": "CROWN",
+          "status": "PLANNED",
+          "createdAt": 1766956858610,
+          "updatedAt": 1766956984896,
+          "note": "beyazlatma",
+          "plannedAt": 1768075200000
+        },
+        {
+          "id": "1766956995199-e66def174b5ba",
+          "type": "CROWN",
+          "status": "DONE",
+          "createdAt": 1766956995199,
+          "updatedAt": 1767033255853
+        },
+        {
+          "id": "1766957024888-6426a9dd495508",
+          "type": "CROWN",
+          "status": "CANCELLED",
+          "createdAt": 1766957024888,
+          "updatedAt": 1767033265788
+        },
+        {
+          "id": "1767033270706-5ca434fa2b7df8",
+          "type": "CROWN",
+          "status": "PLANNED",
+          "createdAt": 1767033270706,
+          "updatedAt": 1767033270706
+        }
+      ]
+    },
+    {
+      "jaw": "upper",
+      "toothId": "21",
+      "procedures": [
+        {
+          "id": "1766956358791-607a5ec461dfe8",
+          "type": "CROWN",
+          "status": "IN_PROGRESS",
+          "createdAt": 1766956358791
+        }
+      ]
+    },
+    {
+      "jaw": "upper",
+      "toothId": "22",
+      "procedures": [
+        {
+          "id": "1766957367209-7387c7b1db08a",
+          "type": "CROWN",
+          "status": "PLANNED",
+          "createdAt": 1766957367209,
+          "updatedAt": 1766957367209
+        },
+        {
+          "id": "1766961147764-3b7c7224f124",
+          "type": "CROWN",
+          "status": "CANCELLED",
+          "createdAt": 1766961147764,
+          "updatedAt": 1766961147764
+        }
+      ]
+    },
+    {
+      "jaw": "lower",
+      "toothId": "42",
+      "procedures": [
+        {
+          "id": "1766957594527-ed4952fff59e7",
+          "type": "BRIDGE",
+          "status": "PLANNED",
+          "plannedAt": 1767384000000,
+          "createdAt": 1766957594527,
+          "updatedAt": 1766957594527
+        }
+      ]
+    }
+  ]
+}

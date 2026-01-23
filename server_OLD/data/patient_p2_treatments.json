@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": 1766950812431,
+  "teeth": [
+    {
+      "jaw": "upper",
+      "toothId": "11",
+      "procedures": [
+        {
+          "id": "t1",
+          "type": "CROWN",
+          "status": "PLANNED",
+          "procedureDate": 1766928418443,
+          "createdAt": 1766928418443
+        },
+        {
+          "id": "1766949999595-19d33a79dcfcd",
+          "type": "CROWN",
+          "status": "PLANNED",
+          "procedureDate": 1767036360000,
+          "createdAt": 1766949999595
+        }
+      ]
+    },
+    {
+      "jaw": "upper",
+      "toothId": "21",
+      "procedures": [
+        {
+          "id": "1766949401312-c74c6f7c76973",
+          "type": "FILLING",
+          "status": "PLANNED",
+          "procedureDate": 1766949401312,
+          "createdAt": 1766949401312
+        },
+        {
+          "id": "1766949414332-7afa32bbb4c52",
+          "type": "IMPLANT",
+          "status": "PLANNED",
+          "procedureDate": 1766999760000,
+          "createdAt": 1766949414332
+        }
+      ]
+    },
+    {
+      "jaw": "upper",
+      "toothId": "18",
+      "procedures": [
+        {
+          "id": "1766949678966-dc40acc3ed5f8",
+          "type": "CROWN",
+          "status": "PLANNED",
+          "procedureDate": 1766949678966,
+          "createdAt": 1766949678966
+        },
+        {
+          "id": "1766949683800-0f94d1525c388",
+          "type": "FILLING",
+          "status": "PLANNED",
+          "procedureDate": 1767036060000,
+          "createdAt": 1766949683801
+        },
+        {
+          "id": "1766949686570-31e2a3c46d6f78",
+          "type": "ROOT_CANAL",
+          "status": "DONE",
+          "procedureDate": 1766949660000,
+          "createdAt": 1766949660000
+        }
+      ]
+    }
+  ]
+}

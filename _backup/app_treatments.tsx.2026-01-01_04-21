@@ -1,0 +1,439 @@
+// app/treatments.tsx
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  Platform,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
+import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+/* ================= CONFIG ================= */
+const FALLBACK_BASE =
+  Platform.OS === "android" ? "http://10.0.2.2:5050" : "http://127.0.0.1:5050";
+
+// Access ekranınla aynı env adı (EXPO_PUBLIC_API_BASE_URL)
+const API_BASE = (process.env.EXPO_PUBLIC_API_BASE_URL || FALLBACK_BASE).replace(
+  /\/$/,
+  ""
+);
+
+const TOKEN_KEY = "CLINIFLOW_PATIENT_TOKEN";
+
+/* ================= TYPES ================= */
+type Procedure = {
+  id: string;
+  type: string;
+  status: string;
+  createdAt?: number;
+  scheduledAt?: number;
+};
+
+type Tooth = {
+  toothId: string;
+  procedures: Procedure[];
+};
+
+type TreatmentsPayload = {
+  teeth: Tooth[];
+};
+
+type TravelItem = {
+  id: string;
+  type: "FLIGHT" | "HOTEL" | "TRANSFER" | string;
+  departureAt?: number;
+  at?: number;
+  date?: number;
+  flightDate?: string;
+  flightTime?: string;
+};
+
+type TravelPayload = {
+  items?: TravelItem[];
+};
+
+/* ================= HELPERS ================= */
+function fmt(ts?: number) {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleString();
+}
+
+function isSameDay(a: Date, b: Date) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function dayLabel(ts: number) {
+  const d = new Date(ts);
+  const today = new Date();
+  const tomorrow = new Date();
+  tomorrow.setDate(today.getDate() + 1);
+
+  if (isSameDay(d, today)) return "Bugün";
+  if (isSameDay(d, tomorrow)) return "Yarın";
+  return d.toLocaleDateString();
+}
+
+function group(teeth: Tooth[]) {
+  const map = new Map<string, Procedure[]>();
+  teeth.forEach((t) => map.set(t.toothId, t.procedures || []));
+  return map;
+}
+
+async function fetchJson<T>(
+  url: string,
+  signal?: AbortSignal,
+  headers?: Record<string, string>
+): Promise<T> {
+  const r = await fetch(url, { signal, headers });
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    throw new Error(
+      `HTTP ${r.status} ${r.statusText}${text ? ` • ${text}` : ""}`
+    );
+  }
+  return (await r.json()) as T;
+}
+
+/* ================= TOOTH LAYOUT ================= */
+const LEFT_TEETH = [
+  "11",
+  "12",
+  "13",
+  "14",
+  "15",
+  "16",
+  "17",
+  "18",
+  "41",
+  "42",
+  "43",
+  "44",
+  "45",
+  "46",
+  "47",
+  "48",
+];
+const RIGHT_TEETH = [
+  "21",
+  "22",
+  "23",
+  "24",
+  "25",
+  "26",
+  "27",
+  "28",
+  "31",
+  "32",
+  "33",
+  "34",
+  "35",
+  "36",
+  "37",
+  "38",
+];
+
+/* ================= UI ================= */
+function ToothBadge({ id, count }: { id: string; count: number }) {
+  return (
+    <View
+      style={{
+        marginBottom: 6,
+        padding: 6,
+        borderRadius: 10,
+        backgroundColor: count ? "#DBEAFE" : "#E5E7EB",
+        flexDirection: "row",
+        justifyContent: "space-between",
+      }}
+    >
+      <Text style={{ fontWeight: "900" }}>{id}</Text>
+      {count > 0 && (
+        <View
+          style={{
+            minWidth: 20,
+            height: 20,
+            borderRadius: 10,
+            backgroundColor: "#111827",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text style={{ color: "white", fontSize: 11, fontWeight: "900" }}>
+            {count}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function Block({
+  title,
+  subtitle,
+  tag,
+  disabled,
+}: {
+  title: string;
+  subtitle?: string;
+  tag?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <View
+      style={{
+        backgroundColor: disabled ? "#F3F4F6" : "#F9FAFB",
+        borderRadius: 14,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: "rgba(0,0,0,0.08)",
+        marginBottom: 8,
+      }}
+    >
+      <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+        <Text
+          style={{
+            fontWeight: "900",
+            color: disabled ? "#6B7280" : "#111827",
+          }}
+        >
+          {title}
+        </Text>
+
+        {tag && (
+          <View
+            style={{
+              backgroundColor: "#111827",
+              paddingHorizontal: 8,
+              paddingVertical: 2,
+              borderRadius: 999,
+            }}
+          >
+            <Text style={{ color: "white", fontSize: 11, fontWeight: "900" }}>
+              {tag}
+            </Text>
+          </View>
+        )}
+      </View>
+
+      {subtitle && (
+        <Text style={{ marginTop: 4, color: "#6B7280", fontSize: 12 }}>
+          {subtitle}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+/* ================= SCREEN ================= */
+export default function TreatmentsScreen() {
+  const router = useRouter();
+
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  const [treatments, setTreatments] = useState<TreatmentsPayload | null>(null);
+  const [travel, setTravel] = useState<TravelPayload | null>(null);
+
+  // Token -> patientId -> data
+  useEffect(() => {
+    let alive = true;
+    const ac = new AbortController();
+
+    (async () => {
+      setLoading(true);
+      setErr(null);
+
+      // 1) token oku
+      const token = (await AsyncStorage.getItem(TOKEN_KEY))?.trim();
+      if (!token) {
+        if (!alive) return;
+        setLoading(false);
+        router.replace("/access");
+        return;
+      }
+
+      // 2) token doğrula ve patientId al
+      let patientId = "";
+      try {
+        const me = await fetchJson<any>(
+          `${API_BASE}/api/me/patient`,
+          ac.signal,
+          { "x-patient-token": token }
+        );
+        patientId = me?.patient?.id || me?.patientId || "";
+        if (!patientId) throw new Error("Patient not found from token");
+      } catch (e: any) {
+        if (!alive) return;
+        setErr(e?.message || "Access token invalid");
+        setLoading(false);
+        router.replace("/access");
+        return;
+      }
+
+      // 3) verileri çek
+      try {
+        const [t, tr] = await Promise.all([
+          fetchJson<any>(
+            `${API_BASE}/api/patient/${encodeURIComponent(
+              patientId
+            )}/treatments`,
+            ac.signal
+          ),
+          fetchJson<any>(
+            `${API_BASE}/api/patient/${encodeURIComponent(patientId)}/travel`,
+            ac.signal
+          ).catch(() => ({ items: [] })),
+        ]);
+
+        if (!alive) return;
+
+        setTreatments({ teeth: Array.isArray(t?.teeth) ? t.teeth : [] });
+        setTravel({ items: Array.isArray(tr?.items) ? tr.items : [] });
+        setLoading(false);
+      } catch (e: any) {
+        if (!alive) return;
+        setErr(e?.message || "Unknown error");
+        setLoading(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+      ac.abort();
+    };
+  }, [router]);
+
+  const toothMap = useMemo(() => group(treatments?.teeth || []), [treatments]);
+
+  /* ===== TIMELINE & TREATMENTS (KESİN TARİH SIRALI) ===== */
+  const { landingTs, takeoffTs, treatmentEvents } = useMemo(() => {
+    let landing: number | undefined;
+    let takeoff: number | undefined;
+
+    (travel?.items || []).forEach((it) => {
+      if (it.type === "FLIGHT") {
+        const ts =
+          it.departureAt ||
+          it.at ||
+          it.date ||
+          (it.flightDate && it.flightTime
+            ? new Date(`${it.flightDate}T${it.flightTime}`).getTime()
+            : undefined);
+
+        if (ts) {
+          if (!landing || ts < landing) landing = ts;
+          if (!takeoff || ts > takeoff) takeoff = ts;
+        }
+      }
+    });
+
+    const arr: { ts: number; title: string; tag: string }[] = [];
+
+    toothMap.forEach((procs, toothId) => {
+      (procs || []).forEach((p) => {
+        const ts = p.scheduledAt ?? p.createdAt;
+        if (ts) {
+          arr.push({
+            ts,
+            title: `Tooth ${toothId} • ${p.type}`,
+            tag: dayLabel(ts),
+          });
+        }
+      });
+    });
+
+    arr.sort((a, b) => a.ts - b.ts);
+
+    return { landingTs: landing, takeoffTs: takeoff, treatmentEvents: arr };
+  }, [toothMap, travel]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, paddingTop: 60, alignItems: "center" }}>
+        <ActivityIndicator />
+        <Text style={{ marginTop: 10, color: "#6B7280" }}>Loading…</Text>
+      </View>
+    );
+  }
+
+  if (err) {
+    return (
+      <ScrollView style={{ flex: 1, backgroundColor: "#F3F4F6", padding: 16 }}>
+        <Text style={{ fontSize: 22, fontWeight: "900", marginBottom: 12 }}>
+          Treatments
+        </Text>
+        <Block title="⚠️ Error" subtitle={err} />
+        <Block title="Debug" subtitle={`API_BASE: ${API_BASE}`} disabled />
+      </ScrollView>
+    );
+  }
+
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: "#F3F4F6", padding: 16 }}>
+      <Text style={{ fontSize: 22, fontWeight: "900", marginBottom: 12 }}>
+        Timeline
+      </Text>
+
+      <Block
+        title="✈️ Landing Date"
+        subtitle={landingTs ? fmt(landingTs) : "Uçuş bilgileri henüz girilmedi"}
+        disabled={!landingTs}
+      />
+
+      <Text style={{ fontWeight: "900", marginBottom: 6 }}>🦷 Treatments</Text>
+
+      {treatmentEvents.length === 0 ? (
+        <Block title="Henüz tedavi planı yok" disabled />
+      ) : (
+        treatmentEvents.map((t, i) => (
+          <Block
+            key={`${t.ts}-${i}`}
+            title={t.title}
+            subtitle={fmt(t.ts)}
+            tag={t.tag}
+          />
+        ))
+      )}
+
+      <Block
+        title="✈️ Takeoff Date"
+        subtitle={takeoffTs ? fmt(takeoffTs) : "Dönüş uçuşu henüz planlanmadı"}
+        disabled={!takeoffTs}
+      />
+
+      {/* ===== DİŞ GÖRSELİ + NUMARALAR ===== */}
+      <View
+        style={{
+          marginTop: 24,
+          flexDirection: "row",
+          alignItems: "center",
+        }}
+      >
+        <View style={{ width: 70 }}>
+          {LEFT_TEETH.map((t) => (
+            <ToothBadge key={t} id={t} count={(toothMap.get(t) || []).length} />
+          ))}
+        </View>
+
+        <View style={{ flex: 1, alignItems: "center" }}>
+          <Image
+            source={require("../assets/images/teeth-fdi.jpeg")}
+            style={{ height: 640, width: "100%", resizeMode: "contain" }}
+          />
+        </View>
+
+        <View style={{ width: 70 }}>
+          {RIGHT_TEETH.map((t) => (
+            <ToothBadge key={t} id={t} count={(toothMap.get(t) || []).length} />
+          ))}
+        </View>
+      </View>
+    </ScrollView>
+  );
+}
