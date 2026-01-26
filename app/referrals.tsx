@@ -384,13 +384,9 @@ export default function ReferralsScreen() {
                     <Text style={styles.refMeta}>
                       {isInviter ? t("referrals.youInvited") : t("referrals.invitedYou")} • {new Date(r.createdAt).toLocaleString(getLanguage() === "tr" ? "tr-TR" : "en-US")}
                     </Text>
-                    {r.status === "APPROVED" && (discountPercent !== null && discountPercent !== undefined) ? (
+                    {r.status === "APPROVED" ? (
                       <Text style={styles.discountText}>
-                        🎉 {t("referrals.bothEarnDiscount", { percent: discountPercent })}
-                      </Text>
-                    ) : r.status === "APPROVED" ? (
-                      <Text style={styles.discountText}>
-                        🎉 {t("referrals.status.approvedDesc")}
+                        🎉 {discountPercent ? t("referrals.bothEarnDiscount", { percent: discountPercent }) : t("referrals.status.approvedDesc")}
                       </Text>
                     ) : (
                       <Text style={styles.pendingText}>
