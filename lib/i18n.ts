@@ -456,7 +456,7 @@ const translations: Record<Language, Record<string, string>> = {
     "referrals.status.pendingDesc": "Klinik onayı bekleniyor",
     "referrals.status.approvedDesc": "İndirim kazanıldı",
     "referrals.status.rejectedDesc": "Davet onaylanmadı",
-    "referrals.bothEarnDiscount": "İkiniz de %{percent}% indirim kazandınız!",
+    "referrals.bothEarnDiscount": "İkiniz de {{percent}}% indirim kazandınız!",
     
     // Settings
     "settings.title": "Ayarlar",
@@ -922,7 +922,7 @@ const translations: Record<Language, Record<string, string>> = {
     "referrals.status.pendingDesc": "Waiting for clinic approval",
     "referrals.status.approvedDesc": "Discount earned",
     "referrals.status.rejectedDesc": "Referral was not approved",
-    "referrals.bothEarnDiscount": "You both earn %{percent}% discount!",
+    "referrals.bothEarnDiscount": "You both earn {{percent}}% discount!",
     
     // Settings
     "settings.title": "Settings",
