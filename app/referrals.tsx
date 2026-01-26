@@ -390,11 +390,11 @@ export default function ReferralsScreen() {
                       </Text>
                     ) : r.status === "APPROVED" ? (
                       <Text style={styles.discountText}>
-                        🎉 {t("referrals.approvedDesc")}
+                        🎉 {t("referrals.status.approvedDesc")}
                       </Text>
                     ) : (
                       <Text style={styles.pendingText}>
-                        ⏳ {t("referrals.pendingDesc")}
+                        ⏳ {t("referrals.status.pendingDesc")}
                       </Text>
                     )}
                   </View>
