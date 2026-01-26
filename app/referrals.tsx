@@ -386,7 +386,7 @@ export default function ReferralsScreen() {
                     </Text>
                     {r.status === "APPROVED" ? (
                       <Text style={styles.discountText}>
-                        🎉 {discountPercent ? t("referrals.bothEarnDiscount", { percent: discountPercent }) : t("referrals.status.approvedDesc")}
+                        🎉 {discountPercent ? t("referrals.bothEarnDiscount", { percent: discountPercent }) : t("referrals.bothEarnDiscount", { percent: 10 })}
                       </Text>
                     ) : (
                       <Text style={styles.pendingText}>
