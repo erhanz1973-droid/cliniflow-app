@@ -8,10 +8,34 @@
  * - Detaylı hata loglama
  */
 
-// PROD URL - Render'da çalışan backend (HER ZAMAN BU KULLANILIR)
-export const API_BASE = "https://cliniflow-admin.onrender.com";
+function normalizeApiBase(raw: string): string {
+  const base = String(raw || "").trim().replace(/\/+$/, "");
+  if (!base) return "";
 
-console.log("[API] Using API_BASE:", API_BASE);
+  // Safety clamp: prevent accidental usage of the wrong Render service.
+  // The real backend is served from cliniflow-admin.onrender.com.
+  if (base.includes("cliniflow-backend-dg8a.onrender.com")) {
+    return "https://cliniflow-admin.onrender.com";
+  }
+
+  return base;
+}
+
+// API base must come from env (single source of truth)
+const RAW_API_BASE = process.env.EXPO_PUBLIC_API_BASE || "";
+export const API_BASE = normalizeApiBase(RAW_API_BASE);
+
+if (!API_BASE) {
+  throw new Error(
+    `API_BASE is not defined. Set EXPO_PUBLIC_API_BASE in env. (raw: "${String(RAW_API_BASE)}")`
+  );
+}
+
+if (RAW_API_BASE && RAW_API_BASE !== API_BASE) {
+  console.warn("[API] Normalized API_BASE from:", RAW_API_BASE, "to:", API_BASE);
+} else if (__DEV__) {
+  console.log("[API] Using API_BASE:", API_BASE);
+}
 
 // Uygulamada token'ı tek yerden set etmek için
 // Örnek: setAuthToken(token) login sonrası çağrılır

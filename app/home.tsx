@@ -524,7 +524,8 @@ export default function Home() {
         setMessagePreview(previewData);
         console.log("[HOME] Message preview updated");
       } else {
-        console.error("[HOME] Messages API error:", res.status, res.statusText);
+        const text = await res.text().catch(() => "");
+        console.error("[HOME] Messages API error:", res.status, text.slice(0, 300) || res.statusText);
       }
     } catch (error) {
       console.error("[HOME] Load message preview error:", error);

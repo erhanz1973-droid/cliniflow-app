@@ -58,6 +58,8 @@ export default function Index() {
     setLoading(true);
     try {
       console.log("[REGISTER] Starting registration request to:", `${API_BASE}/api/register`);
+      const normalizedClinicCode = clinicCode.trim().toUpperCase();
+      const normalizedReferralCode = referralCode.trim().toUpperCase();
       
       // 60 saniye timeout - Render cold start için gerekli
       const controller = new AbortController();
@@ -65,6 +67,18 @@ export default function Index() {
         console.log("[REGISTER] Request timeout after 60s");
         controller.abort();
       }, 60000);
+
+      const payload: any = {
+        fullName: name.trim(), // Backend fullName bekliyor (name ile backward compatible)
+        name: name.trim(), // Backward compatibility için
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        clinicCode: normalizedClinicCode,
+        // referralCode is OPTIONAL:
+        // - only send if user manually entered it
+        // - always normalize to uppercase
+        ...(normalizedReferralCode ? { referralCode: normalizedReferralCode } : {}),
+      };
       
       const res = await fetch(`${API_BASE}/api/register`, {
         method: "POST",
@@ -72,14 +86,7 @@ export default function Index() {
           "Content-Type": "application/json",
           "Accept": "application/json",
         },
-        body: JSON.stringify({
-          fullName: name.trim(), // Backend fullName bekliyor (name ile backward compatible)
-          name: name.trim(), // Backward compatibility için
-          email: email.trim().toLowerCase(),
-          phone: phone.trim(),
-          clinicCode: clinicCode.trim().toUpperCase(),
-          referralCode: referralCode.trim() || undefined,
-        }),
+        body: JSON.stringify(payload),
         signal: controller.signal,
       });
       
@@ -94,7 +101,13 @@ export default function Index() {
         
         // Daha açıklayıcı hata mesajları
         if (json.error === "clinic_not_found") {
-          errorMsg = `Klinik kodu "${clinicCode.trim().toUpperCase()}" bulunamadı. Lütfen geçerli bir klinik kodu girin.`;
+          errorMsg = `Klinik kodu "${normalizedClinicCode}" bulunamadı. Lütfen geçerli bir klinik kodu girin.`;
+        } else if (json.error === "invalid_referral_code") {
+          // Referral code is optional — user can register without it.
+          const shown = normalizedReferralCode || referralCode.trim() || "-";
+          errorMsg =
+            `Davet kodu "${shown}" geçersiz veya bulunamadı.\n\n` +
+            `Bu alan opsiyonel. Davet kodunu boş bırakarak da kayıt olabilirsin.`;
         } else if (json.error === "PLAN_LIMIT_REACHED") {
           errorMsg = `Bu klinik ${json.plan || "FREE"} planında maksimum ${json.maxPatients || 3} hasta limitine ulaşmış. Lütfen klinik yöneticisiyle iletişime geçin.`;
         } else if (json.error === "full_name_required" || json.error === "name_required") {
@@ -266,7 +279,7 @@ export default function Index() {
             <TextInput
               placeholder="Varsa davet kodunuzu girin"
               value={referralCode}
-              onChangeText={setReferralCode}
+              onChangeText={(text) => setReferralCode(text.toUpperCase())}
               style={styles.input}
               autoCapitalize="characters"
               autoCorrect={false}

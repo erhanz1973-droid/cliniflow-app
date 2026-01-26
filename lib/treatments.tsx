@@ -46,7 +46,7 @@ type TreatmentsCtx = {
 const TreatmentsContext = createContext<TreatmentsCtx | null>(null);
 
 const STORAGE_KEY = "cliniflow.treatments.v1";
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "";
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE || "";
 const ENV_PATIENT_ID = process.env.EXPO_PUBLIC_PATIENT_ID || "p1";
 
 /* ---------------- helpers ---------------- */
@@ -211,7 +211,7 @@ export function TreatmentsProvider({ children }: { children: React.ReactNode }) 
     const pid = String(patientId ?? "").trim() || ENV_PATIENT_ID || "p1";
 
     if (!API_BASE_URL) {
-      return { ok: false, teethCount: 0, error: "EXPO_PUBLIC_API_BASE_URL empty (demo mode)" };
+      return { ok: false, teethCount: 0, error: "EXPO_PUBLIC_API_BASE is empty" };
     }
 
     const url = `${API_BASE_URL}/api/patient/${encodeURIComponent(pid)}/treatments`;

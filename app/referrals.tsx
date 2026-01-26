@@ -34,8 +34,11 @@ type ReferralItem = {
 };
 
 type ClinicDiscountRates = {
-  defaultInviterDiscountPercent?: number | null;
-  defaultInvitedDiscountPercent?: number | null;
+  referralLevels?: {
+    level1?: number | null;
+    level2?: number | null;
+    level3?: number | null;
+  };
 };
 
 export default function ReferralsScreen() {
@@ -156,12 +159,10 @@ export default function ReferralsScreen() {
         const clinicData = await clinicRes.json();
         console.log("[REFERRALS] Clinic data received:", {
           clinicCode: clinicData.clinicCode || clinicData.code,
-          defaultInviterDiscountPercent: clinicData.defaultInviterDiscountPercent,
-          defaultInvitedDiscountPercent: clinicData.defaultInvitedDiscountPercent,
+          referralLevels: clinicData.referralLevels || clinicData.settings?.referralLevels,
         });
         setClinicDiscountRates({
-          defaultInviterDiscountPercent: clinicData.defaultInviterDiscountPercent ?? null,
-          defaultInvitedDiscountPercent: clinicData.defaultInvitedDiscountPercent ?? null,
+          referralLevels: clinicData.referralLevels || clinicData.settings?.referralLevels || {},
         });
       } else {
         console.warn("[REFERRALS] Clinic API response not OK:", clinicRes.status, clinicRes.statusText);
@@ -304,18 +305,24 @@ export default function ReferralsScreen() {
         </Text>
 
         {/* Clinic Discount Rates */}
-        {(clinicDiscountRates?.defaultInviterDiscountPercent != null || 
-          clinicDiscountRates?.defaultInvitedDiscountPercent != null) && (
+        {(clinicDiscountRates?.referralLevels?.level1 != null ||
+          clinicDiscountRates?.referralLevels?.level2 != null ||
+          clinicDiscountRates?.referralLevels?.level3 != null) && (
           <View style={styles.discountRatesBox}>
             <Text style={styles.discountRatesTitle}>{t("referrals.clinicRates")}</Text>
-            {clinicDiscountRates.defaultInviterDiscountPercent != null && (
+            {clinicDiscountRates.referralLevels?.level1 != null && (
               <Text style={styles.discountRatesText}>
-                {t("referrals.inviterDiscount")}: %{clinicDiscountRates.defaultInviterDiscountPercent}
+                {t("referrals.level1Discount")}: %{clinicDiscountRates.referralLevels.level1}
               </Text>
             )}
-            {clinicDiscountRates.defaultInvitedDiscountPercent != null && (
+            {clinicDiscountRates.referralLevels?.level2 != null && (
               <Text style={styles.discountRatesText}>
-                {t("referrals.invitedDiscount")}: %{clinicDiscountRates.defaultInvitedDiscountPercent}
+                {t("referrals.level2Discount")}: %{clinicDiscountRates.referralLevels.level2}
+              </Text>
+            )}
+            {clinicDiscountRates.referralLevels?.level3 != null && (
+              <Text style={styles.discountRatesText}>
+                {t("referrals.level3Discount")}: %{clinicDiscountRates.referralLevels.level3}
               </Text>
             )}
           </View>
