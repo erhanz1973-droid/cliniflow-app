@@ -71,7 +71,7 @@ export default function DebugApiScreen() {
         <View style={styles.section}>
           <Text style={styles.label}>Beklenen URL (Android Emülatör):</Text>
           <Text style={styles.value} selectable>
-            http://10.0.2.2:5050
+            http://10.0.2.2:3000
           </Text>
         </View>
 
@@ -95,7 +95,7 @@ export default function DebugApiScreen() {
           <Text style={styles.infoTitle}>ℹ️ Bilgi:</Text>
           <Text style={styles.infoText}>
             • Android emülatörde API_BASE otomatik olarak{" "}
-            <Text style={styles.code}>http://10.0.2.2:5050</Text> olarak
+            <Text style={styles.code}>http://10.0.2.2:3000</Text> olarak
             ayarlanır.
           </Text>
           <Text style={styles.infoText}>

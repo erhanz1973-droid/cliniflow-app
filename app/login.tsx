@@ -43,13 +43,16 @@ export default function Login() {
   }, [params.token, params.patientId, isAuthReady, isAuthed, signIn, router]);
 
   const handleRequestOTP = async () => {
+    if (requestingOTP || otpSent) return;
+
+    const cleanedPhone = phone.replace(/\D/g, "");
+    setPhone(cleanedPhone);
+
     // Validation
-    if (!phone.trim()) {
+    if (!cleanedPhone.trim()) {
       Alert.alert("Eksik Bilgi", "Lütfen telefon numarası giriniz.");
       return;
     }
-
-    const cleanedPhone = phone.replace(/\D/g, ""); // Sadece rakamları al
 
     setRequestingOTP(true);
     try {
@@ -103,8 +106,13 @@ export default function Login() {
   };
 
   const handleVerifyOTP = async () => {
+    if (loading) return;
+
+    const cleanedPhone = phone.replace(/\D/g, "");
+    setPhone(cleanedPhone);
+
     // Validation
-    if (!phone.trim()) {
+    if (!cleanedPhone.trim()) {
       Alert.alert("Eksik Bilgi", "Lütfen telefon numarası giriniz.");
       return;
     }
@@ -113,8 +121,6 @@ export default function Login() {
       Alert.alert("Eksik Bilgi", "Lütfen 6 haneli OTP kodunu giriniz.");
       return;
     }
-
-    const cleanedPhone = phone.replace(/\D/g, ""); // Sadece rakamları al
 
     setLoading(true);
     try {

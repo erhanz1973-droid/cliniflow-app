@@ -43,7 +43,10 @@ function pickToken(input: any): string | null {
 }
 
 function pickId(input: any): string {
-  return input?.id ?? input?.userId ?? input?.user?.id ?? input?.data?.id ?? "u1";
+  const raw = input?.id ?? input?.userId ?? input?.user?.id ?? input?.data?.id ?? null;
+  const id = typeof raw === "string" ? raw.trim() : raw != null ? String(raw) : "";
+  if (!id) throw new Error("signIn failed: id missing");
+  return id;
 }
 
 function pickEmail(input: any): string | undefined {
@@ -118,7 +121,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const token = pickToken(input);
     if (!token) throw new Error("signIn failed: token missing");
 
-    const next: User = { id: pickId(input), email: pickEmail(input), token };
+    const id = pickId(input);
+    if (user?.id === id && user?.token === token) return;
+
+    const next: User = { id, email: pickEmail(input), token };
     setUser(next);
     await storageSet(AUTH_KEY, JSON.stringify(next));
   };

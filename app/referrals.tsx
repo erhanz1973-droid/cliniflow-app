@@ -384,9 +384,17 @@ export default function ReferralsScreen() {
                     <Text style={styles.refMeta}>
                       {isInviter ? t("referrals.youInvited") : t("referrals.invitedYou")} • {new Date(r.createdAt).toLocaleString(getLanguage() === "tr" ? "tr-TR" : "en-US")}
                     </Text>
-                    {discountPercent !== null && discountPercent !== undefined && (
+                    {r.status === "APPROVED" && (discountPercent !== null && discountPercent !== undefined) ? (
                       <Text style={styles.discountText}>
-                        🎉 {t("referrals.discount")}: %{discountPercent}
+                        🎉 {t("referrals.bothEarnDiscount", { percent: discountPercent })}
+                      </Text>
+                    ) : r.status === "APPROVED" ? (
+                      <Text style={styles.discountText}>
+                        🎉 {t("referrals.approvedDesc")}
+                      </Text>
+                    ) : (
+                      <Text style={styles.pendingText}>
+                        ⏳ {t("referrals.pendingDesc")}
                       </Text>
                     )}
                   </View>
@@ -532,6 +540,12 @@ const styles = StyleSheet.create({
   discountText: {
     fontSize: 13,
     color: "#059669",
+    fontWeight: "800",
+    marginTop: 4,
+  },
+  pendingText: {
+    fontSize: 13,
+    color: "#f59e0b",
     fontWeight: "800",
     marginTop: 4,
   },

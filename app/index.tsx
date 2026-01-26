@@ -59,7 +59,8 @@ export default function Index() {
     try {
       console.log("[REGISTER] Starting registration request to:", `${API_BASE}/api/register`);
       const normalizedClinicCode = clinicCode.trim().toUpperCase();
-      const normalizedReferralCode = referralCode.trim().toUpperCase();
+      // Keep referral code as typed; backend matches case-insensitively.
+      const normalizedReferralCode = referralCode.trim();
       
       // 60 saniye timeout - Render cold start için gerekli
       const controller = new AbortController();
@@ -76,7 +77,7 @@ export default function Index() {
         clinicCode: normalizedClinicCode,
         // referralCode is OPTIONAL:
         // - only send if user manually entered it
-        // - always normalize to uppercase
+        // - backend handles case-insensitive matching
         ...(normalizedReferralCode ? { referralCode: normalizedReferralCode } : {}),
       };
       
@@ -279,9 +280,10 @@ export default function Index() {
             <TextInput
               placeholder="Varsa davet kodunuzu girin"
               value={referralCode}
-              onChangeText={(text) => setReferralCode(text.toUpperCase())}
+              onChangeText={setReferralCode}
               style={styles.input}
-              autoCapitalize="characters"
+              // Keep as typed (don't force uppercase)
+              autoCapitalize="none"
               autoCorrect={false}
               editable={!loading}
             />
