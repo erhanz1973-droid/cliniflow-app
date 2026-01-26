@@ -248,11 +248,19 @@ export default function ReferralsScreen() {
 
   const getReferralDisplayName = (ref: ReferralItem): string => {
     const role = getReferralRole(ref);
-    if (role === "inviter") {
-      return ref.invitedPatientName || ref.invitedPatientId || t("referrals.invitedPerson");
-    } else {
-      return ref.inviterPatientName || ref.inviterPatientId || t("referrals.inviterPerson");
-    }
+    console.log(`[REFERRALS] getReferralDisplayName for ref ${ref.id}:`, {
+      role,
+      inviterPatientName: ref.inviterPatientName,
+      invitedPatientName: ref.invitedPatientName,
+      inviterPatientId: ref.inviterPatientId,
+      invitedPatientId: ref.invitedPatientId
+    });
+    
+    // Show both names: Inviter → Invited
+    const inviterName = ref.inviterPatientName || ref.inviterPatientId || t("referrals.inviterPerson");
+    const invitedName = ref.invitedPatientName || ref.invitedPatientId || t("referrals.invitedPerson");
+    
+    return `${inviterName} → ${invitedName}`;
   };
 
   const getDiscountPercent = (ref: ReferralItem): number | null => {
