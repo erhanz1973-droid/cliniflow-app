@@ -23,17 +23,33 @@ export default function OtpScreen() {
   const [msg, setMsg] = useState("");
 
   async function verifyWithServer(code: string, phoneToVerify: string) {
+    // Final validation before sending request
+    if (!code || code.length !== 6 || !phoneToVerify) {
+      throw new Error("Missing required parameters for OTP verification");
+    }
+
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS);
 
     try {
+      const requestBody = {
+        otp: code,
+        phone: phoneToVerify,
+        email: email || undefined, // Include email if available
+        sessionId: patientId || phoneToVerify, // Use patientId or phone as session identifier
+      };
+
+      console.log("[OTP] Sending verification request:", {
+        otp: code,
+        phone: phoneToVerify,
+        email: email || undefined,
+        sessionId: requestBody.sessionId,
+      });
+
       const res = await fetch(`${API_BASE}/auth/verify-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          phone: phoneToVerify,
-          otp: code,
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
 
@@ -113,15 +129,22 @@ export default function OtpScreen() {
   }
 
   async function onSubmit() {
+    // Guard checks
     const code = otp.trim();
-    if (!code) {
-      Alert.alert("Eksik Bilgi", "Lütfen OTP kodunu giriniz.");
+    if (!code || code.length !== 6) {
+      Alert.alert("Eksik Bilgi", "Lütfen 6 haneli OTP kodunu giriniz.");
       return;
     }
 
     const phoneToUse = phoneInput.trim();
     if (!phoneToUse) {
       Alert.alert("Eksik Bilgi", "Telefon numarası gereklidir.");
+      return;
+    }
+
+    // Additional validation
+    if (code === undefined || phoneToUse === undefined) {
+      Alert.alert("Hata", "Geçersiz parametreler. Lütfen tekrar deneyin.");
       return;
     }
 

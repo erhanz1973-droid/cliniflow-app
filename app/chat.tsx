@@ -49,12 +49,15 @@ export default function PatientChatScreen() {
   const router = useRouter();
   const { user, isAuthReady } = useAuth();
   const params = useLocalSearchParams();
-  const userPatientId = params.patientId as string || user?.patientId || "";
+  const userPatientId = params.patientId as string || (user as any)?.patientId || "";
   
   const [patientId, setPatientId] = useState<string>(userPatientId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
+  
+  // Ref for TextInput to manage cursor and focus
+  const inputRef = useRef<TextInput>(null);
   const [uploading, setUploading] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const isRedirectingRef = useRef(false);
@@ -131,6 +134,15 @@ export default function PatientChatScreen() {
       console.error("[CHAT] Could not play notification:", error);
     }
   }, []);
+  
+  // Auto-focus input when component mounts or when messages load
+  useEffect(() => {
+    if (!loading && inputRef.current) {
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 500);
+    }
+  }, [loading]);
   
   // Update patientId when userPatientId changes
   useEffect(() => {
@@ -389,6 +401,12 @@ export default function PatientChatScreen() {
       }
 
       setText("");
+      
+      // Focus back to input after sending message
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+      
       // Fetch messages after sending (flag will prevent sound)
       await fetchMessages();
     } catch (error) {
@@ -495,7 +513,7 @@ export default function PatientChatScreen() {
 
     // Create AbortController for timeout
     const controller = new AbortController();
-    let timeoutId: NodeJS.Timeout | null = setTimeout(() => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
       controller.abort();
     }, 60000); // 60 second timeout for image uploads
 
@@ -649,7 +667,7 @@ export default function PatientChatScreen() {
 
     // Create AbortController for timeout
     const controller = new AbortController();
-    let timeoutId: NodeJS.Timeout | null = setTimeout(() => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
       controller.abort();
     }, 60000); // 60 second timeout for file uploads
 
@@ -888,8 +906,8 @@ export default function PatientChatScreen() {
                   try {
                     console.log("[CHAT] Android: Converting to content URI for sharing...");
                     const contentUriResult = await FileSystem.getContentUriAsync(downloadResult.uri);
-                    if (contentUriResult && contentUriResult.uri) {
-                      shareUri = contentUriResult.uri;
+                    if (contentUriResult) {
+                      shareUri = contentUriResult;
                       console.log("[CHAT] Content URI:", shareUri);
                     } else {
                       console.warn("[CHAT] Content URI conversion returned undefined, using file URI");
@@ -1284,12 +1302,35 @@ export default function PatientChatScreen() {
           {/* Input and Send Row */}
           <View style={styles.inputRow}>
             <TextInput
+              ref={inputRef}
               value={text}
-              onChangeText={setText}
+              onChangeText={(newText) => {
+                // Preserve cursor position when text changes
+                setText(newText);
+              }}
               placeholder={t("chat.typeMessage")}
               style={styles.input}
               multiline
               maxLength={1000}
+              onFocus={() => {
+                console.log("[CHAT] Input focused");
+                // Ensure input is visible when focused
+                setTimeout(() => {
+                  scrollRef.current?.scrollToEnd({ animated: true });
+                }, 100);
+              }}
+              onBlur={() => {
+                console.log("[CHAT] Input blurred");
+              }}
+              onSubmitEditing={() => {
+                if (text.trim()) {
+                  sendMessage();
+                }
+              }}
+              blurOnSubmit={false}
+              returnKeyType="send"
+              textAlignVertical="top"
+              scrollEnabled={true}
             />
             
             <Pressable onPress={sendMessage} disabled={!text.trim()} style={[styles.sendBtn, !text.trim() && { opacity: 0.5 }]}>
