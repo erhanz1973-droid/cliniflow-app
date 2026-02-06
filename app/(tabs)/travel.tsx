@@ -224,8 +224,25 @@ function normalizeTravel(json: any): TravelData {
 export default function TravelScreen() {
   const params = useLocalSearchParams();
   const router = useRouter();
-  const { user, isAuthReady, isAuthed } = useAuth();
+  const { user, isAuthReady, isAuthed, isDoctor, isPatient } = useAuth();
   const { t } = useLanguage();
+
+  // Role-based redirect
+  useEffect(() => {
+    if (!isAuthReady) return;
+    
+    // Doctors cannot access travel form
+    if (isDoctor) {
+      router.replace("/doctor-dashboard");
+      return;
+    }
+    
+    // Only patients can access
+    if (!isPatient) {
+      router.replace("/login");
+      return;
+    }
+  }, [isAuthReady, isDoctor, isPatient, router]);
 
   const OWNER_LABEL: Record<EditOwner, string> = {
     ADMIN: t("travel.editPolicyAdmin"),

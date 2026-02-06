@@ -92,7 +92,7 @@ const HEALTH_CONDITIONS = [
 ];
 
 export default function Health() {
-  const { user } = useAuth();
+  const { user, isAuthReady, isDoctor, isPatient } = useAuth();
   const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -105,6 +105,23 @@ export default function Health() {
   const aliveRef = useRef(true);
   const validationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Role-based redirect
+  useEffect(() => {
+    if (!isAuthReady) return;
+    
+    // Doctors cannot access health form
+    if (isDoctor) {
+      router.replace("/doctor-dashboard");
+      return;
+    }
+    
+    // Only patients can access
+    if (!isPatient) {
+      router.replace("/login");
+      return;
+    }
+  }, [isAuthReady, isDoctor, isPatient, router]);
+
   useEffect(() => {
     aliveRef.current = true;
     return () => {
@@ -113,7 +130,7 @@ export default function Health() {
   }, []);
 
   useEffect(() => {
-    if (!user?.token) {
+    if (!user?.token || !isAuthReady || !isPatient) {
       setLoading(false);
       return;
     }
@@ -124,7 +141,7 @@ export default function Health() {
   const loadHealthForm = async () => {
     try {
       // Get patientId
-      let pid = user?.patientId || "";
+      let pid = user?.id || "";
       if (!pid) {
         const meRes = await fetch(`${API_BASE}/api/patient/me`, {
           headers: { Authorization: `Bearer ${user?.token}` },
@@ -455,6 +472,35 @@ export default function Health() {
     validateFormWithBackend();
   }, [currentStep, formData, user?.token, patientId]);
 
+  if (!isAuthReady) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#2563EB" />
+        <Text style={styles.loadingText}>Yükleniyor...</Text>
+      </View>
+    );
+  }
+
+  // Redirect doctors away from health form
+  if (isDoctor) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#2563EB" />
+        <Text style={styles.loadingText}>Yönlendiriliyor...</Text>
+      </View>
+    );
+  }
+
+  // Redirect non-patients
+  if (!isPatient) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#2563EB" />
+        <Text style={styles.loadingText}>Yönlendiriliyor...</Text>
+      </View>
+    );
+  }
+
   if (loading) {
     return (
       <View style={styles.centerContainer}>
@@ -543,6 +589,7 @@ function Step1PersonalInfo({
   formData: HealthFormData;
   updateFormData: (section: keyof HealthFormData, data: any) => void;
 }) {
+  const { t } = useLanguage();
   const personalInfo = formData.personalInfo || {};
 
   return (

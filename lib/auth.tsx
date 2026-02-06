@@ -2,13 +2,20 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { API_BASE } from "./api";
 
 /* ================= TYPES ================= */
+
+export type UserRole = "PATIENT" | "DOCTOR" | "ADMIN";
 
 type User = {
   id: string;
   email?: string;
   token: string;
+  role?: UserRole;
+  name?: string;
+  clinicId?: string;
+  clinicCode?: string;
 };
 
 type AuthContextValue = {
@@ -16,9 +23,13 @@ type AuthContextValue = {
   isAuthLoading: boolean;
   isAuthReady: boolean;
   isAuthed: boolean;
+  isDoctor: boolean;
+  isPatient: boolean;
+  isAdmin: boolean;
   signIn: (input: any) => Promise<void>;
   signOut: () => Promise<void>;
   refreshAuth: () => Promise<void>;
+  updateRole: (newRole: UserRole) => Promise<any>;
 };
 
 const AUTH_KEY = "cliniflow.auth.v1";
@@ -49,8 +60,24 @@ function pickId(input: any): string {
   return id;
 }
 
+function pickRole(input: any): UserRole | undefined {
+  return input?.role ?? input?.user?.role ?? input?.data?.role;
+}
+
+function pickName(input: any): string | undefined {
+  return input?.name ?? input?.user?.name ?? input?.data?.name;
+}
+
 function pickEmail(input: any): string | undefined {
   return input?.email ?? input?.user?.email ?? input?.data?.email;
+}
+
+function pickClinicId(input: any): string | undefined {
+  return input?.clinicId ?? input?.user?.clinicId ?? input?.data?.clinicId;
+}
+
+function pickClinicCode(input: any): string | undefined {
+  return input?.clinicCode ?? input?.user?.clinicCode ?? input?.data?.clinicCode;
 }
 
 // ✅ Web'de AsyncStorage yerine localStorage (verifying takılmasını keser)
@@ -127,7 +154,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const id = pickId(input);
     if (user?.id === id && user?.token === token) return;
 
-    const next: User = { id, email: pickEmail(input), token };
+    const next: User = { 
+      id, 
+      email: pickEmail(input), 
+      token,
+      role: pickRole(input),
+      name: pickName(input),
+      clinicId: pickClinicId(input),
+      clinicCode: pickClinicCode(input),
+    };
     setUser(next);
     await storageSet(AUTH_KEY, JSON.stringify(next));
   };
@@ -158,9 +193,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAuthLoading,
       isAuthReady: !isAuthLoading,
       isAuthed: !!user?.token,
+      isDoctor: user?.role === "DOCTOR",
+      isPatient: !user?.role || user?.role === "PATIENT", // Default to PATIENT if no role
+      isAdmin: user?.role === "ADMIN",
       signIn,
       signOut,
       refreshAuth,
+      updateRole: async (newRole: UserRole) => {
+        if (!user?.token) {
+          throw new Error("No token found");
+        }
+
+        try {
+          const response = await fetch(`${API_BASE}/api/patient/role`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${user.token}`,
+              Accept: "application/json",
+            },
+            body: JSON.stringify({ newRole }),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || "Failed to update role");
+          }
+
+          const data = await response.json();
+          
+          // Update user object with new role and token
+          const updatedUser = {
+            ...user,
+            role: newRole,
+            token: data.token,
+          };
+
+          setUser(updatedUser);
+          await storageSet(AUTH_KEY, JSON.stringify(updatedUser));
+          
+          return data;
+        } catch (error) {
+          console.error("[AUTH] Update role error:", error);
+          throw error;
+        }
+      },
     }),
     [user, isAuthLoading]
   );

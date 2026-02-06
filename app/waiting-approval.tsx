@@ -16,7 +16,7 @@ import { API_BASE } from "../lib/api";
 export default function WaitingApprovalScreen() {
   const router = useRouter();
   const { user, signOut, isAuthReady } = useAuth();
-  const intervalRef = React.useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const isRedirectingRef = React.useRef(false);
   const [networkError, setNetworkError] = useState(false);
   const failureCountRef = React.useRef(0);
@@ -50,6 +50,13 @@ export default function WaitingApprovalScreen() {
 
       if (!res.ok) {
         console.error("[WAITING-APPROVAL] Failed to check status:", res.status);
+        
+        // Treat HTTP errors like network errors with backoff
+        failureCountRef.current += 1;
+        const backoffMs = Math.min(30000, 1000 * 2 ** Math.min(failureCountRef.current, 5));
+        nextCheckAtRef.current = Date.now() + backoffMs;
+        setNetworkError(true);
+        console.log(`[WAITING-APPROVAL] HTTP error ${res.status}, backing off for ${backoffMs}ms`);
         return;
       }
 

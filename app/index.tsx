@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from "react-native";
 import { Stack, useRouter } from "expo-router";
-import { API_BASE } from "../lib/api";
+import { API_BASE, apiPost } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useLanguage } from "../lib/language-context";
 
@@ -27,6 +27,7 @@ function IndexContent({ router }: { router: any }) {
   const [phone, setPhone] = useState("");
   const [clinicCode, setClinicCode] = useState(""); // Başlangıçta boş, kullanıcı girecek
   const [referralCode, setReferralCode] = useState("");
+  const [userType, setUserType] = useState<"patient" | "doctor">("patient"); // Varsayılan hasta
   const [loading, setLoading] = useState(false);
   const hasRedirected = useRef(false);
 
@@ -79,51 +80,63 @@ function IndexContent({ router }: { router: any }) {
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/register`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim(),
-          phone: normalizedPhone, // Use normalized phone number
-          clinicCode: clinicCode.trim(),
-          referralCode: referralCode.trim(),
-        }),
+      const json = await apiPost<{
+        ok: boolean;
+        patientId?: string;
+        doctorId?: string;
+        message?: string;
+        error?: string;
+        token?: string;
+        referralCode?: string;
+        name?: string;
+        phone?: string;
+        status?: string;
+        role?: string;
+      }>("/api/register", {
+        name: name.trim(),
+        email: email.trim(),
+        phone: normalizedPhone, // Use normalized phone number
+        clinicCode: clinicCode.trim(),
+        referralCode: referralCode.trim(),
+        userType: userType, // Kullanıcı tipini gönder
       });
 
-      if (!response.ok) {
-        const errorMsg = await response.text();
-        console.error("[REGISTER] API error:", errorMsg);
-        Alert.alert("Kayıt Hatası", errorMsg);
-        return;
-      }
-
-      const json = await response.json();
       console.log("[REGISTER] Response:", json);
 
-      if (json.ok && json.patientId) {
+      if (json.ok && (json.patientId || json.doctorId)) {
         Alert.alert(
           "Kayıt Başarılı",
           "Kaydınız başarıyla oluşturuldu. Email adresinize gönderilen OTP kodunu giriniz."
         );
-        // Navigate to OTP screen with patient data
+        // Navigate to OTP screen with user data
         router.replace({
           pathname: "/otp",
           params: {
-            patientId: json.patientId,
+            userId: json.patientId || json.doctorId,
             email: email.trim(),
             name: name.trim(),
             phone: phone.trim(),
+            userType: userType,
           },
         });
       } else {
         Alert.alert("Kayıt Hatası", json.message || "Bilinmeyen bir hata oluştu.");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("[REGISTER] Registration error:", error);
-      Alert.alert("Kayıt Hatası", "Bilinmeyen bir hata oluştu.");
+      // Extract meaningful error message from the error object
+      let errorMessage = "Bilinmeyen bir hata oluştu.";
+      if (error.message) {
+        // Try to parse JSON error message if it's a JSON string
+        try {
+          const errorData = JSON.parse(error.message);
+          errorMessage = errorData.message || errorData.error || errorMessage;
+        } catch {
+          // If not JSON, use the message directly
+          errorMessage = error.message;
+        }
+      }
+      Alert.alert("Kayıt Hatası", errorMessage);
     } finally {
       setLoading(false);
     }
@@ -166,9 +179,43 @@ function IndexContent({ router }: { router: any }) {
           <Text style={styles.subtitle}>Bilgilerinizi girerek kayıt olun</Text>
 
           <View style={styles.form}>
-            <Text style={styles.label}>Hasta Adı *</Text>
+            <Text style={styles.label}>Kullanıcı Tipi *</Text>
+            <View style={styles.userTypeContainer}>
+              <Pressable
+                style={[
+                  styles.userTypeButton,
+                  userType === "patient" && styles.userTypeButtonActive
+                ]}
+                onPress={() => setUserType("patient")}
+              >
+                <Text style={[
+                  styles.userTypeButtonText,
+                  userType === "patient" && styles.userTypeButtonTextActive
+                ]}>
+                  🏥 Hasta
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.userTypeButton,
+                  userType === "doctor" && styles.userTypeButtonActive
+                ]}
+                onPress={() => setUserType("doctor")}
+              >
+                <Text style={[
+                  styles.userTypeButtonText,
+                  userType === "doctor" && styles.userTypeButtonTextActive
+                ]}>
+                  👨‍⚕️ Doktor
+                </Text>
+              </Pressable>
+            </View>
+
+            <Text style={styles.label}>
+              {userType === "patient" ? "Hasta Adı" : "Doktor Adı"} *
+            </Text>
             <TextInput
-              placeholder="Adınız ve soyadınız (örn: Ahmet Yılmaz)"
+              placeholder={userType === "patient" ? "Adınız ve soyadınız (örn: Ahmet Yılmaz)" : "Adınız ve soyadınız (örn: Dr. Ayşe Demir)"}
               value={name}
               onChangeText={setName}
               style={styles.input}
@@ -317,5 +364,36 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     textDecorationLine: "underline",
+  },
+  userTypeContainer: {
+    flexDirection: "row",
+    marginBottom: 16,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 8,
+    padding: 4,
+  },
+  userTypeButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    alignItems: "center",
+    backgroundColor: "transparent",
+  },
+  userTypeButtonActive: {
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  userTypeButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  userTypeButtonTextActive: {
+    color: "#2563EB",
   },
 });

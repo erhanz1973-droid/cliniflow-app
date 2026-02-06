@@ -101,9 +101,44 @@ type MessagePreview = {
 };
 
 export default function Home() {
-  const { user, isAuthReady, signOut } = useAuth();
+  const { user, isAuthReady, isDoctor, isPatient, signOut } = useAuth();
   const { t, setLanguage } = useLanguage();
   const [loading, setLoading] = useState(true);
+  
+  // Role-based redirect
+  useEffect(() => {
+    if (!isAuthReady) return;
+    
+    console.log('[HOME] Role check - user:', user);
+    console.log('[HOME] Role check - isDoctor:', isDoctor, 'isPatient:', isPatient);
+    console.log('[HOME] Role check - user.role:', user?.role);
+    
+    // Prevent infinite redirects
+    if (user?.role === "DOCTOR") {
+      console.log('[HOME] Doctor detected, redirecting to doctor-dashboard');
+      router.replace('/doctor-dashboard');
+      return;
+    }
+    
+    // Only redirect to login if user has no token (not logged in)
+    if (!user?.token) {
+      console.log('[HOME] No token found, redirecting to login');
+      router.replace('/login');
+      return;
+    }
+    
+    console.log('[HOME] Patient confirmed, loading patient home');
+  }, [isAuthReady, user?.token, user?.role]);
+  
+  // Don't render patient home for doctors
+  if (isDoctor) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#2563EB" />
+        <Text style={styles.loadingText}>Yönlendiriliyor...</Text>
+      </View>
+    );
+  }
   
   // Debug logs to track provider states
   console.log('[HOME] Render - isAuthReady:', isAuthReady, 'loading:', loading, 'user:', user ? 'exists' : 'null');
