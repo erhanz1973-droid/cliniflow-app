@@ -16,6 +16,7 @@ import * as Haptics from 'expo-haptics';
 import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../lib/auth';
+import { useLanguage } from '../lib/language-context';
 import { API_BASE } from '../lib/api';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -30,31 +31,31 @@ type PhotoStep = {
 const PHOTO_SEQUENCE: PhotoStep[] = [
   {
     id: 0,
-    instruction: 'Dudaklarınızı iki elinizle açın ve dişlerinizi sıkın',
+    instruction: 'chat.intraoralCameraInstruction1',
     countdown: 3,
     guide: 'front',
   },
   {
     id: 1,
-    instruction: 'Ağzınızı sağa doğru açın',
+    instruction: 'chat.intraoralCameraInstruction2',
     countdown: 4,
     guide: 'right',
   },
   {
     id: 2,
-    instruction: 'Ağzınızı sola doğru açın',
+    instruction: 'chat.intraoralCameraInstruction3',
     countdown: 4,
     guide: 'left',
   },
   {
     id: 3,
-    instruction: 'Telefonu biraz yukarı kaldırın, dil aşağıda kalsın',
+    instruction: 'chat.intraoralCameraInstruction4',
     countdown: 5,
     guide: 'upper',
   },
   {
     id: 4,
-    instruction: 'Telefonu biraz aşağı indirin, dili yukarı çekin',
+    instruction: 'chat.intraoralCameraInstruction5',
     countdown: 5,
     guide: 'lower',
   },
@@ -64,6 +65,7 @@ export default function IntraoralCameraScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { user } = useAuth();
+  const { t } = useLanguage();
   const patientId = (params.patientId as string) || (params.patient_id as string);
   const chatId = (params.chatId as string) || (params.chat_id as string) || patientId;
   
@@ -164,27 +166,27 @@ export default function IntraoralCameraScreen() {
       <View style={styles.container}>
         <View style={styles.welcomeContainer}>
           <Text style={styles.welcomeIcon}>📸</Text>
-          <Text style={styles.welcomeTitle}>Fotoğraf Çekimi İçin Öneriler</Text>
+          <Text style={styles.welcomeTitle}>{t('chat.intraoralPhotoGuideTitle')}</Text>
           
           <View style={styles.guidanceList}>
             <View style={styles.guidanceItem}>
               <Text style={styles.guidanceBullet}>💧</Text>
               <Text style={styles.guidanceText}>
-                Fotoğraf çekmeden önce ağzını suyla çalkalaman, dişlerin daha net ve doğal görünmesine yardımcı olur.
+                {t('chat.intraoralPhotoGuide1')}
               </Text>
             </View>
             
             <View style={styles.guidanceItem}>
               <Text style={styles.guidanceBullet}>💡</Text>
               <Text style={styles.guidanceText}>
-                Işık yüzünün önünden gelsin, arkandan gelmesin. Bu sayede daha net ve değerlendirilebilir fotoğraflar elde edilir.
+                {t('chat.intraoralPhotoGuide2')}
               </Text>
             </View>
             
             <View style={styles.guidanceItem}>
               <Text style={styles.guidanceBullet}>📋</Text>
               <Text style={styles.guidanceText}>
-                Fotoğraflar yalnızca ön değerlendirme içindir. Nihai değerlendirme klinik tarafından yapılır.
+                {t('chat.intraoralPhotoGuide3')}
               </Text>
             </View>
           </View>
@@ -193,7 +195,7 @@ export default function IntraoralCameraScreen() {
             style={styles.welcomeBtn} 
             onPress={() => setShowWelcome(false)}
           >
-            <Text style={styles.welcomeBtnText}>Anladım, Devam Et</Text>
+            <Text style={styles.welcomeBtnText}>{t('common.understood')}</Text>
           </Pressable>
         </View>
       </View>
@@ -470,7 +472,7 @@ export default function IntraoralCameraScreen() {
 
           {/* Instruction */}
           <View style={styles.instructionContainer}>
-            <Text style={styles.instruction}>{currentPhoto.instruction}</Text>
+            <Text style={styles.instruction}>{t(currentPhoto.instruction)}</Text>
           </View>
 
           {/* Countdown */}
@@ -488,11 +490,11 @@ export default function IntraoralCameraScreen() {
           <View style={styles.guideOverlay}>
             <View style={styles.guideFrame}>
               <Text style={styles.guideText}>
-                {currentPhoto.guide === 'front' && '😁 Dişlerinizi gösterin'}
-                {currentPhoto.guide === 'right' && '↗️ Sağa bakın'}
-                {currentPhoto.guide === 'left' && '↖️ Sola bakın'}
-                {currentPhoto.guide === 'upper' && '⬆️ Üst dişler'}
-                {currentPhoto.guide === 'lower' && '⬇️ Alt dişler'}
+                {currentPhoto.guide === 'front' && t('chat.intraoralCameraGuideFront')}
+                {currentPhoto.guide === 'right' && t('chat.intraoralCameraGuideRight')}
+                {currentPhoto.guide === 'left' && t('chat.intraoralCameraGuideLeft')}
+                {currentPhoto.guide === 'upper' && t('chat.intraoralCameraGuideUpper')}
+                {currentPhoto.guide === 'lower' && t('chat.intraoralCameraGuideLower')}
               </Text>
             </View>
           </View>
@@ -501,7 +503,7 @@ export default function IntraoralCameraScreen() {
           <View style={styles.controls}>
             {!countdown && !isCapturing && (
               <Pressable style={styles.captureBtn} onPress={startCountdown}>
-                <Text style={styles.captureBtnText}>📷 Fotoğraf Çek</Text>
+                <Text style={styles.captureBtnText}>{t('chat.intraoralCameraCapture')}</Text>
               </Pressable>
             )}
           </View>

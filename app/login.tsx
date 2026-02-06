@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert, KeyboardAvoidingView, Platform, ActivityIndicator } from "react-native";
+import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { t } from "../lib/i18n";
+import { useLanguage } from "../lib/language-context";
 
 export default function Login() {
   const router = useRouter();
   const params = useLocalSearchParams<{ patientId?: string; phone?: string; token?: string }>();
   const { signIn, isAuthReady, isAuthed } = useAuth();
+  const { t, isLoading } = useLanguage();
   const [phone, setPhone] = useState(params.phone || "");
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
@@ -41,6 +42,16 @@ export default function Login() {
       });
     }
   }, [params.token, params.patientId, isAuthReady, isAuthed, signIn, router]);
+
+  // Don't render until language is loaded
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#2563EB" />
+        <Text style={styles.loadingText}>Loading...</Text>
+      </View>
+    );
+  }
 
   const handleRequestOTP = async () => {
     if (requestingOTP || otpSent) return;
@@ -209,6 +220,13 @@ export default function Login() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.content}>
+          <View style={styles.logoContainer}>
+            <Image 
+              source={require('../assets/images/icon.png')} 
+              style={styles.logo}
+              resizeMode="contain"
+            />
+          </View>
           <Text style={styles.h1}>Giriş Yap</Text>
           <Text style={styles.subtitle}>
             {otpSent 
@@ -348,6 +366,14 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     alignSelf: "center",
   },
+  logoContainer: {
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  logo: {
+    width: 180,
+    height: 60,
+  },
   h1: {
     fontSize: 28,
     fontWeight: "800",
@@ -443,6 +469,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#6B7280",
     marginTop: 6,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: "#6B7280",
   },
   secondaryButton: {
     backgroundColor: "transparent",

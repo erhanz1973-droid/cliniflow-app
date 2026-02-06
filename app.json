@@ -2,7 +2,7 @@
   "expo": {
     "name": "Clinifly",
     "slug": "clinifly",
-    "version": "1.0.2",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "clinifly",
@@ -26,12 +26,21 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "package": "net.clinifly.mobile",
-      "versionCode": 4,
+      "package": "net.clinifly.patient",
+      "versionCode": 1,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": {
+            "scheme": "clinifly"
+          },
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
       ]
     },
     "plugins": [
@@ -49,7 +58,21 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-router"
+      "expo-router",
+      [
+        "expo-file-system",
+        {
+          "fileSystemPermissions": ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"]
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "sound": "default",
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#2563eb"
+        }
+      ]
     ],
     "extra": {
       "eas": {

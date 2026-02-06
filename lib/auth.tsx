@@ -99,6 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshAuth = async () => {
     setIsAuthLoading(true);
+    console.log('[AuthProvider] refreshAuth started, isAuthLoading:', true);
 
     try {
       const raw = await storageGet(AUTH_KEY);
@@ -107,6 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!parsed) {
         await storageSet(AUTH_KEY, null);
       }
+      console.log('[AuthProvider] Auth data loaded:', parsed ? 'User found' : 'No user');
     } catch (error) {
       console.error("[AUTH] Error loading auth:", error);
       // On error, clear any corrupted data
@@ -114,6 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
     } finally {
       setIsAuthLoading(false);
+      console.log('[AuthProvider] refreshAuth complete, isAuthLoading:', false, 'isAuthReady:', true);
     }
   };
 
@@ -135,7 +138,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    refreshAuth();
+    console.log('[AuthProvider] Starting auth initialization...');
+    (async () => {
+      try {
+        await refreshAuth();
+      } catch (error) {
+        console.error('[AuthProvider] Auth initialization error:', error);
+        // Ensure isAuthReady becomes true even on error
+        setIsAuthLoading(false);
+        console.log('[AuthProvider] Auth initialization failed but ready, isAuthLoading:', false, 'isAuthReady:', true);
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

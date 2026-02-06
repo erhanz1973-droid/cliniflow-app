@@ -1,5 +1,7 @@
 // cliniflow-app/lib/api.ts
 
+import { Platform } from 'react-native';
+
 /**
  * Merkezi API helper
  * - PROD URL sabit: https://cliniflow-admin.onrender.com
@@ -23,7 +25,9 @@ function normalizeApiBase(raw: string): string {
 
 // API base must come from env (single source of truth)
 const RAW_API_BASE = process.env.EXPO_PUBLIC_API_BASE || "";
-export const API_BASE = normalizeApiBase(RAW_API_BASE);
+const DEV_API_BASE = process.env.EXPO_PUBLIC_DEV_API_BASE || "";
+// Use production API for mobile, localhost for web development
+export const API_BASE = __DEV__ && DEV_API_BASE && Platform.OS === 'web' ? DEV_API_BASE : normalizeApiBase(RAW_API_BASE);
 
 if (!API_BASE) {
   throw new Error(
@@ -72,7 +76,7 @@ export async function apiGet<T>(path: string): Promise<T> {
         "Content-Type": "application/json",
         "Accept": "application/json",
         ...authHeaders(),
-      },
+      } as HeadersInit,
       signal: controller.signal,
     });
 
@@ -110,7 +114,7 @@ export async function apiPost<T>(path: string, body: any): Promise<T> {
         "Content-Type": "application/json",
         "Accept": "application/json",
         ...authHeaders(),
-      },
+      } as HeadersInit,
       body: JSON.stringify(body ?? {}),
       signal: controller.signal,
     });

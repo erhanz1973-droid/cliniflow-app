@@ -11,33 +11,27 @@ import { useRouter } from "expo-router";
 import { useAuth } from "../lib/auth";
 import { Ionicons } from "@expo/vector-icons";
 import {
-  getLanguage,
-  setLanguage,
   SUPPORTED_LANGUAGES,
   LANGUAGE_NAMES,
   type Language,
-  initI18n,
-  t,
 } from "../lib/i18n";
+import { useLanguage } from "../lib/language-context";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { signOut } = useAuth();
-  const [currentLang, setCurrentLang] = useState<Language>(getLanguage());
+  const { currentLanguage, setLanguage, t, isLoading } = useLanguage();
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    setCurrentLang(getLanguage());
-  }, []);
 
   const handleLanguageChange = async (lang: Language) => {
     try {
       setLoading(true);
       await setLanguage(lang);
-      setCurrentLang(lang);
-      // Re-initialize to update translations
-      await initI18n();
       Alert.alert(t("common.success"), t("settings.languageChanged"));
+      // Force app refresh to apply language change
+      setTimeout(() => {
+        router.replace('/home');
+      }, 500);
     } catch (error) {
       console.error("[SETTINGS] Language change error:", error);
       Alert.alert(t("common.error"), t("settings.languageChangeError"));
@@ -66,24 +60,14 @@ export default function SettingsScreen() {
     );
   };
 
-  // Ensure i18n is initialized
-  useEffect(() => {
-    const init = async () => {
-      try {
-        await initI18n();
-        setCurrentLang(getLanguage());
-        console.log("[SETTINGS] i18n initialized, current language:", getLanguage());
-        console.log("[SETTINGS] Supported languages:", SUPPORTED_LANGUAGES);
-      } catch (error) {
-        console.error("[SETTINGS] i18n init error:", error);
-      }
-    };
-    init();
-  }, []);
-
-  // Hardcoded languages for testing
-  const languages: Language[] = ["tr", "en"];
-  const languageNames: Record<Language, string> = LANGUAGE_NAMES;
+  // Don't render until language is loaded
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <Text>Loading...</Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -97,25 +81,25 @@ export default function SettingsScreen() {
         </Text>
 
         <View style={styles.languageList}>
-          {languages.map((lang) => (
+          {SUPPORTED_LANGUAGES.map((lang) => (
             <Pressable
               key={lang}
               onPress={() => handleLanguageChange(lang)}
               disabled={loading}
               style={[
                 styles.languageItem,
-                currentLang === lang && styles.languageItemActive,
+                currentLanguage === lang && styles.languageItemActive,
               ]}
             >
               <Text
                 style={[
                   styles.languageText,
-                  currentLang === lang && styles.languageTextActive,
+                  currentLanguage === lang && styles.languageTextActive,
                 ]}
               >
-                {languageNames[lang]}
+                {LANGUAGE_NAMES[lang]}
               </Text>
-              {currentLang === lang && (
+              {currentLanguage === lang && (
                 <Ionicons name="checkmark-circle" size={24} color="#2563EB" />
               )}
             </Pressable>

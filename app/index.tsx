@@ -1,12 +1,27 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert, KeyboardAvoidingView, Platform, ActivityIndicator } from "react-native";
-import { useRouter } from "expo-router";
+import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from "react-native";
+import { Stack, useRouter } from "expo-router";
 import { API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { useLanguage } from "../lib/language-context";
+
+export const unstable_settings = {
+  initialRouteName: "index",
+};
 
 export default function Index() {
   const router = useRouter();
+  return (
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+      <IndexContent router={router} />
+    </>
+  );
+}
+
+function IndexContent({ router }: { router: any }) {
   const { signIn, isAuthReady, isAuthed } = useAuth();
+  const { t, isLoading } = useLanguage();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -50,6 +65,13 @@ export default function Index() {
       return;
     }
     
+    // Validate and format phone number
+    const normalizedPhone = phone.trim().replace(/\s+/g, "").replace(/\D/g, "");
+    if (normalizedPhone.length < 10) {
+      Alert.alert("Geçersiz Telefon", "Telefon numarası en az 10 haneli olmalıdır.");
+      return;
+    }
+    
     if (!clinicCode.trim()) {
       Alert.alert("Eksik Bilgi", "Lütfen klinik kodunu giriniz.");
       return;
@@ -57,153 +79,58 @@ export default function Index() {
 
     setLoading(true);
     try {
-      console.log("[REGISTER] Starting registration request to:", `${API_BASE}/api/register`);
-      const normalizedClinicCode = clinicCode.trim().toUpperCase();
-      // Keep referral code as typed; backend matches case-insensitively.
-      const normalizedReferralCode = referralCode.trim();
-      
-      // 60 saniye timeout - Render cold start için gerekli
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        console.log("[REGISTER] Request timeout after 60s");
-        controller.abort();
-      }, 60000);
-
-      const payload: any = {
-        fullName: name.trim(), // Backend fullName bekliyor (name ile backward compatible)
-        name: name.trim(), // Backward compatibility için
-        email: email.trim().toLowerCase(),
-        phone: phone.trim(),
-        clinicCode: normalizedClinicCode,
-        // referralCode is OPTIONAL:
-        // - only send if user manually entered it
-        // - backend handles case-insensitive matching
-        ...(normalizedReferralCode ? { referralCode: normalizedReferralCode } : {}),
-      };
-      
-      const res = await fetch(`${API_BASE}/api/register`, {
+      const response = await fetch(`${API_BASE}/api/register`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
-          "Accept": "application/json",
         },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim(),
+          phone: normalizedPhone, // Use normalized phone number
+          clinicCode: clinicCode.trim(),
+          referralCode: referralCode.trim(),
+        }),
       });
-      
-      clearTimeout(timeoutId);
-      console.log("[REGISTER] Response received, status:", res.status);
 
-      const json = await res.json();
-      console.log("[REGISTER] Response JSON:", JSON.stringify(json).substring(0, 200));
-
-      if (!res.ok) {
-        let errorMsg = json.message || json.error || "Kayıt işlemi başarısız";
-        
-        // Daha açıklayıcı hata mesajları
-        if (json.error === "clinic_not_found") {
-          errorMsg = `Klinik kodu "${normalizedClinicCode}" bulunamadı. Lütfen geçerli bir klinik kodu girin.`;
-        } else if (json.error === "invalid_referral_code") {
-          // Referral code is optional — user can register without it.
-          const shown = normalizedReferralCode || referralCode.trim() || "-";
-          errorMsg =
-            `Davet kodu "${shown}" geçersiz veya bulunamadı.\n\n` +
-            `Bu alan opsiyonel. Davet kodunu boş bırakarak da kayıt olabilirsin.`;
-        } else if (json.error === "PLAN_LIMIT_REACHED") {
-          errorMsg = `Bu klinik ${json.plan || "FREE"} planında maksimum ${json.maxPatients || 3} hasta limitine ulaşmış. Lütfen klinik yöneticisiyle iletişime geçin.`;
-        } else if (json.error === "full_name_required" || json.error === "name_required") {
-          errorMsg = "Lütfen ad soyad giriniz.";
-        } else if (json.error === "email_required") {
-          errorMsg = "Lütfen email adresinizi giriniz.";
-        } else if (json.error === "invalid_email") {
-          errorMsg = "Geçersiz email formatı. Lütfen geçerli bir email adresi giriniz.";
-        } else if (json.error === "phone_already_exists") {
-          errorMsg = "Bu telefon numarası ile zaten bir hesap kayıtlı. Lütfen farklı bir telefon numarası kullanın veya giriş yapın.";
-        } else if (json.error === "phone_required") {
-          errorMsg = "Lütfen telefon numarası giriniz.";
-        } else if (json.error === "clinic_code_required") {
-          errorMsg = "Lütfen klinik kodunu giriniz.";
-        }
-        
+      if (!response.ok) {
+        const errorMsg = await response.text();
+        console.error("[REGISTER] API error:", errorMsg);
         Alert.alert("Kayıt Hatası", errorMsg);
         return;
       }
 
+      const json = await response.json();
+      console.log("[REGISTER] Response:", json);
+
       if (json.ok && json.patientId) {
-        // If OTP is required, redirect to OTP screen
-        if (json.requiresOTP) {
-          // Navigate to OTP screen with email and patientId
-          router.push({
-            pathname: "/otp",
-            params: {
-              email: json.email || email.trim().toLowerCase(),
-              patientId: json.patientId,
-              source: "register",
-            },
-          });
-        } else if (json.token) {
-          // Legacy support: if token is provided directly, use it
-          await signIn({
-            token: json.token,
-            id: json.patientId,
+        Alert.alert(
+          "Kayıt Başarılı",
+          "Kaydınız başarıyla oluşturuldu. Email adresinize gönderilen OTP kodunu giriniz."
+        );
+        // Navigate to OTP screen with patient data
+        router.replace({
+          pathname: "/otp",
+          params: {
             patientId: json.patientId,
-          });
-
-          // Status kontrolü yap - PENDING ise waiting-approval'a, APPROVED ise home'a yönlendir
-          const patientStatus = json.status || "PENDING";
-          const targetRoute = patientStatus === "APPROVED" ? "/home" : "/waiting-approval";
-
-          Alert.alert(
-            "Kayıt Başarılı",
-            patientStatus === "APPROVED" 
-              ? `Hoş geldiniz ${name.trim()}! Hesabınız oluşturuldu ve onaylandı.`
-              : `Hoş geldiniz ${name.trim()}! Hesabınız oluşturuldu. Klinik onayı bekleniyor.`,
-            [
-              {
-                text: "Tamam",
-                onPress: () => {
-                  router.replace(targetRoute);
-                },
-              },
-            ]
-          );
-        } else {
-          Alert.alert("Kayıt Başarılı", json.message || "Email adresinize gönderilen OTP kodunu girin.");
-        }
+            email: email.trim(),
+            name: name.trim(),
+            phone: phone.trim(),
+          },
+        });
       } else {
-        Alert.alert("Hata", json.message || "Kayıt işlemi tamamlanamadı");
+        Alert.alert("Kayıt Hatası", json.message || "Bilinmeyen bir hata oluştu.");
       }
-    } catch (error: any) {
-      console.error("[REGISTER] Error:", error);
-      console.error("[REGISTER] Error name:", error?.name);
-      console.error("[REGISTER] Error message:", error?.message);
-      console.error("[REGISTER] Error stack:", error?.stack);
-      
-      let errorMessage = "Sunucuya bağlanılamadı.";
-      
-      if (error?.name === "AbortError") {
-        // Timeout - Render cold start olabilir
-        errorMessage = "Sunucu uyandırılıyor, lütfen 10-15 saniye bekleyip tekrar deneyin.";
-      } else if (error?.message) {
-        if (error.message.includes("Network request failed")) {
-          errorMessage = "Ağ bağlantısı hatası. İnternet bağlantınızı kontrol edin.";
-        } else if (error.message.includes("timed out")) {
-          errorMessage = "Sunucu meşgul. Lütfen birkaç saniye bekleyip tekrar deneyin.";
-        } else if (error.message.includes("timeout") || error.message.includes("Zaman aşımı")) {
-          errorMessage = "Sunucu yanıt vermedi. Lütfen tekrar deneyin.";
-        } else {
-          errorMessage = error.message;
-        }
-      }
-      
-      Alert.alert("Bağlantı Hatası", errorMessage);
+    } catch (error) {
+      console.error("[REGISTER] Registration error:", error);
+      Alert.alert("Kayıt Hatası", "Bilinmeyen bir hata oluştu.");
     } finally {
       setLoading(false);
     }
   };
 
   // Auth hazır değilse loading göster
-  if (!isAuthReady) {
+  if (!isAuthReady || isLoading) {
     return (
       <View style={[styles.container, styles.centerContent]}>
         <ActivityIndicator size="large" color="#2563EB" />
@@ -225,9 +152,16 @@ export default function Index() {
     >
       <ScrollView
         contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="handled"
       >
         <View style={styles.content}>
+          <View style={styles.logoContainer}>
+            <Image 
+              source={require('../assets/images/icon.png')} 
+              style={styles.logo}
+              resizeMode="contain"
+            />
+          </View>
           <Text style={styles.title}>Kayıt Ol</Text>
           <Text style={styles.subtitle}>Bilgilerinizi girerek kayıt olun</Text>
 
@@ -238,77 +172,54 @@ export default function Index() {
               value={name}
               onChangeText={setName}
               style={styles.input}
-              autoCapitalize="words"
-              editable={!loading}
             />
 
             <Text style={styles.label}>Email *</Text>
             <TextInput
-              placeholder="Email adresiniz (örn: ahmet@example.com)"
+              placeholder="Email adresiniz"
               value={email}
               onChangeText={setEmail}
-              style={styles.input}
               keyboardType="email-address"
               autoCapitalize="none"
-              autoCorrect={false}
-              editable={!loading}
+              style={styles.input}
             />
 
             <Text style={styles.label}>Telefon *</Text>
             <TextInput
-              placeholder="Telefon numaranız (örn: 5551234567)"
+              placeholder="+90 XXX XXX XX XX"
               value={phone}
               onChangeText={setPhone}
-              style={styles.input}
               keyboardType="phone-pad"
-              autoCapitalize="none"
-              editable={!loading}
+              style={styles.input}
             />
+            <Text style={styles.helperText}>Örnek: 5551234567, 05551234567 veya +905551234567</Text>
 
             <Text style={styles.label}>Klinik Kodu *</Text>
             <TextInput
-              placeholder="Klinik kodunuz (örn: MOON)"
+              placeholder="Klinik kodunuz"
               value={clinicCode}
-              onChangeText={(text) => setClinicCode(text.toUpperCase())}
+              onChangeText={setClinicCode}
               style={styles.input}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              editable={!loading}
             />
 
-            <Text style={styles.label}>Referral Kodu (Opsiyonel)</Text>
+            <Text style={styles.label}>Referral Kodu (opsiyonel)</Text>
             <TextInput
-              placeholder="Varsa davet kodunuzu girin"
+              placeholder="Referral kodunuz (varsa)"
               value={referralCode}
               onChangeText={setReferralCode}
               style={styles.input}
-              // Keep as typed (don't force uppercase)
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!loading}
             />
 
-            <Pressable
-              style={[styles.primary, loading && styles.primaryDisabled]}
-              onPress={handleRegister}
-              disabled={loading}
-            >
-              <Text style={styles.btnText}>
-                {loading ? "Kaydediliyor..." : "Kayıt Ol"}
-              </Text>
+            <Pressable style={styles.registerButton} onPress={handleRegister} disabled={loading}>
+              {loading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.registerButtonText}>Kayıt Ol</Text>
+              )}
             </Pressable>
-
-            <Pressable
-              style={styles.linkButton}
-              onPress={() => {
-                // Use setTimeout to ensure router is ready
-                setTimeout(() => {
-                  router.push("/login");
-                }, 100);
-              }}
-              disabled={loading}
-            >
-              <Text style={styles.link}>Zaten hesabınız var mı? Giriş yapın</Text>
+            
+            <Pressable onPress={() => router.push('/login')} style={styles.loginLink}>
+              <Text style={styles.loginLinkText}>Zaten kayıtlıysan giriş yap</Text>
             </Pressable>
           </View>
         </View>
@@ -320,20 +231,35 @@ export default function Index() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F5F5F5",
+    backgroundColor: "#F9FAFB",
+  },
+  centerContent: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: "#6B7280",
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: "center",
-    padding: 20,
   },
   content: {
-    width: "100%",
-    maxWidth: 400,
-    alignSelf: "center",
+    padding: 20,
+  },
+  logoContainer: {
+    alignItems: "center",
+    marginBottom: 32,
+  },
+  logo: {
+    width: 120,
+    height: 120,
+    resizeMode: "contain",
   },
   title: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: "900",
     color: "#111827",
     marginBottom: 8,
@@ -342,73 +268,54 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     color: "#6B7280",
-    marginBottom: 32,
     textAlign: "center",
+    marginBottom: 32,
   },
   form: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    width: "100%",
+    maxWidth: 400,
   },
   label: {
-    fontSize: 14,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "600",
     color: "#374151",
     marginBottom: 8,
-    marginTop: 16,
   },
   input: {
     borderWidth: 1,
     borderColor: "#D1D5DB",
-    backgroundColor: "#FFFFFF",
-    padding: 14,
-    borderRadius: 10,
-    fontSize: 16,
-    color: "#111827",
-  },
-  primary: {
-    backgroundColor: "#2563EB",
+    borderRadius: 8,
     padding: 16,
-    borderRadius: 10,
-    marginTop: 24,
-    shadowColor: "#2563EB",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  primaryDisabled: {
-    backgroundColor: "#9CA3AF",
-    shadowOpacity: 0,
-  },
-  btnText: {
-    color: "#FFFFFF",
-    textAlign: "center",
-    fontWeight: "800",
     fontSize: 16,
+    backgroundColor: "#FFFFFF",
+    marginBottom: 8,
   },
-  linkButton: {
-    marginTop: 16,
-    paddingVertical: 8,
-  },
-  link: {
+  helperText: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginBottom: 16,
     textAlign: "center",
+  },
+  registerButton: {
+    backgroundColor: "#2563EB",
+    borderRadius: 8,
+    padding: 16,
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  registerButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  loginLink: {
+    marginTop: 16,
+    alignItems: "center",
+  },
+  loginLinkText: {
     color: "#2563EB",
     fontSize: 14,
     fontWeight: "600",
-  },
-  centerContent: {
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: "#6B7280",
+    textDecorationLine: "underline",
   },
 });
