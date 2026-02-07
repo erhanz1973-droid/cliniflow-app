@@ -94,7 +94,7 @@ export default function PatientsScreen() {
 
   const handlePatientPress = (patient: Patient) => {
     router.push({
-      pathname: "/doctor-treatment",
+      pathname: "/patient-detail",
       params: {
         patientId: patient.patientId,
         patientName: patient.name,

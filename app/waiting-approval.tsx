@@ -1,5 +1,5 @@
 // app/waiting-approval.tsx
-// "Waiting for clinic approval" screen - shown when patient status is PENDING
+// "Waiting for clinic approval" screen - shown when patient/doctor status is PENDING
 
 import React, { useEffect, useCallback, useState } from "react";
 import {
@@ -15,7 +15,7 @@ import { API_BASE } from "../lib/api";
 
 export default function WaitingApprovalScreen() {
   const router = useRouter();
-  const { user, signOut, isAuthReady } = useAuth();
+  const { user, signOut, isAuthReady, isDoctor } = useAuth();
   const intervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const isRedirectingRef = React.useRef(false);
   const [networkError, setNetworkError] = useState(false);
@@ -70,9 +70,9 @@ export default function WaitingApprovalScreen() {
       nextCheckAtRef.current = 0;
       setNetworkError(false);
 
-      if (data.ok && data.status === "APPROVED") {
-        // Status approved, stop interval and redirect to home
-        console.log("[WAITING-APPROVAL] Patient approved! Stopping interval and redirecting to home");
+      if (data.ok && data.status === "ACTIVE") {
+        // Status approved, stop interval and redirect based on role
+        console.log("[WAITING-APPROVAL] User approved! Stopping interval and redirecting");
         isRedirectingRef.current = true;
         
         // Clear interval immediately
@@ -81,9 +81,15 @@ export default function WaitingApprovalScreen() {
           intervalRef.current = null;
         }
         
-        // Redirect to home immediately
-        console.log("[WAITING-APPROVAL] Executing redirect to /home");
-        router.replace("/home");
+        // Redirect based on role
+        if (isDoctor) {
+          console.log("[WAITING-APPROVAL] Redirecting to doctor dashboard");
+          router.replace("/doctor-dashboard");
+        } else {
+          console.log("[WAITING-APPROVAL] Redirecting to patient home");
+          router.replace("/(tabs)/home");
+        }
+        return;
       } else if (data.status === "REJECTED") {
         // Status rejected, show message and allow logout
         console.log("[WAITING-APPROVAL] Patient rejected");

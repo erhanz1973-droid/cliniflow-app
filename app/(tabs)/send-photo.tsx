@@ -94,7 +94,7 @@ export default function SendPhotoScreen() {
         name: "photo.jpg",
       } as any);
       formData.append("notes", notes);
-      formData.append("patientId", user?.id || "");
+      formData.append("patientId", user?.patientId || "");
 
       const response = await fetch(`${API_BASE}/api/patient/photo`, {
         method: "POST",
