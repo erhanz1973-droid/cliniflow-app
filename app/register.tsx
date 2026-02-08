@@ -1,4 +1,7 @@
-// app/register.tsx - Test için hızlı kayıt ekranı
+// app/register.tsx - DEVELOPMENT/TEST ONLY - Mock registration for development
+// ⚠️  WARNING: This is a FAKE registration for development only!
+// ⚠️  Real doctor registration should use /api/register/doctor endpoint
+// ⚠️  This file should be removed or disabled in production
 import React, { useState } from "react";
 import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert } from "react-native";
 import { useRouter } from "expo-router";
@@ -45,7 +48,10 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      // Test için basit auth simülasyonu
+      // ⚠️  DEVELOPMENT ONLY: Fake registration for testing
+      // ⚠️  In production, this should call /api/register/doctor for doctors
+      console.warn('⚠️  USING FAKE REGISTRATION - FOR DEVELOPMENT ONLY');
+      
       const testUser = {
         id: 'test-' + Date.now(),
         token: 'test-token-' + Date.now(),
@@ -56,12 +62,13 @@ export default function RegisterScreen() {
         clinicCode: formData.clinicCode,
         licenseNumber: formData.licenseNumber,
         userType: userType, // Use current userType state
+        status: userType === 'doctor' ? 'PENDING' : 'APPROVED', // Add status for testing
       };
 
       // Auth context'e kaydet
       await signIn(testUser);
 
-      Alert.alert('Başarılı', `${userType === 'doctor' ? 'Doktor' : 'Hasta'} kaydı oluşturuldu!`);
+      Alert.alert('⚠️ Development Mode', `${userType === 'doctor' ? 'Doktor' : 'Hasta'} TEST kaydı oluşturuldu! (Development only)`);
       
       // Role göre yönlendir
       if (userType === 'doctor') {
