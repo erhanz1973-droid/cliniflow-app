@@ -70,20 +70,32 @@ export default function OtpScreen() {
       }
 
       if (json.ok && json.token && json.patientId) {
+        console.log("VERIFY OTP RESPONSE:", json); // 🔥 DEBUG: Log full response
+        
         await signIn({
           token: json.token,
           id: json.patientId,
           patientId: json.patientId,
+          role: json.role, // 🔥 FIX: Include role from OTP response
         });
         
-        // Navigate based on source
-        const patientStatus = json.status || "PENDING";
+        // Navigate based on source and role
+        const userRole = json.role || "PATIENT";
+        const isDoctor = userRole === "DOCTOR";
+        
         if (source === "register") {
+          const patientStatus = json.status || "PENDING";
           const targetRoute = patientStatus === "APPROVED" ? "/home" : "/waiting-approval";
           router.replace(targetRoute);
         } else {
-          // Login flow
-          router.replace("/home");
+          // Login flow - role-based routing
+          if (isDoctor) {
+            const doctorStatus = json.status || "PENDING";
+            const targetRoute = doctorStatus === "ACTIVE" ? "/doctor/dashboard" : "/waiting-approval";
+            router.replace(targetRoute);
+          } else {
+            router.replace("/home");
+          }
         }
       } else {
         throw new Error(json.message || "OTP doğrulama başarısız");

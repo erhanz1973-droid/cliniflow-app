@@ -206,7 +206,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAuthReady: !isAuthLoading,
       isAuthed: !!user?.token,
       isDoctor: user?.role === "DOCTOR",
-      isPatient: user?.role === "PATIENT", // Explicit check, no default
+      isPatient: user?.role === "PATIENT", 
       isAdmin: user?.role === "ADMIN",
       signIn,
       signOut,
