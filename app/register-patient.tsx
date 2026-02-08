@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { API_BASE } from "../lib/api";
+import { handlePatientRegistration } from "../lib/patient/register";
 
 export default function RegisterPatientScreen() {
   const router = useRouter();
@@ -23,45 +24,15 @@ export default function RegisterPatientScreen() {
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/register/patient`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ...formData,
-          userType: "PATIENT",
-        }),
+      await handlePatientRegistration({
+        name: formData.patientName,
+        email: formData.email,
+        phone: formData.phone,
+        clinicCode: formData.clinicCode
       });
-
-      const data = await response.json();
-
-      if (data.ok) {
-        Alert.alert(
-          "Başarılı",
-          "Hasta kaydınız tamamlandı. OTP doğrulaması için yönlendiriliyorsunuz.",
-          [
-            {
-              text: "Tamam",
-              onPress: () => {
-                // E) KESİNLİKLE signIn() ÇAĞIRMAYACAK - Sadece OTP request ve redirect
-                router.push({
-                  pathname: '/otp',
-                  params: {
-                    email: formData.email,
-                    phone: formData.phone,
-                    source: 'patient'
-                  }
-                });
-              },
-            },
-          ]
-        );
-      } else {
-        Alert.alert("Hata", data.error || "Kayıt başarısız");
-      }
-    } catch (error) {
-      Alert.alert("Hata", "Bağlantı hatası");
+    } catch (error: any) {
+      console.error('Registration error:', error);
+      Alert.alert("Hata", error.message || "Kayıt başarısız");
     } finally {
       setLoading(false);
     }
