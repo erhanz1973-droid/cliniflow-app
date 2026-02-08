@@ -49,7 +49,7 @@ export default function RegisterScreen() {
       const testUser = {
         id: 'test-' + Date.now(),
         token: 'test-token-' + Date.now(),
-        role: userType === 'doctor' ? 'doctor' : 'patient',
+        role: userType === 'doctor' ? 'DOCTOR' : 'PATIENT', // 🔥 FIX: Send uppercase role
         fullName: formData.fullName,
         email: formData.email,
         phone: formData.phone,

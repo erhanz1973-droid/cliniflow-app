@@ -68,7 +68,9 @@ function pickId(input: any): string {
 }
 
 function pickRole(input: any): UserRole | undefined {
-  return input?.role ?? input?.user?.role ?? input?.data?.role;
+  const rawRole = input?.role ?? input?.user?.role ?? input?.data?.role;
+  // 🔥 NORMALIZE ROLE TO UPPERCASE
+  return rawRole ? (rawRole as string).toUpperCase() as UserRole : undefined;
 }
 
 function pickName(input: any): string | undefined {
@@ -162,13 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (user?.id === id && user?.token === token) return;
 
     // Local role normalization
-    const rawRole = pickRole(input);
-
-    const normalizedRole: UserRole | undefined =
-      (rawRole as string) === "doctor" ? "DOCTOR" :
-      (rawRole as string) === "patient" ? "PATIENT" :
-      (rawRole as string) === "admin" ? "ADMIN" :
-      rawRole as UserRole | undefined;
+    const normalizedRole = pickRole(input);
 
     const next: User = { 
       id, 
