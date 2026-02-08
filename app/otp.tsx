@@ -4,12 +4,13 @@ import { View, Text, TextInput, Pressable, StyleSheet, Alert, Platform, ScrollVi
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../lib/auth";
 import { API_BASE } from "../lib/api";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // ✅ hard timeout (sonsuz verifying olmasın)
 const VERIFY_TIMEOUT_MS = 8000;
 
 export default function OtpScreen() {
-  const { signIn } = useAuth();
+  const { signIn, signOut, setOtpVerified } = useAuth();
   const params = useLocalSearchParams();
   const email = params.email as string || "";
   const phone = params.phone as string || "";
@@ -35,12 +36,12 @@ export default function OtpScreen() {
     const t = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS);
 
     try {
-      // 🔥 UNIFIED APPROACH: Single endpoint with type parameter
+      // 🔥 CRITICAL: Send type parameter for proper routing
       const requestBody = {
         otp: code,
         email: email || undefined,
         phone: phoneToVerify,
-        type: userType, // 🔥 CRITICAL: "doctor" or "patient"
+        type: userType, // 🔥 CRITICAL: "doctor", "patient", or "admin"
       };
 
       console.log("[OTP] Sending verification request:", {
@@ -75,6 +76,8 @@ export default function OtpScreen() {
           errorMsg = "Doktor hesabı bulunamadı. Lütfen kayıt olun.";
         } else if (json.error === "clinic_not_found") {
           errorMsg = "Klinik bulunamadı. Lütfen klinik kodunu kontrol edin.";
+        } else if (json.error === "invalid_type") {
+          errorMsg = "Geçersiz kullanıcı türü. Lütfen tekrar deneyin.";
         }
         throw new Error(errorMsg);
       }
@@ -82,8 +85,14 @@ export default function OtpScreen() {
       if (json.ok && json.token) {
         console.log("VERIFY OTP RESPONSE:", json); // 🔥 DEBUG: Log full response
         
-        // 🔥 ROLE-BASED ROUTING: Use response.role (not userType)
-        if (json.role === "DOCTOR") {
+        // 🔥 CRITICAL: Set OTP verification flag BEFORE signIn
+        setOtpVerified(true);
+        console.log('[OTP] 🔥 OTP VERIFIED - Flag set to true');
+        
+        // 🔥 CRITICAL: signIn() ONLY after successful OTP verification
+        // Use the EXACT backend response structure
+        
+        if (json.type === "doctor") {
           await signIn({
             token: json.token,
             doctorId: json.doctorId,
@@ -93,13 +102,12 @@ export default function OtpScreen() {
             status: json.status,
           });
           
-          // Route based on doctor status
+          // 🔥 ROUTING: Based on doctor status
           const targetRoute = json.status === "ACTIVE" 
             ? "/doctor/dashboard" 
             : "/waiting-approval";
           router.replace(targetRoute);
-        } else {
-          // Patient
+        } else if (json.type === "patient") {
           await signIn({
             token: json.token,
             patientId: json.patientId,
@@ -107,6 +115,17 @@ export default function OtpScreen() {
             role: "PATIENT",
           });
           router.replace("/home");
+        } else if (json.type === "admin") {
+          await signIn({
+            token: json.token,
+            clinicId: json.clinicId,
+            clinicCode: json.clinicCode,
+            type: "admin",
+            role: "ADMIN",
+          });
+          router.replace("/admin/dashboard");
+        } else {
+          throw new Error(`Unknown user type: ${json.type}`);
         }
       } else {
         throw new Error("Invalid response from server");
@@ -189,6 +208,31 @@ export default function OtpScreen() {
   }
 
   useEffect(() => {
+    // 🔥 CRITICAL: HARD RESET AUTH BEFORE OTP
+    // OTP screen MUST start with ZERO auth state
+    const hardResetAuth = async () => {
+      try {
+        console.log('[OTP] 🔥 HARD RESET: Clearing all auth storage');
+        await signOut();
+        
+        // Clear all storage
+        if (Platform.OS === "web") {
+          if (typeof window !== "undefined") {
+            localStorage.clear();
+            sessionStorage.clear();
+          }
+        } else {
+          await AsyncStorage.clear();
+        }
+        
+        console.log('[OTP] 🔥 HARD RESET: All auth storage cleared');
+      } catch (error) {
+        console.error('[OTP] 🔥 HARD RESET: Error clearing storage:', error);
+      }
+    };
+    
+    hardResetAuth();
+
     if (!phone && !phoneInput && !patientId) {
       // Redirect to register if no phone/patientId provided
       router.replace("/");

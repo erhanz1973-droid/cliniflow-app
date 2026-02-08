@@ -2,7 +2,6 @@
 import React, { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuth } from "../lib/auth";
 import { API_BASE } from "../lib/api";
 
 export default function RegisterPatientScreen() {

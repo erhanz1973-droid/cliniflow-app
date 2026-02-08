@@ -38,9 +38,11 @@ type AuthContextValue = {
   isDoctor: boolean;
   isPatient: boolean;
   isAdmin: boolean;
+  isOtpVerified: boolean; // 🔥 CRITICAL: OTP verification flag
   signIn: (input: any) => Promise<void>;
   signOut: () => Promise<void>;
   refreshAuth: () => Promise<void>;
+  setOtpVerified: (verified: boolean) => void; // 🔥 CRITICAL: Set OTP verification flag
   updateRole: (newRole: UserRole) => Promise<any>;
 };
 
@@ -153,12 +155,24 @@ function safeParseUser(raw: string | null): User | null {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isOtpVerified, setIsOtpVerified] = useState(false); // 🔥 CRITICAL: OTP verification flag
 
   const refreshAuth = async () => {
     setIsAuthLoading(true);
     console.log('[AuthProvider] refreshAuth started, isAuthLoading:', true);
 
     try {
+      // 🔥 CRITICAL: BLOCK AUTO RESTORE DURING OTP
+      // OTP screen must be a NO-AUTH ZONE
+      if (typeof window !== "undefined" && window.location.pathname === "/otp") {
+        console.log('[AuthProvider] 🔥 OTP ROUTE DETECTED - BLOCKING auth restore');
+        setUser(null);
+        await storageSet(AUTH_KEY, null);
+        setIsAuthLoading(false);
+        console.log('[AuthProvider] 🔥 OTP ROUTE - Auth blocked, isAuthLoading:', false, 'isAuthReady:', true);
+        return;
+      }
+
       const raw = await storageGet(AUTH_KEY);
       const parsed = safeParseUser(raw);
       setUser(parsed);
@@ -178,51 +192,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (input: any) => {
-    // A) signIn guard ekle
+    // 🔥 CRITICAL: FAIL FAST GUARDS
+    // Block signIn() if on OTP route
+    if (typeof window !== "undefined" && window.location.pathname === "/otp") {
+      throw new Error("signIn blocked: Cannot sign in on OTP route");
+    }
+
+    // 🔥 CRITICAL: OTP VERIFICATION CHECK
+    // signIn() MUST THROW if isOtpVerified === false
+    if (!isOtpVerified) {
+      throw new Error("signIn blocked: OTP not verified");
+    }
+
+    // 🔥 HARD GUARDS - NON-NEGOTIABLE
+    
+    // A) Type validation - MUST be one of: patient | doctor | admin
     if (!input?.type) {
       throw new Error("signIn blocked: user type missing");
     }
+    
+    if (!["patient", "doctor", "admin"].includes(input.type)) {
+      throw new Error(`signIn blocked: invalid type "${input.type}". Must be: patient | doctor | admin`);
+    }
 
-    // B) Doctor için ekstra guard
+    // B) ID validation based on type
     if (input.type === "doctor" && !input.doctorId) {
-      throw new Error("signIn blocked: doctorId missing");
+      throw new Error("signIn blocked: doctorId missing for doctor type");
     }
 
-    // C) Patient için ekstra guard
     if (input.type === "patient" && !input.patientId) {
-      throw new Error("signIn blocked: patientId missing");
+      throw new Error("signIn blocked: patientId missing for patient type");
     }
 
-    // 🔒 DOCTOR AUTH FLOW LOCKDOWN: Type + ID guard
-    if (input.type === "doctor" && (!input.doctorId || input.doctorId.length === 0)) {
-      // localStorage temizle
-      await storageSet(AUTH_KEY, null);
-      setUser(null);
-      throw new Error("Doctor authentication requires valid doctorId");
+    if (input.type === "admin" && !input.clinicId) {
+      throw new Error("signIn blocked: clinicId missing for admin type");
     }
 
+    // C) Token validation
     const token = pickToken(input);
     if (!token) throw new Error("signIn failed: token missing");
 
+    // D) ID extraction
     const id = pickId(input);
     if (user?.id === id && user?.token === token) return;
 
-    // 🔥 CRITICAL: Read type from input
+    // E) 🔥 CRITICAL: Type comes from input ONLY - NO INFERENCE
     const type = input.type;
 
+    // F) Role validation - MUST come from backend
+    const role = pickRole(input);
+
+    // G) Build user object with STRICT type-based fields
     const next: User = {
       id,
       token,
-      type, // 🔥 EN KRİTİK
-      role: pickRole(input), // D) role backend'den gelsin, fallback YOK
+      type, // 🔥 PRIMARY routing key - NO FALLBACKS
+      role, // 🔥 MUST come from backend
       name: pickName(input),
       email: pickEmail(input),
       phone: pickPhone(input),
+      // 🔥 TYPE-SPECIFIC FIELDS - NO CROSS-CONTAMINATION
       patientId: type === "patient" ? input.patientId : undefined,
       doctorId: type === "doctor" ? input.doctorId : undefined,
-      clinicId: type === "doctor" ? input.clinicId : undefined,
+      clinicId: type === "doctor" || type === "admin" ? input.clinicId : undefined,
+      clinicCode: type === "admin" ? input.clinicCode : undefined,
       status: type === "doctor" ? input.status : undefined,
     };
+    
     setUser(next);
     await storageSet(AUTH_KEY, JSON.stringify(next));
   };
@@ -257,9 +293,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isDoctor: user?.type === "doctor",
       isPatient: user?.type === "patient",
       isAdmin: user?.type === "admin",
+      isOtpVerified, // 🔥 CRITICAL: OTP verification flag
       signIn,
       signOut,
       refreshAuth,
+      setOtpVerified: setIsOtpVerified, // 🔥 CRITICAL: Set OTP verification flag
       updateRole: async (newRole: UserRole) => {
         if (!user?.token) {
           throw new Error("No token found");
@@ -300,7 +338,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       },
     }),
-    [user, isAuthLoading]
+    [user, isAuthLoading, isOtpVerified]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
