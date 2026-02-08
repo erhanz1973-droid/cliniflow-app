@@ -7,7 +7,7 @@ import { API_BASE } from "../lib/api";
 
 export default function RegisterPatientScreen() {
   const router = useRouter();
-  const { signIn } = useAuth();
+  // E) KESİNLİKLE signIn() ÇAĞIRMAYACAK
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     clinicCode: "",
@@ -40,14 +40,20 @@ export default function RegisterPatientScreen() {
       if (data.ok) {
         Alert.alert(
           "Başarılı",
-          "Hasta kaydınız tamamlandı.",
+          "Hasta kaydınız tamamlandı. OTP doğrulaması için yönlendiriliyorsunuz.",
           [
             {
               text: "Tamam",
               onPress: () => {
-                // Save token and navigate
-                signIn(data);
-                router.replace("/(tabs)/home");
+                // E) KESİNLİKLE signIn() ÇAĞIRMAYACAK - Sadece OTP request ve redirect
+                router.push({
+                  pathname: '/otp',
+                  params: {
+                    email: formData.email,
+                    phone: formData.phone,
+                    source: 'patient'
+                  }
+                });
               },
             },
           ]

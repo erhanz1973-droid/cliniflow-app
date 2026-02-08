@@ -10,8 +10,7 @@ import { useLanguage } from "../lib/language-context";
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { signIn } = useAuth();
-  const { t } = useLanguage();
+  // E) KESİNLİKLE signIn() ÇAĞIRMAYACAK
   const [userType, setUserType] = useState<'patient' | 'doctor'>('patient');
   const [formData, setFormData] = useState({
     fullName: '',

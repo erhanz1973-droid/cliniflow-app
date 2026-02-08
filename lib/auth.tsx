@@ -72,10 +72,18 @@ function pickId(input: any): string {
   return id;
 }
 
-function pickRole(input: any): UserRole | undefined {
+function pickRole(input: any): UserRole {
   const rawRole = input?.role ?? input?.user?.role ?? input?.data?.role;
-  // 🔥 NORMALIZE ROLE TO UPPERCASE
-  return rawRole ? (rawRole as string).toUpperCase() as UserRole : undefined;
+  // 🔥 NORMALIZE ROLE TO UPPERCASE WITH TYPE GUARD
+  if (!rawRole) {
+    throw new Error("signIn blocked: role missing from backend");
+  }
+  const normalizedRole = (rawRole as string).toUpperCase();
+  // 🔥 VALIDATE ROLE IS ONE OF ALLOWED VALUES
+  if (normalizedRole !== "PATIENT" && normalizedRole !== "DOCTOR" && normalizedRole !== "ADMIN") {
+    throw new Error(`signIn blocked: invalid role "${normalizedRole}"`);
+  }
+  return normalizedRole as UserRole;
 }
 
 function pickName(input: any): string | undefined {
@@ -170,6 +178,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (input: any) => {
+    // A) signIn guard ekle
+    if (!input?.type) {
+      throw new Error("signIn blocked: user type missing");
+    }
+
+    // B) Doctor için ekstra guard
+    if (input.type === "doctor" && !input.doctorId) {
+      throw new Error("signIn blocked: doctorId missing");
+    }
+
+    // C) Patient için ekstra guard
+    if (input.type === "patient" && !input.patientId) {
+      throw new Error("signIn blocked: patientId missing");
+    }
+
     const token = pickToken(input);
     if (!token) throw new Error("signIn failed: token missing");
 
@@ -183,7 +206,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       id,
       token,
       type, // 🔥 EN KRİTİK
-      role: type === "doctor" ? "DOCTOR" : "PATIENT",
+      role: pickRole(input), // D) role backend'den gelsin, fallback YOK
       name: pickName(input),
       email: pickEmail(input),
       phone: pickPhone(input),
