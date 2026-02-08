@@ -1,6 +1,6 @@
 // app/register-doctor.tsx
 import React, { useState } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { handleDoctorRegistration } from "../lib/doctor/register";
 
@@ -8,46 +8,25 @@ export default function RegisterDoctorScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
-    fullName: '',
-    email: '',
-    phone: '',
-    clinicCode: '',
-    licenseNumber: '',
-    department: '',
-    specialties: '',
-    title: '',
-    experienceYears: '',
-    languages: '',
+    fullName: "",
+    phone: "",
+    email: "",
+    clinicCode: "",
+    licenseNumber: "",
   });
 
   const handleRegister = async () => {
-    // Validation
-    if (!formData.fullName || !formData.email || !formData.phone) {
-      Alert.alert('Hata', 'Lütfen tüm alanları doldurun');
+    if (!formData.fullName || !formData.phone || !formData.email) {
+      Alert.alert("Hata", "Ad Soyad, Telefon ve E-posta zorunludur");
       return;
     }
 
-    // Email validation
-    const emailRegex = /^[^s@]+@[^s@]+.[^s@]+$/;
-    if (!emailRegex.test(formData.email)) {
-      Alert.alert('Hata', 'Geçerli bir e-posta adresi girin');
-      return;
-    }
-
-    // Phone validation
-    if (formData.phone.length < 10) {
-      Alert.alert('Hata', 'Telefon numarası en az 10 haneli olmalıdır');
-      return;
-    }
-
-    // Doctor-specific validation
     if (!formData.clinicCode || !formData.licenseNumber) {
-      Alert.alert('Hata', 'Doktor için klinik kodu ve lisans numarası gereklidir');
+      Alert.alert("Hata", "Klinik Kodu ve Lisans Numarası gereklidir");
       return;
     }
 
     setLoading(true);
-    
     try {
       await handleDoctorRegistration({
         name: formData.fullName,
@@ -55,114 +34,79 @@ export default function RegisterDoctorScreen() {
         phone: formData.phone,
         clinicCode: formData.clinicCode,
         licenseNumber: formData.licenseNumber,
-        department: formData.department,
-        specialties: formData.specialties,
-        title: formData.title,
-        experienceYears: formData.experienceYears,
-        languages: formData.languages,
       });
     } catch (error: any) {
-      console.error('Doctor registration error:', error);
-      Alert.alert('Hata', error.message || 'Kayıt başarısız oldu');
+      console.error("Doctor registration error:", error);
+      Alert.alert("Hata", error.message || "Kayıt başarısız oldu");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>Doktor Kaydı</Text>
-      
+    <View style={styles.container}>
+      <Text style={styles.title}>Doktor Kayıt</Text>
+
       <TextInput
         placeholder="Ad Soyad"
         value={formData.fullName}
-        onChangeText={(text) => setFormData({...formData, fullName: text})}
+        onChangeText={(text) => setFormData({ ...formData, fullName: text })}
         style={styles.input}
       />
-      
-      <TextInput
-        placeholder="E-posta"
-        value={formData.email}
-        onChangeText={(text) => setFormData({...formData, email: text})}
-        keyboardType="email-address"
-        style={styles.input}
-      />
-      
+
       <TextInput
         placeholder="Telefon"
         value={formData.phone}
-        onChangeText={(text) => setFormData({...formData, phone: text})}
+        onChangeText={(text) => setFormData({ ...formData, phone: text })}
         keyboardType="phone-pad"
         style={styles.input}
       />
 
-      <Text style={styles.sectionTitle}>Doktor Bilgileri</Text>
-      
       <TextInput
-        placeholder="Klinik Kodu *"
+        placeholder="Email (opsiyonel)"
+        value={formData.email}
+        onChangeText={(text) => setFormData({ ...formData, email: text })}
+        keyboardType="email-address"
+        style={styles.input}
+      />
+
+      <TextInput
+        placeholder="Klinik Adı (opsiyonel)"
         value={formData.clinicCode}
-        onChangeText={(text) => setFormData({...formData, clinicCode: text})}
+        onChangeText={(text) => setFormData({ ...formData, clinicCode: text })}
         style={styles.input}
-        autoCapitalize="characters"
       />
-      
+
       <TextInput
-        placeholder="Lisans Numarası *"
+        placeholder="Diploma / Lisans No (opsiyonel)"
         value={formData.licenseNumber}
-        onChangeText={(text) => setFormData({...formData, licenseNumber: text})}
+        onChangeText={(text) => setFormData({ ...formData, licenseNumber: text })}
         style={styles.input}
       />
 
-      <TextInput
-        placeholder="Departman"
-        value={formData.department}
-        onChangeText={(text) => setFormData({...formData, department: text})}
-        style={styles.input}
-      />
-
-      <TextInput
-        placeholder="Uzmanlık Alanları"
-        value={formData.specialties}
-        onChangeText={(text) => setFormData({...formData, specialties: text})}
-        style={styles.input}
-      />
-
-      <TextInput
-        placeholder="Unvan"
-        value={formData.title}
-        onChangeText={(text) => setFormData({...formData, title: text})}
-        style={styles.input}
-      />
-
-      <TextInput
-        placeholder="Deneyim Yılı"
-        value={formData.experienceYears}
-        onChangeText={(text) => setFormData({...formData, experienceYears: text})}
-        keyboardType="numeric"
-        style={styles.input}
-      />
-
-      <TextInput
-        placeholder="Diller"
-        value={formData.languages}
-        onChangeText={(text) => setFormData({...formData, languages: text})}
-        style={styles.input}
-      />
-
-      <Pressable 
-        style={[styles.registerButton, loading && styles.disabledButton]} 
+      <TouchableOpacity
         onPress={handleRegister}
         disabled={loading}
+        style={styles.registerButton}
       >
-        <Text style={styles.registerButtonText}>
-          {loading ? 'Kaydediliyor...' : 'Doktor Kaydı'}
-        </Text>
-      </Pressable>
+        {loading ? (
+          <ActivityIndicator color="white" />
+        ) : (
+          <Text style={styles.registerButtonText}>
+            Doktor Olarak Başvur
+          </Text>
+        )}
+      </TouchableOpacity>
 
-      <Pressable onPress={() => router.replace('/register-patient')}>
-        <Text style={styles.loginLink}>Hasta olarak kayıt ol</Text>
-      </Pressable>
-    </ScrollView>
+      <TouchableOpacity
+        onPress={() => router.push("/register-patient")}
+        style={styles.linkButton}
+      >
+        <Text style={styles.linkText}>
+          Hasta olarak mı kayıt olacaksınız?
+        </Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -170,48 +114,40 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
-    backgroundColor: '#F9FAFB',
+    justifyContent: "center",
+    backgroundColor: "#F9FAFB",
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 30,
-    color: '#111827',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 15,
-    color: '#374151',
+    fontSize: 24,
+    fontWeight: "bold",
+    marginBottom: 20,
+    textAlign: "center",
+    color: "#111827",
   },
   input: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
+    borderColor: "#ddd",
     padding: 15,
+    borderRadius: 8,
     marginBottom: 15,
-    fontSize: 16,
-    backgroundColor: '#FFFFFF',
+    width: "100%",
   },
   registerButton: {
-    backgroundColor: '#2563EB',
-    padding: 18,
+    backgroundColor: "#2563eb",
+    padding: 15,
     borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  disabledButton: {
-    backgroundColor: '#9CA3AF',
+    alignItems: "center",
+    marginTop: 10,
   },
   registerButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '600',
+    color: "white",
+    fontWeight: "bold",
   },
-  loginLink: {
-    textAlign: 'center',
-    color: '#2563EB',
-    fontSize: 16,
+  linkButton: {
+    marginTop: 15,
+    alignItems: "center",
+  },
+  linkText: {
+    color: "#2563eb",
   },
 });
