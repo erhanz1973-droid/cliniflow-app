@@ -86,6 +86,10 @@ function pickEmail(input: any): string | undefined {
   return input?.email ?? input?.user?.email ?? input?.data?.email;
 }
 
+function pickPhone(input: any): string | undefined {
+  return input?.phone ?? input?.user?.phone ?? input?.data?.phone;
+}
+
 function pickClinicId(input: any): string | undefined {
   return input?.clinicId ?? input?.user?.clinicId ?? input?.data?.clinicId;
 }
@@ -172,18 +176,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const id = pickId(input);
     if (user?.id === id && user?.token === token) return;
 
-    // Local role normalization
-    const normalizedRole = pickRole(input);
+    // 🔥 CRITICAL: Read type from input
+    const type = input.type;
 
-    const next: User = { 
-      id, 
-      email: pickEmail(input), 
+    const next: User = {
+      id,
       token,
-      role: normalizedRole,
+      type, // 🔥 EN KRİTİK
+      role: type === "doctor" ? "DOCTOR" : "PATIENT",
       name: pickName(input),
-      status: pickStatus(input), // 🔥 FIX: Include status in user object
-      clinicId: pickClinicId(input),
-      clinicCode: pickClinicCode(input),
+      email: pickEmail(input),
+      phone: pickPhone(input),
+      patientId: type === "patient" ? input.patientId : undefined,
+      doctorId: type === "doctor" ? input.doctorId : undefined,
+      clinicId: type === "doctor" ? input.clinicId : undefined,
+      status: type === "doctor" ? input.status : undefined,
     };
     setUser(next);
     await storageSet(AUTH_KEY, JSON.stringify(next));

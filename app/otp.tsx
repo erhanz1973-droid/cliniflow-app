@@ -16,6 +16,9 @@ export default function OtpScreen() {
   const patientId = params.patientId as string || "";
   const source = params.source as string || "";
   
+  // 🔥 CRITICAL: Determine userType from source
+  const userType = source === "doctor" ? "doctor" : "patient";
+  
   const [otp, setOtp] = useState("");
   const [phoneInput, setPhoneInput] = useState(phone);
   const [busy, setBusy] = useState(false);
@@ -32,48 +35,31 @@ export default function OtpScreen() {
     const t = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS);
 
     try {
-      // 🔥 CLEAN SEPARATION: Use separate endpoints based on source
-      const isAdminLogin = source === "admin";
-      const isDoctorLogin = source === "doctor";
-      const isPatientLogin = source === "patient" || !source;
+      // 🔥 CRITICAL: Separate endpoint based on userType
+      const endpoint = userType === "doctor" 
+        ? "/auth/verify-otp-doctor" 
+        : "/auth/verify-otp-patient";
       
-      let verifyEndpoint, requestBody;
-      
-      if (isAdminLogin) {
-        verifyEndpoint = `${API_BASE}/api/admin/verify-otp`;
-        requestBody = {
-          otp: code,
-          email: email || undefined,
-          clinicCode: phoneToVerify,
-        };
-      } else if (isDoctorLogin) {
-        verifyEndpoint = `${API_BASE}/auth/verify-otp-doctor`;
-        requestBody = {
-          otp: code,
-          email: email || undefined,
-          phone: phoneToVerify,
-        };
-      } else {
-        // Patient login
-        verifyEndpoint = `${API_BASE}/auth/verify-otp-patient`;
-        requestBody = {
-          otp: code,
-          phone: phoneToVerify,
-          email: email || undefined,
-          sessionId: patientId || phoneToVerify,
-        };
-      }
-
-      console.log("[OTP] Sending verification request:", {
-        userType: isAdminLogin ? "admin" : isDoctorLogin ? "doctor" : "patient",
-        verifyEndpoint,
+      const requestBody = userType === "doctor" ? {
+        otp: code,
+        email: email || undefined,
+        phone: phoneToVerify,
+      } : {
         otp: code,
         phone: phoneToVerify,
         email: email || undefined,
-        sessionId: requestBody.sessionId,
+        sessionId: patientId || phoneToVerify,
+      };
+
+      console.log("[OTP] Sending verification request:", {
+        userType,
+        endpoint: `${API_BASE}${endpoint}`,
+        otp: code,
+        phone: phoneToVerify,
+        email: email || undefined,
       });
 
-      const res = await fetch(verifyEndpoint, {
+      const res = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -103,40 +89,23 @@ export default function OtpScreen() {
       if (json.ok && json.token) {
         console.log("VERIFY OTP RESPONSE:", json); // 🔥 DEBUG: Log full response
         
-        // 🔥 CLEAN SEPARATION: Handle different response formats for each user type
-        if (isAdminLogin) {
+        // 🔥 CRITICAL: Handle response based on userType only
+        if (userType === "doctor") {
           await signIn({
             token: json.token,
-            id: json.clinicCode,
-            clinicId: json.clinicId,
-            clinicCode: json.clinicCode,
-            email: email,
-            type: "admin",
-            role: "ADMIN",
-          });
-          router.replace("/admin/dashboard");
-        } else if (isDoctorLogin) {
-          await signIn({
-            token: json.token,
-            id: json.doctorId,
             doctorId: json.doctorId,
             clinicId: json.clinicId,
-            type: "doctor",
-            role: json.role,
-            status: json.status,
+            type: "doctor", // 🔥 EN KRİTİK
+            role: "DOCTOR",
           });
-          // Route based on doctor status
-          const doctorStatus = json.status || "PENDING";
-          const targetRoute = doctorStatus === "ACTIVE" ? "/doctor/dashboard" : "/waiting-approval";
-          router.replace(targetRoute);
+          router.replace("/doctor/dashboard");
         } else {
-          // Patient login
+          // Patient
           await signIn({
             token: json.token,
-            id: json.patientId,
             patientId: json.patientId,
-            type: "patient",
-            role: json.role,
+            type: "patient", // 🔥 EN KRİTİK
+            role: "PATIENT",
           });
           router.replace("/home");
         }
