@@ -193,6 +193,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("signIn blocked: patientId missing");
     }
 
+    // 🔒 DOCTOR AUTH FLOW LOCKDOWN: Type + ID guard
+    if (input.type === "doctor" && (!input.doctorId || input.doctorId.length === 0)) {
+      // localStorage temizle
+      await storageSet(AUTH_KEY, null);
+      setUser(null);
+      throw new Error("Doctor authentication requires valid doctorId");
+    }
+
     const token = pickToken(input);
     if (!token) throw new Error("signIn failed: token missing");
 
