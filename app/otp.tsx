@@ -17,7 +17,12 @@ export default function OtpScreen() {
   const patientId = params.patientId as string || "";
   const source = params.source as string || "";
   
-  // 🔥 CRITICAL: Determine userType from source
+  // 🔥 CRITICAL: Doctors are NOT allowed in OTP screen
+  if (source === "doctor") {
+    throw new Error("OTP is not allowed for doctors");
+  }
+  
+  // 🔥 CRITICAL: Determine userType from source - NO FALLBACK
   const userType = source === "doctor" ? "doctor" : "patient";
   
   const [otp, setOtp] = useState("");
@@ -60,17 +65,22 @@ export default function OtpScreen() {
 
       console.log("[OTP] Sending verification request:", {
         userType,
-        endpoint: `${API_BASE}/auth/verify-otp`,
+        endpoint: `${ADMIN_API_BASE}/auth/verify-otp`,
         otp: code,
         phone: phoneToVerify,
         email: email || undefined,
-        type: userType,
+        type: "patient", // 🔥 CRITICAL: ONLY patient type allowed
       });
 
-      const res = await fetch(`${API_BASE}/auth/verify-otp`, {
+      const res = await fetch(`${ADMIN_API_BASE}/auth/verify-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({
+          otp: code,
+          email: email || undefined,
+          phone: phoneToVerify,
+          type: "patient", // 🔥 CRITICAL: ONLY patient type allowed
+        }),
         signal: controller.signal,
       });
 

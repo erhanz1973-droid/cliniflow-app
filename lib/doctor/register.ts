@@ -23,8 +23,8 @@ export async function handleDoctorRegistration(formData: DoctorRegisterRequest) 
       });
       
       Alert.alert(
-        "Başarılı",
-        "Doktor kaydınız tamamlandı. Panelinize yönlendiriliyorsunuz.",
+        "Başvuru alındı",
+        "Doktor hesabınız admin onayından sonra Aktif edilecektir.",
         [
           {
             text: "Tamam",
