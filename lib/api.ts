@@ -4,7 +4,8 @@ import { Platform } from 'react-native';
 
 /**
  * Merkezi API helper
- * - PROD URL sabit: https://cliniflow-admin.onrender.com
+ * - PROD API: https://clinic.clinifly.net
+ * - ADMIN API: https://cliniflow-admin.onrender.com
  * - GET / POST ortak error handling
  * - Authorization token desteği
  * - Detaylı hata loglama
@@ -14,10 +15,10 @@ function normalizeApiBase(raw: string): string {
   const base = String(raw || "").trim().replace(/\/+$/, "");
   if (!base) return "";
 
-  // Safety clamp: prevent accidental usage of the wrong Render service.
-  // The real backen is served from cliniflow-admin.onrender.com.
-  if (base.includes("cliniflow-backend-dg8a.onrender.com")) {
-    return "https://cliniflow-admin.onrender.com";
+  // Safety clamp: prevent accidental usage of wrong Render service.
+  // The real backend is served from clinic.clinifly.net
+  if (base.includes("172.20.10.2:5050")) {
+    return "https://clinic.clinifly.net";
   }
 
   return base;
@@ -26,14 +27,19 @@ function normalizeApiBase(raw: string): string {
 // API base must come from env (single source of truth)
 const RAW_API_BASE = process.env.EXPO_PUBLIC_API_BASE || "";
 const DEV_API_BASE = process.env.EXPO_PUBLIC_DEV_API_BASE || "";
+
 // Use localhost for development, production for release
 export const API_BASE = __DEV__ ? DEV_API_BASE || RAW_API_BASE : normalizeApiBase(RAW_API_BASE);
+
+// 🔥 CRITICAL: Admin API base - separate from main API
+export const ADMIN_API_BASE = "https://cliniflow-admin.onrender.com";
 
 console.log("[API] API_BASE configured:", {
   __DEV__,
   RAW_API_BASE,
   DEV_API_BASE,
-  API_BASE
+  API_BASE,
+  ADMIN_API_BASE
 });
 
 if (!API_BASE) {
