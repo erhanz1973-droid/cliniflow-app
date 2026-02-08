@@ -8,11 +8,11 @@ import { useAuth } from '../../lib/auth';
 
 export default function DoctorDashboard() {
   const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, isAuthLoading } = useAuth(); // 🔥 FIX: Use isAuthLoading instead of loading
 
   // 🔐 ROLE + STATUS GUARD
   useEffect(() => {
-    if (loading) return;
+    if (isAuthLoading) return; // 🔥 FIX: Use isAuthLoading
 
     // Giriş yoksa
     if (!user) {
@@ -30,9 +30,9 @@ export default function DoctorDashboard() {
     if (user.status !== 'ACTIVE') {
       router.replace('/waiting-approval');
     }
-  }, [user, loading]);
+  }, [user, isAuthLoading]); // 🔥 FIX: Use isAuthLoading
 
-  if (loading || !user) {
+  if (isAuthLoading || !user) { // 🔥 FIX: Use isAuthLoading
     return (
       <View style={styles.center}>
         <Text>Yükleniyor...</Text>

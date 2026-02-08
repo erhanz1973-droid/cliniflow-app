@@ -14,6 +14,7 @@ type User = {
   token: string;
   role?: UserRole;
   name?: string;
+  status?: string; // 🔥 FIX: Add status field to User type
   clinicId?: string;
   clinicCode?: string;
   profilePhotoUrl?: string;
@@ -87,6 +88,10 @@ function pickClinicId(input: any): string | undefined {
 
 function pickClinicCode(input: any): string | undefined {
   return input?.clinicCode ?? input?.user?.clinicCode ?? input?.data?.clinicCode;
+}
+
+function pickStatus(input: any): string | undefined {
+  return input?.status ?? input?.user?.status ?? input?.data?.status;
 }
 
 // ✅ Web'de AsyncStorage yerine localStorage (verifying takılmasını keser)
@@ -172,6 +177,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       token,
       role: normalizedRole,
       name: pickName(input),
+      status: pickStatus(input), // 🔥 FIX: Include status in user object
       clinicId: pickClinicId(input),
       clinicCode: pickClinicCode(input),
     };
