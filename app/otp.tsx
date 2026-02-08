@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { View, Text, TextInput, Pressable, StyleSheet, Alert, Platform, ScrollView, ActivityIndicator } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../lib/auth";
-import { API_BASE } from "../lib/api";
+import { API_BASE, ADMIN_API_BASE } from "../lib/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // ✅ hard timeout (sonsuz verifying olmasın)
@@ -144,17 +144,25 @@ export default function OtpScreen() {
 
     setResending(true);
     try {
-      const res = await fetch(`${API_BASE}/auth/request-otp`, {
+      const res = await fetch(`${ADMIN_API_BASE}/auth/request-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: phoneToUse }),
       });
 
-      const json = await res.json();
+      // Safe JSON parsing
+      const text = await res.text();
+      let json;
+
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error("Invalid OTP response (not JSON)");
+      }
 
       if (!res.ok) {
-        let errorMsg = json.message || json.error || "OTP gönderilemedi";
-        if (json.error === "rate_limit_exceeded") {
+        let errorMsg = json?.message || json?.error || "OTP gönderilemedi";
+        if (json?.error === "rate_limit_exceeded") {
           errorMsg = "Çok fazla istek. Lütfen bir süre sonra tekrar deneyin.";
         }
         Alert.alert("Hata", errorMsg);
