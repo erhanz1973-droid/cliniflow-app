@@ -33,6 +33,8 @@ export default function OtpScreen() {
     // 🔥 CRITICAL: Prevent multiple verification calls
     if (isVerifying || otpVerifiedRef.current) {
       console.log('[OTP] 🔥 Verification already in progress or completed - skipping');
+      // Don't silently return - provide user feedback
+      Alert.alert("Bilgi", "OTP doğrulaması zaten devam ediyor veya tamamlandı. Lütfen bekleyin.");
       return;
     }
 
