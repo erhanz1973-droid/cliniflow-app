@@ -35,31 +35,24 @@ export default function OtpScreen() {
     const t = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS);
 
     try {
-      // 🔥 CRITICAL: Separate endpoint based on userType
-      const endpoint = userType === "doctor" 
-        ? "/auth/verify-otp-doctor" 
-        : "/auth/verify-otp-patient";
-      
-      const requestBody = userType === "doctor" ? {
+      // 🔥 UNIFIED APPROACH: Single endpoint with type parameter
+      const requestBody = {
         otp: code,
         email: email || undefined,
         phone: phoneToVerify,
-      } : {
-        otp: code,
-        phone: phoneToVerify,
-        email: email || undefined,
-        sessionId: patientId || phoneToVerify,
+        type: userType, // 🔥 CRITICAL: "doctor" or "patient"
       };
 
       console.log("[OTP] Sending verification request:", {
         userType,
-        endpoint: `${API_BASE}${endpoint}`,
+        endpoint: `${API_BASE}/auth/verify-otp`,
         otp: code,
         phone: phoneToVerify,
         email: email || undefined,
+        type: userType,
       });
 
-      const res = await fetch(`${API_BASE}${endpoint}`, {
+      const res = await fetch(`${API_BASE}/auth/verify-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -89,22 +82,28 @@ export default function OtpScreen() {
       if (json.ok && json.token) {
         console.log("VERIFY OTP RESPONSE:", json); // 🔥 DEBUG: Log full response
         
-        // 🔥 CRITICAL: Handle response based on userType only
-        if (userType === "doctor") {
+        // 🔥 ROLE-BASED ROUTING: Use response.role (not userType)
+        if (json.role === "DOCTOR") {
           await signIn({
             token: json.token,
             doctorId: json.doctorId,
             clinicId: json.clinicId,
-            type: "doctor", // 🔥 EN KRİTİK
+            type: "doctor",
             role: "DOCTOR",
+            status: json.status,
           });
-          router.replace("/doctor/dashboard");
+          
+          // Route based on doctor status
+          const targetRoute = json.status === "ACTIVE" 
+            ? "/doctor/dashboard" 
+            : "/waiting-approval";
+          router.replace(targetRoute);
         } else {
           // Patient
           await signIn({
             token: json.token,
             patientId: json.patientId,
-            type: "patient", // 🔥 EN KRİTİK
+            type: "patient",
             role: "PATIENT",
           });
           router.replace("/home");
