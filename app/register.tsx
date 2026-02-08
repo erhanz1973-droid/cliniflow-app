@@ -19,6 +19,11 @@ export default function RegisterScreen() {
     phone: '',
     clinicCode: '',
     licenseNumber: '',
+    department: '',
+    specialties: '',
+    title: '',
+    experienceYears: '',
+    languages: '',
   });
   const [loading, setLoading] = useState(false);
 
@@ -47,38 +52,88 @@ export default function RegisterScreen() {
     }
 
     setLoading(true);
+    
     try {
-      // ⚠️  DEVELOPMENT ONLY: Fake registration for testing
-      // ⚠️  In production, this should call /api/register/doctor for doctors
-      console.warn('⚠️  USING FAKE REGISTRATION - FOR DEVELOPMENT ONLY');
-      
-      const testUser = {
-        id: 'test-' + Date.now(),
-        token: 'test-token-' + Date.now(),
-        role: userType === 'doctor' ? 'DOCTOR' : 'PATIENT', // 🔥 FIX: Send uppercase role
-        fullName: formData.fullName,
-        email: formData.email,
-        phone: formData.phone,
-        clinicCode: formData.clinicCode,
-        licenseNumber: formData.licenseNumber,
-        userType: userType, // Use current userType state
-        status: userType === 'doctor' ? 'PENDING' : 'APPROVED', // Add status for testing
-      };
-
-      // Auth context'e kaydet
-      await signIn(testUser);
-
-      Alert.alert('⚠️ Development Mode', `${userType === 'doctor' ? 'Doktor' : 'Hasta'} TEST kaydı oluşturuldu! (Development only)`);
-      
-      // Role göre yönlendir
       if (userType === 'doctor') {
-        router.replace('/doctor/dashboard');
+        // 🔥 FIX: Real doctor registration using /api/register/doctor
+        console.log('🔥 REGISTERING DOCTOR - REAL API CALL');
+        
+        const response = await fetch('https://cliniflow-admin.onrender.com/api/register/doctor', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: formData.fullName,
+            email: formData.email,
+            phone: formData.phone,
+            clinicCode: formData.clinicCode,
+            licenseNumber: formData.licenseNumber,
+            department: formData.department,
+            specialties: formData.specialties,
+            title: formData.title,
+            experienceYears: formData.experienceYears,
+            languages: formData.languages,
+          }),
+        });
+
+        const result = await response.json();
+        
+        if (!response.ok || !result.ok) {
+          throw new Error(result.message || 'Doktor kaydı başarısız oldu');
+        }
+
+        console.log('✅ Doctor registration successful:', result);
+        
+        // 🔥 FIX: Navigate to OTP screen with source=doctor
+        router.push({
+          pathname: '/otp',
+          params: {
+            email: formData.email,
+            phone: formData.phone,
+            source: 'doctor' // 🔥 CRITICAL: Mark as doctor OTP flow
+          }
+        });
+        
       } else {
-        router.replace('/home');
+        // Patient registration (existing logic)
+        console.log('🔥 REGISTERING PATIENT');
+        
+        const response = await fetch('https://cliniflow-admin.onrender.com/api/register', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: formData.fullName,
+            email: formData.email,
+            phone: formData.phone,
+            clinicCode: formData.clinicCode,
+          }),
+        });
+
+        const result = await response.json();
+        
+        if (!response.ok || !result.ok) {
+          throw new Error(result.message || 'Hasta kaydı başarısız oldu');
+        }
+
+        console.log('✅ Patient registration successful:', result);
+        
+        // Navigate to OTP screen (default source=patient)
+        router.push({
+          pathname: '/otp',
+          params: {
+            email: formData.email,
+            phone: formData.phone,
+            source: 'patient' // Explicitly mark as patient
+          }
+        });
       }
 
-    } catch (error) {
-      Alert.alert('Hata', 'Kayıt başarısız oldu');
+    } catch (error: any) {
+      console.error('Registration error:', error);
+      Alert.alert('Hata', error.message || 'Kayıt başarısız oldu');
     } finally {
       setLoading(false);
     }

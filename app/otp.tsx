@@ -32,23 +32,40 @@ export default function OtpScreen() {
     const t = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS);
 
     try {
-      // 🔥 FIX: Check if this is admin login (source=admin)
+      // 🔥 FIX: Check user type and use appropriate endpoint
       const isAdminLogin = source === "admin";
-      const verifyEndpoint = isAdminLogin ? `${API_BASE}/api/admin/verify-otp` : `${API_BASE}/auth/verify-otp`;
+      const isDoctorLogin = source === "doctor";
+      const isPatientLogin = source === "patient" || !source;
       
-      const requestBody = isAdminLogin ? {
-        otp: code,
-        email: email || undefined, // Admin login requires email
-        clinicCode: phoneToVerify, // Admin login uses clinicCode instead of phone
-      } : {
-        otp: code,
-        phone: phoneToVerify,
-        email: email || undefined, // Include email if available
-        sessionId: patientId || phoneToVerify, // Use patientId or phone as session identifier
-      };
+      let verifyEndpoint, requestBody;
+      
+      if (isAdminLogin) {
+        verifyEndpoint = `${API_BASE}/api/admin/verify-otp`;
+        requestBody = {
+          otp: code,
+          email: email || undefined,
+          clinicCode: phoneToVerify,
+        };
+      } else if (isDoctorLogin) {
+        verifyEndpoint = `${API_BASE}/auth/verify-otp-doctor`;
+        requestBody = {
+          otp: code,
+          email: email || undefined,
+          phone: phoneToVerify,
+        };
+      } else {
+        // Patient login
+        verifyEndpoint = `${API_BASE}/auth/verify-otp`;
+        requestBody = {
+          otp: code,
+          phone: phoneToVerify,
+          email: email || undefined,
+          sessionId: patientId || phoneToVerify,
+        };
+      }
 
       console.log("[OTP] Sending verification request:", {
-        isAdminLogin,
+        userType: isAdminLogin ? "admin" : isDoctorLogin ? "doctor" : "patient",
         verifyEndpoint,
         otp: code,
         phone: phoneToVerify,
@@ -75,6 +92,8 @@ export default function OtpScreen() {
           errorMsg = "Maksimum deneme sayısına ulaşıldı. Lütfen yeni bir kod isteyin.";
         } else if (json.error === "patient_not_found") {
           errorMsg = "Hesap bulunamadı. Lütfen kayıt olun.";
+        } else if (json.error === "doctor_not_found") {
+          errorMsg = "Doktor hesabı bulunamadı. Lütfen kayıt olun.";
         } else if (json.error === "clinic_not_found") {
           errorMsg = "Klinik bulunamadı. Lütfen klinik kodunu kontrol edin.";
         }
@@ -84,34 +103,40 @@ export default function OtpScreen() {
       if (json.ok && json.token) {
         console.log("VERIFY OTP RESPONSE:", json); // 🔥 DEBUG: Log full response
         
-        // 🔥 FIX: Handle different response formats for admin vs patient/doctor
+        // 🔥 FIX: Handle different response formats for each user type
         if (isAdminLogin) {
           await signIn({
             token: json.token,
-            id: json.clinicCode, // Admin uses clinicCode as ID
+            id: json.clinicCode,
             clinicCode: json.clinicCode,
             email: email,
             role: "admin",
           });
+          router.replace("/admin/dashboard");
+        } else if (isDoctorLogin) {
+          await signIn({
+            token: json.token,
+            id: json.doctorId,
+            doctorId: json.doctorId,
+            role: json.role,
+            status: json.status,
+          });
+          // Route based on doctor status
+          const doctorStatus = json.status || "PENDING";
+          const targetRoute = doctorStatus === "ACTIVE" ? "/doctor/dashboard" : "/waiting-approval";
+          router.replace(targetRoute);
         } else {
+          // Patient login
           await signIn({
             token: json.token,
             id: json.patientId,
             patientId: json.patientId,
-            role: json.role, // 🔥 FIX: Include role from OTP response
+            role: json.role,
           });
-        }
-        
-        // 🔥 FIX: Route based on user type
-        if (json.role === "admin") {
-          router.replace("/admin/dashboard");
-        } else if (json.role === "DOCTOR") {
-          router.replace("/doctor/dashboard");
-        } else {
           router.replace("/home");
         }
       } else {
-        throw new Error(json.message || "OTP doğrulama başarısız");
+        throw new Error("Invalid response from server");
       }
     } finally {
       clearTimeout(t);
