@@ -46,7 +46,7 @@ export default function AdminDoctorApplicationsScreen() {
     setLoading(true);
     try {
       const response = await fetch(
-        `${API_BASE}/admin/doctor-applications`,
+        `${API_BASE}/api/admin/doctor-applications`,
         {
           headers: {
             Authorization: `Bearer ${user?.token}`,
@@ -83,7 +83,7 @@ export default function AdminDoctorApplicationsScreen() {
     setApproving(patientId);
     try {
       const response = await fetch(
-        `${API_BASE}/admin/approve-doctor`,
+        `${API_BASE}/api/admin/approve-doctor`,
         {
           method: "POST",
           headers: {
