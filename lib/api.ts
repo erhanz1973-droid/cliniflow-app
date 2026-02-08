@@ -15,7 +15,7 @@ function normalizeApiBase(raw: string): string {
   if (!base) return "";
 
   // Safety clamp: prevent accidental usage of the wrong Render service.
-  // The real backend is served from cliniflow-admin.onrender.com.
+  // The real backen is served from cliniflow-admin.onrender.com.
   if (base.includes("cliniflow-backend-dg8a.onrender.com")) {
     return "https://cliniflow-admin.onrender.com";
   }
@@ -26,8 +26,15 @@ function normalizeApiBase(raw: string): string {
 // API base must come from env (single source of truth)
 const RAW_API_BASE = process.env.EXPO_PUBLIC_API_BASE || "";
 const DEV_API_BASE = process.env.EXPO_PUBLIC_DEV_API_BASE || "";
-// Use production API for mobile, localhost for web development
-export const API_BASE = __DEV__ && DEV_API_BASE && Platform.OS === 'web' ? DEV_API_BASE : normalizeApiBase(RAW_API_BASE);
+// Use localhost for development, production for release
+export const API_BASE = __DEV__ ? DEV_API_BASE || RAW_API_BASE : normalizeApiBase(RAW_API_BASE);
+
+console.log("[API] API_BASE configured:", {
+  __DEV__,
+  RAW_API_BASE,
+  DEV_API_BASE,
+  API_BASE
+});
 
 if (!API_BASE) {
   throw new Error(

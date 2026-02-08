@@ -291,7 +291,7 @@ export default function TreatmentsScreen() {
         });
         
         // Check if patient is approved
-        if (patientStatus !== "APPROVED") {
+        if (patientStatus !== "APPROVED" && patientStatus !== "ACTIVE") {
           if (!alive) return;
           setLoading(false);
           router.replace("/waiting-approval");

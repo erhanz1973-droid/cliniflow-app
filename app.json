@@ -7,6 +7,9 @@
     "icon": "./assets/images/icon.png",
     "scheme": "clinifly",
     "userInterfaceStyle": "automatic",
+    "developmentClient": {
+      "silentLaunch": true
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "net.clinifly.mobile",

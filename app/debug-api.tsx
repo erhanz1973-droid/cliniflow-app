@@ -1,27 +1,58 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
-import { Platform } from "react-native";
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  Alert,
+  ActivityIndicator,
+  Platform,
+} from "react-native";
 import Constants from "expo-constants";
+import { useRouter } from "expo-router";
+import { useAuth } from "../lib/auth";
 import { API_BASE, apiGet } from "../lib/api";
 
 export default function DebugApiScreen() {
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
+
   const [testResult, setTestResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // 🔐 DEV + ADMIN GUARD
+  useEffect(() => {
+    if (authLoading) return;
+
+    if (!__DEV__ || !user || user.role !== "ADMIN") {
+      router.replace("/");
+    }
+  }, [user, authLoading]);
 
   const testConnection = async () => {
     setLoading(true);
     setTestResult(null);
     try {
-      const result = await apiGet<{ ok: boolean; server: string; time: number }>("/health");
-      setTestResult(`✅ Başarılı!\n\n${JSON.stringify(result, null, 2)}`);
+      const result = await apiGet<{
+        ok: boolean;
+        server?: string;
+        time?: number;
+      }>("/health");
+
+      setTestResult(
+        `✅ Başarılı!\n\n${JSON.stringify(result, null, 2)}`
+      );
     } catch (error: any) {
-      setTestResult(`❌ Hata:\n\n${error.message || String(error)}`);
+      setTestResult(
+        `❌ Hata:\n\n${error?.message || String(error)}`
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  // Expo Constants bilgilerini al
+  // Expo Constants – güvenli okuma
   const anyConstants: any = Constants as any;
   const debuggerHost =
     anyConstants?.expoConfig?.hostUri ||
@@ -30,59 +61,52 @@ export default function DebugApiScreen() {
     anyConstants?.manifest2?.extra?.expoGo?.debuggerHost ||
     "Bulunamadı";
 
+  if (authLoading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>🔧 API Debug Bilgileri</Text>
+        <Text style={styles.title}>🔧 API Debug</Text>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Platform:</Text>
-          <Text style={styles.value}>{Platform.OS}</Text>
-        </View>
+        <Info label="Platform" value={Platform.OS} />
+        <Info label="API_BASE" value={API_BASE} mono />
+        <Info label="Debugger Host" value={String(debuggerHost)} mono />
+        <Info
+          label="Environment"
+          value={__DEV__ ? "Development" : "Production"}
+        />
+        <Info
+          label="EXPO_PUBLIC_API_BASE"
+          value={
+            process.env.EXPO_PUBLIC_API_BASE || "(Ayarlanmamış)"
+          }
+          mono
+        />
 
-        <View style={styles.section}>
-          <Text style={styles.label}>API_BASE:</Text>
-          <Text style={styles.value} selectable>
-            {API_BASE}
-          </Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.label}>Debugger Host:</Text>
-          <Text style={styles.value} selectable>
-            {String(debuggerHost)}
-          </Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.label}>Environment:</Text>
-          <Text style={styles.value}>
-            {__DEV__ ? "Development" : "Production"}
-          </Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.label}>EXPO_PUBLIC_API_BASE:</Text>
-          <Text style={styles.value}>
-            {process.env.EXPO_PUBLIC_API_BASE || "(Ayarlanmamış)"}
-          </Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.label}>Beklenen URL (Android Emülatör):</Text>
-          <Text style={styles.value} selectable>
-            http://10.0.2.2:3000
-          </Text>
-        </View>
+        <Info
+          label="Android Emulator Default"
+          value="http://10.0.2.2:3000"
+          mono
+        />
 
         <Pressable
           style={[styles.button, loading && styles.buttonDisabled]}
           onPress={testConnection}
           disabled={loading}
         >
-          <Text style={styles.buttonText}>
-            {loading ? "Test Ediliyor..." : "Health Endpoint Test Et"}
-          </Text>
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonText}>
+              Health Endpoint Test Et
+            </Text>
+          )}
         </Pressable>
 
         {testResult && (
@@ -92,19 +116,15 @@ export default function DebugApiScreen() {
         )}
 
         <View style={styles.infoBox}>
-          <Text style={styles.infoTitle}>ℹ️ Bilgi:</Text>
+          <Text style={styles.infoTitle}>ℹ️ Notlar</Text>
           <Text style={styles.infoText}>
-            • Android emülatörde API_BASE otomatik olarak{" "}
-            <Text style={styles.code}>http://10.0.2.2:3000</Text> olarak
-            ayarlanır.
+            • Bu ekran sadece DEV + ADMIN içindir.
           </Text>
           <Text style={styles.infoText}>
-            • Fiziksel cihazda Mac'inizin IP adresini kullanmanız gerekir.
+            • Production build’de görünmez.
           </Text>
           <Text style={styles.infoText}>
-            • Manuel ayarlamak için{" "}
-            <Text style={styles.code}>EXPO_PUBLIC_API_BASE</Text> environment
-            variable'ını kullanın.
+            • API_BASE yanlışsa ilk buraya bak.
           </Text>
         </View>
       </View>
@@ -112,13 +132,38 @@ export default function DebugApiScreen() {
   );
 }
 
+function Info({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <View style={styles.section}>
+      <Text style={styles.label}>{label}</Text>
+      <Text
+        style={[
+          styles.value,
+          mono && styles.mono,
+        ]}
+        selectable
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
+  container: { flex: 1, backgroundColor: "#F5F5F5" },
+  content: { padding: 20 },
+  center: {
     flex: 1,
-    backgroundColor: "#F5F5F5",
-  },
-  content: {
-    padding: 20,
+    justifyContent: "center",
+    alignItems: "center",
   },
   title: {
     fontSize: 24,
@@ -144,6 +189,8 @@ const styles = StyleSheet.create({
   value: {
     fontSize: 16,
     color: "#111827",
+  },
+  mono: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
   },
   button: {
@@ -173,7 +220,8 @@ const styles = StyleSheet.create({
   resultText: {
     fontSize: 14,
     color: "#111827",
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
+    fontFamily:
+      Platform.OS === "ios" ? "Courier" : "monospace",
   },
   infoBox: {
     backgroundColor: "#EFF6FF",
@@ -193,12 +241,5 @@ const styles = StyleSheet.create({
     color: "#1E3A8A",
     marginBottom: 8,
     lineHeight: 20,
-  },
-  code: {
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    backgroundColor: "#DBEAFE",
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
   },
 });

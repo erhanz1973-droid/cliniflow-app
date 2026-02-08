@@ -16,6 +16,13 @@ type User = {
   name?: string;
   clinicId?: string;
   clinicCode?: string;
+  profilePhotoUrl?: string;
+  diplomaFileUrl?: string;
+  department?: string;
+  specialties?: string[];
+  title?: string;
+  experienceYears?: number;
+  languages?: string[];
 };
 
 type AuthContextValue = {
@@ -154,11 +161,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const id = pickId(input);
     if (user?.id === id && user?.token === token) return;
 
+    // Local role normalization
+    const rawRole = pickRole(input);
+
+    const normalizedRole: UserRole | undefined =
+      (rawRole as string) === "doctor" ? "DOCTOR" :
+      (rawRole as string) === "patient" ? "PATIENT" :
+      (rawRole as string) === "admin" ? "ADMIN" :
+      rawRole as UserRole | undefined;
+
     const next: User = { 
       id, 
       email: pickEmail(input), 
       token,
-      role: pickRole(input),
+      role: normalizedRole,
       name: pickName(input),
       clinicId: pickClinicId(input),
       clinicCode: pickClinicCode(input),
@@ -194,7 +210,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAuthReady: !isAuthLoading,
       isAuthed: !!user?.token,
       isDoctor: user?.role === "DOCTOR",
-      isPatient: !user?.role || user?.role === "PATIENT", // Default to PATIENT if no role
+      isPatient: user?.role === "PATIENT", // Explicit check, no default
       isAdmin: user?.role === "ADMIN",
       signIn,
       signOut,

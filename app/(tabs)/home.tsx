@@ -38,7 +38,8 @@ type PatientStatus =
   | "IN_TREATMENT"
   | "COMPLETED"
   | "PENDING"
-  | "APPROVED";
+  | "APPROVED"
+  | "ACTIVE";
 
 type ClinicBranding = {
   clinicName: string;
@@ -613,6 +614,7 @@ export default function Home() {
   const mapStatus = (status: string): PatientStatus => {
     const upper = status.toUpperCase();
     if (upper === "PENDING") return "WAITING_APPROVAL";
+    if (upper === "ACTIVE") return "APPROVED"; // Add ACTIVE status mapping
     if (upper === "APPROVED") {
       // Status will be determined after loading all data
       return "APPROVED";
@@ -627,7 +629,7 @@ export default function Home() {
     let currentStatus = patientInfo.status;
     let newStatus: PatientStatus = currentStatus;
     
-    if (currentStatus === "APPROVED" || currentStatus === "WAITING_APPROVAL") {
+    if (currentStatus === "APPROVED" || currentStatus === "WAITING_APPROVAL" || currentStatus === "ACTIVE") {
       if (!healthFormComplete) {
         newStatus = "NEED_INFO";
       } else if (treatmentSummary && treatmentSummary.procedures.length > 0) {
@@ -743,24 +745,24 @@ export default function Home() {
         color: "#F59E0B",
       },
       NEED_INFO: {
-        label: t("home.statusActionRequired"),
-        message: t("home.statusActionRequiredMessage"),
+        label: t("home.statusNeedInfo"),
+        message: t("home.statusNeedInfoMessage"),
         color: "#EF4444",
       },
       PLAN_READY: {
         label: t("home.statusPlanReady"),
         message: t("home.statusPlanReadyMessage"),
-        color: "#10B981",
+        color: "#3B82F6",
       },
       TRAVEL_PLANNED: {
         label: t("home.statusTravelPlanned"),
         message: t("home.statusTravelPlannedMessage"),
-        color: "#3B82F6",
+        color: "#8B5CF6",
       },
       IN_TREATMENT: {
         label: t("home.statusInTreatment"),
         message: t("home.statusInTreatmentMessage"),
-        color: "#8B5CF6",
+        color: "#06B6D4",
       },
       COMPLETED: {
         label: t("home.statusCompleted"),
@@ -777,15 +779,20 @@ export default function Home() {
         message: t("home.statusApprovedMessage"),
         color: "#10B981",
       },
+      ACTIVE: {
+        label: t("home.statusApproved"),
+        message: t("home.statusApprovedMessage"),
+        color: "#10B981",
+      },
     };
     return statusMap[status] || statusMap.PENDING;
   };
 
-  const isPro = patientInfo?.clinicPlan === "PRO";
   const statusInfo = patientInfo ? getStatusInfo(patientInfo.status) : null;
   const progressSteps = getProgressSteps(t);
   const primaryColor = patientInfo?.branding?.primaryColor || "#2563EB";
   const secondaryColor = patientInfo?.branding?.secondaryColor || "#10B981";
+  const isPro = patientInfo?.clinicPlan === "PRO";
   
   // Debug logging for branding
   useEffect(() => {

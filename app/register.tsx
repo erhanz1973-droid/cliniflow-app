@@ -14,7 +14,6 @@ export default function RegisterScreen() {
     fullName: '',
     email: '',
     phone: '',
-    userType: 'patient',
     clinicCode: '',
     licenseNumber: '',
   });
@@ -23,6 +22,19 @@ export default function RegisterScreen() {
   const handleRegister = async () => {
     if (!formData.fullName || !formData.email || !formData.phone) {
       Alert.alert('Hata', 'Lütfen tüm alanları doldurun');
+      return;
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email)) {
+      Alert.alert('Hata', 'Geçerli bir e-posta adresi girin');
+      return;
+    }
+
+    // Phone validation
+    if (formData.phone.length < 10) {
+      Alert.alert('Hata', 'Telefon numarası en az 10 haneli olmalıdır');
       return;
     }
 
@@ -43,6 +55,7 @@ export default function RegisterScreen() {
         phone: formData.phone,
         clinicCode: formData.clinicCode,
         licenseNumber: formData.licenseNumber,
+        userType: userType, // Use current userType state
       };
 
       // Auth context'e kaydet
@@ -77,7 +90,7 @@ export default function RegisterScreen() {
           ]}
           onPress={() => setUserType('patient')}
         >
-          <Text style={styles.userTypeText}>🧑‍⚕️ Hasta</Text>
+          <Text style={styles.userTypeText}>👤 Hasta</Text>
         </Pressable>
         
         <Pressable
@@ -121,14 +134,15 @@ export default function RegisterScreen() {
           <Text style={styles.sectionTitle}>Doktor Bilgileri</Text>
           
           <TextInput
-            placeholder="Klinik Kodu"
+            placeholder="Klinik Kodu *"
             value={formData.clinicCode}
             onChangeText={(text) => setFormData({...formData, clinicCode: text})}
             style={styles.input}
+            autoCapitalize="characters"
           />
           
           <TextInput
-            placeholder="Lisans Numarası"
+            placeholder="Lisans Numarası *"
             value={formData.licenseNumber}
             onChangeText={(text) => setFormData({...formData, licenseNumber: text})}
             style={styles.input}

@@ -25,7 +25,8 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as IntentLauncher from "expo-intent-launcher";
 import { useAuth } from "../../lib/auth";
-import { API_BASE } from "../../lib/api";
+import { API_BASE } from '../../lib/api';
+import { useRoleBasedAPI } from '../../lib/role-based-api';
 import { useLanguage } from "../../lib/language-context";
 
 type Attachment = {
@@ -45,9 +46,9 @@ type ChatMessage = {
   createdAt: number;
 };
 
-export default function PatientChatScreen() {
-  const router = useRouter();
+export default function ChatScreen() {
   const { user, isAuthReady } = useAuth();
+  const { fetchWithRole } = useRoleBasedAPI();
   const { t } = useLanguage();
   const params = useLocalSearchParams();
   const userPatientId = params.patientId as string || (user as any)?.patientId || "";
@@ -160,9 +161,7 @@ export default function PatientChatScreen() {
       if (patientId) return; // Already have patientId
       
       try {
-        const res = await fetch(`${API_BASE}/api/patient/me`, {
-          headers: { Authorization: `Bearer ${user.token}` },
-        });
+        const res = await fetchWithRole('/me');
         
         if (res.ok) {
           const data = await res.json();
@@ -185,7 +184,7 @@ export default function PatientChatScreen() {
     if (!user?.token || !patientId) return;
     
     try {
-      const res = await fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/messages`, {
+      const res = await fetchWithRole(`/${encodeURIComponent(patientId)}/messages`, {
         headers: { Authorization: `Bearer ${user.token}` },
         cache: "no-store",
       });

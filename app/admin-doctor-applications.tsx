@@ -1,6 +1,12 @@
-// app/admin-doctor-applications.tsx
 import React, { useState, useEffect } from "react";
-import { View, Text, FlatList, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "../lib/auth";
 import { API_BASE } from "../lib/api";
@@ -9,7 +15,7 @@ type DoctorApplication = {
   patient_id: string;
   name: string;
   phone: string;
-  email: string;
+  email?: string;
   clinic_code: string;
   status: string;
   role: string;
@@ -18,37 +24,56 @@ type DoctorApplication = {
 
 export default function AdminDoctorApplicationsScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+
   const [applications, setApplications] = useState<DoctorApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState<string | null>(null);
 
+  // 🔐 ADMIN GUARD
   useEffect(() => {
-    if (!user?.token) {
+    if (authLoading) return;
+
+    if (!user || user.role !== "ADMIN") {
       router.replace("/login");
       return;
     }
 
     loadApplications();
-  }, [user]);
+  }, [user, authLoading]);
 
   const loadApplications = async () => {
+    setLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/admin/doctor-applications`, {
-        headers: {
-          Authorization: `Bearer ${user.token}`,
-        },
-      });
+      const response = await fetch(
+        `${API_BASE}/admin/doctor-applications`,
+        {
+          headers: {
+            Authorization: `Bearer ${user?.token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
 
       const data = await response.json();
 
-      if (data.ok) {
-        setApplications(data.doctors);
-      } else {
-        Alert.alert("Hata", "Başvurular yüklenemedi");
+      if (!data?.ok || !Array.isArray(data.doctors)) {
+        throw new Error("Invalid response");
       }
+
+      // 🧹 Frontend güvenlik filtresi
+      const pendingDoctors = data.doctors.filter(
+        (d: DoctorApplication) =>
+          d.role === "DOCTOR" && d.status === "PENDING"
+      );
+
+      setApplications(pendingDoctors);
     } catch (error) {
-      Alert.alert("Hata", "Bağlantı hatası");
+      console.error("Load applications error:", error);
+      Alert.alert("Hata", "Doktor başvuruları yüklenemedi");
     } finally {
       setLoading(false);
     }
@@ -57,74 +82,109 @@ export default function AdminDoctorApplicationsScreen() {
   const approveDoctor = async (patientId: string) => {
     setApproving(patientId);
     try {
-      const response = await fetch(`${API_BASE}/api/admin/approve-doctor`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${user.token}`,
-        },
-        body: JSON.stringify({ patientId }),
-      });
+      const response = await fetch(
+        `${API_BASE}/admin/approve-doctor`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user?.token}`,
+          },
+          body: JSON.stringify({ patientId }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
 
       const data = await response.json();
 
       if (data.ok) {
         Alert.alert("Başarılı", "Doktor onaylandı");
-        loadApplications(); // Refresh list
+        loadApplications();
       } else {
         Alert.alert("Hata", data.error || "Onay başarısız");
       }
     } catch (error) {
-      Alert.alert("Hata", "Bağlantı hatası");
+      console.error("Approve error:", error);
+      Alert.alert("Hata", "Doktor onaylanamadı");
     } finally {
       setApproving(null);
     }
   };
 
   const renderApplication = ({ item }: { item: DoctorApplication }) => (
-    <View style={{
-      backgroundColor: "#1f2937",
-      padding: 20,
-      marginVertical: 8,
-      marginHorizontal: 16,
-      borderRadius: 12,
-      borderWidth: 2,
-      borderColor: "#374151",
-    }}>
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+    <View
+      style={{
+        backgroundColor: "#1f2937",
+        padding: 20,
+        marginVertical: 8,
+        marginHorizontal: 16,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: "#374151",
+      }}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 18, fontWeight: "bold", color: "#ffffff" }}>
+          <Text
+            style={{
+              fontSize: 18,
+              fontWeight: "bold",
+              color: "#ffffff",
+            }}
+          >
             {item.name}
           </Text>
+
           <Text style={{ color: "#a7b2c8", marginTop: 4 }}>
             📱 {item.phone}
           </Text>
+
           {item.email && (
             <Text style={{ color: "#a7b2c8", marginTop: 2 }}>
               📧 {item.email}
             </Text>
           )}
+
           <Text style={{ color: "#a7b2c8", marginTop: 2 }}>
             🏥 Klinik: {item.clinic_code}
           </Text>
+
           <Text style={{ color: "#f59e0b", marginTop: 4, fontSize: 12 }}>
-            📅 {new Date(item.created_at).toLocaleDateString("tr-TR")}
+            📅{" "}
+            {new Date(item.created_at).toLocaleDateString("tr-TR")}
           </Text>
         </View>
-        
+
         <View style={{ alignItems: "center" }}>
-          <View style={{
-            backgroundColor: "#f59e0b",
-            paddingHorizontal: 12,
-            paddingVertical: 6,
-            borderRadius: 20,
-            marginBottom: 8,
-          }}>
-            <Text style={{ color: "white", fontWeight: "bold", fontSize: 12 }}>
+          <View
+            style={{
+              backgroundColor: "#f59e0b",
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 20,
+              marginBottom: 8,
+            }}
+          >
+            <Text
+              style={{
+                color: "white",
+                fontWeight: "bold",
+                fontSize: 12,
+              }}
+            >
               BEKLEMEDE
             </Text>
           </View>
-          
+
           <TouchableOpacity
             style={{
               backgroundColor: "#16a34a",
@@ -138,7 +198,11 @@ export default function AdminDoctorApplicationsScreen() {
             {approving === item.patient_id ? (
               <ActivityIndicator color="white" size="small" />
             ) : (
-              <Text style={{ color: "white", fontWeight: "bold" }}>ONAYLA</Text>
+              <Text
+                style={{ color: "white", fontWeight: "bold" }}
+              >
+                ONAYLA
+              </Text>
             )}
           </TouchableOpacity>
         </View>
@@ -146,25 +210,42 @@ export default function AdminDoctorApplicationsScreen() {
     </View>
   );
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
         <ActivityIndicator size="large" color="#2563eb" />
-        <Text style={{ marginTop: 16, color: "#a7b2c8" }}>Yükleniyor...</Text>
+        <Text style={{ marginTop: 16, color: "#a7b2c8" }}>
+          Yükleniyor...
+        </Text>
       </View>
     );
   }
 
   return (
     <View style={{ flex: 1, backgroundColor: "#111827" }}>
-      <View style={{
-        padding: 20,
-        borderBottomWidth: 1,
-        borderBottomColor: "#374151",
-      }}>
-        <Text style={{ fontSize: 24, fontWeight: "bold", color: "#ffffff" }}>
+      <View
+        style={{
+          padding: 20,
+          borderBottomWidth: 1,
+          borderBottomColor: "#374151",
+        }}
+      >
+        <Text
+          style={{
+            fontSize: 24,
+            fontWeight: "bold",
+            color: "#ffffff",
+          }}
+        >
           Doktor Başvuruları
         </Text>
+
         <Text style={{ color: "#a7b2c8", marginTop: 4 }}>
           Onay bekleyen doktorlar
         </Text>
@@ -177,7 +258,9 @@ export default function AdminDoctorApplicationsScreen() {
         contentContainerStyle={{ paddingVertical: 8 }}
         ListEmptyComponent={
           <View style={{ alignItems: "center", padding: 40 }}>
-            <Text style={{ color: "#a7b2c8" }}>Onay bekleyen başvuru bulunmuyor</Text>
+            <Text style={{ color: "#a7b2c8" }}>
+              Onay bekleyen başvuru yok
+            </Text>
           </View>
         }
       />
