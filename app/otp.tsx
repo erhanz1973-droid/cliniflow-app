@@ -32,7 +32,15 @@ export default function OtpScreen() {
     const t = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS);
 
     try {
-      const requestBody = {
+      // 🔥 FIX: Check if this is admin login (source=admin)
+      const isAdminLogin = source === "admin";
+      const verifyEndpoint = isAdminLogin ? `${API_BASE}/api/admin/verify-otp` : `${API_BASE}/auth/verify-otp`;
+      
+      const requestBody = isAdminLogin ? {
+        otp: code,
+        email: email || undefined, // Admin login requires email
+        clinicCode: phoneToVerify, // Admin login uses clinicCode instead of phone
+      } : {
         otp: code,
         phone: phoneToVerify,
         email: email || undefined, // Include email if available
@@ -40,13 +48,15 @@ export default function OtpScreen() {
       };
 
       console.log("[OTP] Sending verification request:", {
+        isAdminLogin,
+        verifyEndpoint,
         otp: code,
         phone: phoneToVerify,
         email: email || undefined,
         sessionId: requestBody.sessionId,
       });
 
-      const res = await fetch(`${API_BASE}/auth/verify-otp`, {
+      const res = await fetch(verifyEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -65,37 +75,40 @@ export default function OtpScreen() {
           errorMsg = "Maksimum deneme sayısına ulaşıldı. Lütfen yeni bir kod isteyin.";
         } else if (json.error === "patient_not_found") {
           errorMsg = "Hesap bulunamadı. Lütfen kayıt olun.";
+        } else if (json.error === "clinic_not_found") {
+          errorMsg = "Klinik bulunamadı. Lütfen klinik kodunu kontrol edin.";
         }
         throw new Error(errorMsg);
       }
 
-      if (json.ok && json.token && json.patientId) {
+      if (json.ok && json.token) {
         console.log("VERIFY OTP RESPONSE:", json); // 🔥 DEBUG: Log full response
         
-        await signIn({
-          token: json.token,
-          id: json.patientId,
-          patientId: json.patientId,
-          role: json.role, // 🔥 FIX: Include role from OTP response
-        });
-        
-        // Navigate based on source and role
-        const userRole = json.role || "PATIENT";
-        const isDoctor = userRole === "DOCTOR";
-        
-        if (source === "register") {
-          const patientStatus = json.status || "PENDING";
-          const targetRoute = patientStatus === "APPROVED" ? "/home" : "/waiting-approval";
-          router.replace(targetRoute);
+        // 🔥 FIX: Handle different response formats for admin vs patient/doctor
+        if (isAdminLogin) {
+          await signIn({
+            token: json.token,
+            id: json.clinicCode, // Admin uses clinicCode as ID
+            clinicCode: json.clinicCode,
+            email: email,
+            role: "admin",
+          });
         } else {
-          // Login flow - role-based routing
-          if (isDoctor) {
-            const doctorStatus = json.status || "PENDING";
-            const targetRoute = doctorStatus === "ACTIVE" ? "/doctor/dashboard" : "/waiting-approval";
-            router.replace(targetRoute);
-          } else {
-            router.replace("/home");
-          }
+          await signIn({
+            token: json.token,
+            id: json.patientId,
+            patientId: json.patientId,
+            role: json.role, // 🔥 FIX: Include role from OTP response
+          });
+        }
+        
+        // 🔥 FIX: Route based on user type
+        if (json.role === "admin") {
+          router.replace("/admin/dashboard");
+        } else if (json.role === "DOCTOR") {
+          router.replace("/doctor/dashboard");
+        } else {
+          router.replace("/home");
         }
       } else {
         throw new Error(json.message || "OTP doğrulama başarısız");
