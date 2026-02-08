@@ -1,5 +1,5 @@
 // app/otp.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { View, Text, TextInput, Pressable, StyleSheet, Alert, Platform, ScrollView, ActivityIndicator } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../lib/auth";
@@ -25,12 +25,24 @@ export default function OtpScreen() {
   const [busy, setBusy] = useState(false);
   const [resending, setResending] = useState(false);
   const [msg, setMsg] = useState("");
+  const [isVerifying, setIsVerifying] = useState(false);
+  const otpVerifiedRef = useRef(false);
+  const hardResetDoneRef = useRef(false);
 
   async function verifyWithServer(code: string, phoneToVerify: string) {
+    // 🔥 CRITICAL: Prevent multiple verification calls
+    if (isVerifying || otpVerifiedRef.current) {
+      console.log('[OTP] 🔥 Verification already in progress or completed - skipping');
+      return;
+    }
+
     // Final validation before sending request
     if (!code || code.length !== 6 || !phoneToVerify) {
       throw new Error("Missing required parameters for OTP verification");
     }
+
+    setIsVerifying(true);
+    otpVerifiedRef.current = true;
 
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS);
@@ -132,6 +144,7 @@ export default function OtpScreen() {
       }
     } finally {
       clearTimeout(t);
+      setIsVerifying(false);
     }
   }
 
@@ -216,30 +229,33 @@ export default function OtpScreen() {
   }
 
   useEffect(() => {
-    // 🔥 CRITICAL: HARD RESET AUTH BEFORE OTP
+    // 🔥 CRITICAL: HARD RESET AUTH BEFORE OTP (only once on mount)
     // OTP screen MUST start with ZERO auth state
-    const hardResetAuth = async () => {
-      try {
-        console.log('[OTP] 🔥 HARD RESET: Clearing all auth storage');
-        await signOut();
-        
-        // Clear all storage
-        if (Platform.OS === "web") {
-          if (typeof window !== "undefined") {
-            localStorage.clear();
-            sessionStorage.clear();
+    if (!hardResetDoneRef.current) {
+      const hardResetAuth = async () => {
+        try {
+          console.log('[OTP] 🔥 HARD RESET: Clearing all auth storage');
+          await signOut();
+          
+          // Clear all storage
+          if (Platform.OS === "web") {
+            if (typeof window !== "undefined") {
+              localStorage.clear();
+              sessionStorage.clear();
+            }
+          } else {
+            await AsyncStorage.clear();
           }
-        } else {
-          await AsyncStorage.clear();
+          
+          console.log('[OTP] 🔥 HARD RESET: All auth storage cleared');
+        } catch (error) {
+          console.error('[OTP] 🔥 HARD RESET: Error clearing storage:', error);
         }
-        
-        console.log('[OTP] 🔥 HARD RESET: All auth storage cleared');
-      } catch (error) {
-        console.error('[OTP] 🔥 HARD RESET: Error clearing storage:', error);
-      }
-    };
-    
-    hardResetAuth();
+      };
+      
+      hardResetAuth();
+      hardResetDoneRef.current = true;
+    }
 
     if (!phone && !phoneInput && !patientId) {
       // Redirect to register if no phone/patientId provided
