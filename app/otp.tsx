@@ -231,6 +231,22 @@ export default function OtpScreen() {
   }
 
   useEffect(() => {
+    // 🔥 CRITICAL: Doctors bypass OTP entirely
+    if (source === "doctor") {
+      console.log('[OTP] 🔥 Doctor source detected - redirecting away from OTP');
+      Alert.alert(
+        "Hata", 
+        "Doktorlar OTP doğrulaması kullanamaz. Lütfen kayıt ekranına dönün.",
+        [
+          {
+            text: "Tamam",
+            onPress: () => router.replace("/register-doctor")
+          }
+        ]
+      );
+      return;
+    }
+
     // 🔥 CRITICAL: HARD RESET AUTH BEFORE OTP (only once on mount)
     // OTP screen MUST start with ZERO auth state
     if (!hardResetDoneRef.current) {
@@ -263,7 +279,7 @@ export default function OtpScreen() {
       // Redirect to register if no phone/patientId provided
       router.replace("/");
     }
-  }, [phone, phoneInput, patientId]);
+  }, [phone, phoneInput, patientId, source]);
 
   return (
     <ScrollView contentContainerStyle={styles.scrollContent}>

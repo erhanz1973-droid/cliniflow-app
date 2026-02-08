@@ -1,30 +1,39 @@
 // lib/doctor/register.ts
-// Doctor registration logic
+// Doctor registration logic - NO OTP required
 import { registerDoctor, DoctorRegisterRequest } from './api';
 import { router } from 'expo-router';
 import { Alert } from 'react-native';
+import { useAuth } from '../auth';
 
 export async function handleDoctorRegistration(formData: DoctorRegisterRequest) {
   try {
     const result = await registerDoctor(formData);
     
-    if (result.ok) {
+    if (result.ok && result.token) {
+      // 🔥 CRITICAL: Doctor role finalized at registration time
+      // NO OTP required for doctors
+      const { signIn } = useAuth();
+      await signIn({
+        token: result.token,
+        doctorId: result.doctorId,
+        clinicId: result.clinicId,
+        type: "doctor",
+        role: "DOCTOR",
+        status: result.status,
+      });
+      
       Alert.alert(
         "Başarılı",
-        "Doktor kaydınız tamamlandı. OTP doğrulaması için yönlendiriliyorsunuz.",
+        "Doktor kaydınız tamamlandı. Panelinize yönlendiriliyorsunuz.",
         [
           {
             text: "Tamam",
             onPress: () => {
-              // Navigate to OTP screen with doctor source
-              router.push({
-                pathname: '/otp',
-                params: {
-                  email: formData.email,
-                  phone: formData.phone,
-                  source: 'doctor' // Explicit doctor source
-                }
-              });
+              // Route based on doctor status - NO OTP
+              const targetRoute = result.status === "ACTIVE" 
+                ? "/doctor/dashboard" 
+                : "/waiting-approval";
+              router.replace(targetRoute);
             },
           },
         ]
