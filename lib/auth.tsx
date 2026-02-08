@@ -10,13 +10,17 @@ export type UserRole = "PATIENT" | "DOCTOR" | "ADMIN";
 
 type User = {
   id: string;
-  email?: string;
   token: string;
-  role?: UserRole;
+  type: "patient" | "doctor" | "admin"; // 🔥 REQUIRED: type is PRIMARY routing key
+  role: "PATIENT" | "DOCTOR" | "ADMIN";
   name?: string;
-  status?: string; // 🔥 FIX: Add status field to User type
-  clinicId?: string;
-  clinicCode?: string;
+  email?: string;
+  phone?: string;
+  patientId?: string; // For patients
+  doctorId?: string; // For doctors
+  clinicId?: string; // For doctors and admins
+  clinicCode?: string; // For admins
+  status?: string; // For doctors
   profilePhotoUrl?: string;
   diplomaFileUrl?: string;
   department?: string;
@@ -211,9 +215,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAuthLoading,
       isAuthReady: !isAuthLoading,
       isAuthed: !!user?.token,
-      isDoctor: user?.role === "DOCTOR",
-      isPatient: user?.role === "PATIENT", 
-      isAdmin: user?.role === "ADMIN",
+      // 🔥 CLEAN SEPARATION: Type-based logic - PRIMARY routing key
+      isDoctor: user?.type === "doctor",
+      isPatient: user?.type === "patient",
+      isAdmin: user?.type === "admin",
       signIn,
       signOut,
       refreshAuth,

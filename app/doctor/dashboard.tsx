@@ -8,31 +8,66 @@ import { useAuth } from '../../lib/auth';
 
 export default function DoctorDashboard() {
   const router = useRouter();
-  const { user, isAuthLoading } = useAuth(); // 🔥 FIX: Use isAuthLoading instead of loading
+  const { user, isAuthReady } = useAuth(); // 🔥 FIX: Use isAuthReady instead of isAuthLoading
 
   // 🔐 ROLE + STATUS GUARD
   useEffect(() => {
-    if (isAuthLoading) return; // 🔥 FIX: Use isAuthLoading
-
-    // Giriş yoksa
-    if (!user) {
-      router.replace('/login');
+    // 🔥 CLEAN SEPARATION: Type-based guard - PRIMARY routing key
+    if (!isAuthReady) return; // Wait for auth to be ready
+    
+    if (!user || !user.token) {
+      console.log("[Doctor Dashboard] No user or token, redirecting to login");
+      router.replace("/");
       return;
     }
-
-    // Doktor değilse
-    if (user.role !== 'DOCTOR') {
-      router.replace('/'); // patient home
+    
+    if (user.type !== "doctor") {
+      console.log("[Doctor Dashboard] User is not a doctor (type:", user.type, "), redirecting to login");
+      router.replace("/");
       return;
     }
-
-    // Doktor ama henüz onaylanmamışsa
-    if (user.status !== 'ACTIVE') {
-      router.replace('/waiting-approval');
+    
+    // Check doctor status (only if type is doctor)
+    if (user.status !== "ACTIVE") {
+      console.log("[Doctor Dashboard] Doctor not active (status:", user.status, "), redirecting to waiting approval");
+      router.replace("/waiting-approval");
+      return;
     }
-  }, [user, isAuthLoading]); // 🔥 FIX: Use isAuthLoading
+    
+    console.log("[Doctor Dashboard] Access granted for doctor:", user.doctorId);
+  }, [user, isAuthReady, router]);
 
-  if (isAuthLoading || !user) { // 🔥 FIX: Use isAuthLoading
+  if (isAuthReady && user) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>👨‍⚕️ Doktor Paneli</Text>
+        <Text style={styles.subtitle}>
+          Hoş geldin{user.name ? `, ${user.name}` : ''}
+        </Text>
+
+        <Pressable
+          style={styles.button}
+          onPress={() => router.push('/doctor/patients')}
+        >
+          <Text style={styles.buttonText}>👥 Hastalar</Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.button}
+          onPress={() => router.push('/doctor/diagnosis')}
+        >
+          <Text style={styles.buttonText}>🦷 Tanı (ICD-10)</Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.buttonSecondary}
+          onPress={() => router.push('/doctor/profile')}
+        >
+          <Text style={styles.buttonSecondaryText}>👤 Profil</Text>
+        </Pressable>
+      </View>
+    );
+  } else {
     return (
       <View style={styles.center}>
         <Text>Yükleniyor...</Text>

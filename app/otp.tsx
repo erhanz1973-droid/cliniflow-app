@@ -32,7 +32,7 @@ export default function OtpScreen() {
     const t = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS);
 
     try {
-      // 🔥 FIX: Check user type and use appropriate endpoint
+      // 🔥 CLEAN SEPARATION: Use separate endpoints based on source
       const isAdminLogin = source === "admin";
       const isDoctorLogin = source === "doctor";
       const isPatientLogin = source === "patient" || !source;
@@ -55,7 +55,7 @@ export default function OtpScreen() {
         };
       } else {
         // Patient login
-        verifyEndpoint = `${API_BASE}/auth/verify-otp`;
+        verifyEndpoint = `${API_BASE}/auth/verify-otp-patient`;
         requestBody = {
           otp: code,
           phone: phoneToVerify,
@@ -103,14 +103,16 @@ export default function OtpScreen() {
       if (json.ok && json.token) {
         console.log("VERIFY OTP RESPONSE:", json); // 🔥 DEBUG: Log full response
         
-        // 🔥 FIX: Handle different response formats for each user type
+        // 🔥 CLEAN SEPARATION: Handle different response formats for each user type
         if (isAdminLogin) {
           await signIn({
             token: json.token,
             id: json.clinicCode,
+            clinicId: json.clinicId,
             clinicCode: json.clinicCode,
             email: email,
-            role: "admin",
+            type: "admin",
+            role: "ADMIN",
           });
           router.replace("/admin/dashboard");
         } else if (isDoctorLogin) {
@@ -118,6 +120,8 @@ export default function OtpScreen() {
             token: json.token,
             id: json.doctorId,
             doctorId: json.doctorId,
+            clinicId: json.clinicId,
+            type: "doctor",
             role: json.role,
             status: json.status,
           });
@@ -131,6 +135,7 @@ export default function OtpScreen() {
             token: json.token,
             id: json.patientId,
             patientId: json.patientId,
+            type: "patient",
             role: json.role,
           });
           router.replace("/home");
