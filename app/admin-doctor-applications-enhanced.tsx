@@ -14,7 +14,9 @@ import { useAuth } from "../lib/auth";
 import { API_BASE } from "../lib/api";
 
 type DoctorApplication = {
-  patient_id: string;
+  id: string; // 🔥 ADD: UUID primary key
+  doctor_id: string; // 🔥 ADD: Doctor ID
+  patient_id: string; // 🔥 KEEP: For compatibility
   name: string;
   phone: string;
   email?: string;
@@ -178,8 +180,8 @@ export default function AdminDoctorApplicationsScreen() {
     }
   };
 
-  const approveDoctor = async (patientId: string) => {
-    setApproving(patientId);
+  const approveDoctor = async (doctorId: string) => {
+    setApproving(doctorId);
     try {
       const response = await fetch(
         `${API_BASE}/api/admin/approve-doctor`,
@@ -189,7 +191,7 @@ export default function AdminDoctorApplicationsScreen() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${user?.token}`,
           },
-          body: JSON.stringify({ patientId }),
+          body: JSON.stringify({ doctorId }), // 🔥 FIX: Send doctorId not patientId
         }
       );
 
@@ -363,11 +365,11 @@ export default function AdminDoctorApplicationsScreen() {
               flex: 1,
               marginLeft: 8,
             }}
-            onPress={() => approveDoctor(item.patient_id)}
-            disabled={approving === item.patient_id}
+            onPress={() => approveDoctor(item.id || item.doctor_id)}
+            disabled={approving === (item.id || item.doctor_id)}
           >
             <Text style={{ color: "#ffffff", fontWeight: "bold", textAlign: "center" }}>
-              {approving === item.patient_id ? "⏳ İşleniyor..." : "✅ Onayla"}
+              {approving === (item.id || item.doctor_id) ? "⏳ İşleniyor..." : "✅ Onayla"}
             </Text>
           </TouchableOpacity>
         )}
