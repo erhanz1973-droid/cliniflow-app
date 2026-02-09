@@ -31,7 +31,7 @@ export interface DoctorResponse {
   error?: string;
 }
 
-// Doctor registration - EXPLICIT DOCTOR ENDPOINT
+// Doctor registration - CLEAN WHITELIST ONLY
 export async function registerDoctor(data: DoctorRegisterRequest): Promise<DoctorResponse> {
   const payload = {
     name: data.name,
