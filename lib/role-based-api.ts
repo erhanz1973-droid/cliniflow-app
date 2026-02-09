@@ -12,8 +12,7 @@ import type { UserRole } from './auth';
 
 export function getRoleBasedEndpoint(userRole: UserRole | undefined, endpoint: string): string {
   if (!userRole) {
-    console.warn('[ROLE-API] No user role provided, defaulting to patient endpoints');
-    return `${API_BASE}/api/patient${endpoint}`;
+    throw new Error('[ROLE-API] userRole is undefined. API call blocked.');
   }
 
   switch (userRole) {
@@ -24,8 +23,7 @@ export function getRoleBasedEndpoint(userRole: UserRole | undefined, endpoint: s
     case 'ADMIN':
       return `${API_BASE}/api/admin${endpoint}`;
     default:
-      console.warn('[ROLE-API] Unknown role, defaulting to patient endpoints:', userRole);
-      return `${API_BASE}/api/patient${endpoint}`;
+      throw new Error(`[ROLE-API] Unknown role: ${userRole}`);
   }
 }
 
@@ -53,7 +51,7 @@ export async function fetchRoleBased(
   options: RequestInit = {}
 ): Promise<Response> {
   const url = getRoleBasedEndpoint(userRole, endpoint);
-  console.log(`[ROLE-API] Fetching from ${userRole} endpoint:`, url);
+  console.log(`[ROLE-API] Fetching (${userRole}) →`, url);
   
   return fetch(url, {
     ...options,
@@ -71,10 +69,14 @@ export function useRoleBasedAPI() {
   const { user } = useAuth();
   
   const fetchWithRole = (endpoint: string, options: RequestInit = {}) => {
-    return fetchRoleBased(user?.role, endpoint, {
+    if (!user?.role) {
+      throw new Error('[ROLE-API] fetchWithRole called before role is set');
+    }
+
+    return fetchRoleBased(user.role, endpoint, {
       ...options,
       headers: {
-        Authorization: user?.token ? `Bearer ${user.token}` : '',
+        Authorization: `Bearer ${user.token}`,
         ...options.headers,
       },
     });
