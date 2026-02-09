@@ -198,10 +198,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("signIn blocked: Cannot sign in on OTP route");
     }
 
-    // 🔥 CRITICAL: OTP VERIFICATION CHECK
-    // signIn() MUST THROW if isOtpVerified === false
-    if (!isOtpVerified) {
-      throw new Error("signIn blocked: OTP not verified");
+    // 🔥 CRITICAL: OTP VERIFICATION CHECK - ONLY FOR PATIENTS
+    // signIn() MUST THROW if patient and isOtpVerified === false
+    if (input.type === "patient" && !isOtpVerified) {
+      throw new Error("signIn blocked: OTP not verified for patient");
+    }
+
+    // 🔒 EKSTRA: Doctor signIn security log
+    if (input.type === "doctor") {
+      console.log("[AUTH] Doctor signIn without OTP allowed");
     }
 
     // 🔥 HARD GUARDS - NON-NEGOTIABLE
