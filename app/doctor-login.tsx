@@ -11,6 +11,7 @@ export default function DoctorLogin() {
   const router = useRouter();
   const { signIn } = useAuth();
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
   const [requestingOTP, setRequestingOTP] = useState(false);
@@ -20,10 +21,11 @@ export default function DoctorLogin() {
     if (requestingOTP || otpSent) return;
 
     const cleanedPhone = phone.replace(/\D/g, "");
+    const emailTrimmed = email.trim();
     setPhone(cleanedPhone);
 
-    if (!cleanedPhone.trim()) {
-      Alert.alert("Eksik Bilgi", "Lütfen telefon numarası giriniz.");
+    if (!cleanedPhone.trim() && !emailTrimmed) {
+      Alert.alert("Eksik Bilgi", "Lütfen telefon numarası veya email giriniz.");
       return;
     }
 
@@ -33,7 +35,8 @@ export default function DoctorLogin() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          phone: cleanedPhone,
+          phone: cleanedPhone || undefined,
+          email: emailTrimmed || undefined,
           role: "DOCTOR", // Specify doctor role
         }),
       });
@@ -60,9 +63,10 @@ export default function DoctorLogin() {
     if (loading) return;
 
     const cleanedPhone = phone.replace(/\D/g, "");
+    const emailTrimmed = email.trim();
 
-    if (!cleanedPhone.trim()) {
-      Alert.alert("Eksik Bilgi", "Lütfen telefon numarası giriniz.");
+    if (!cleanedPhone.trim() && !emailTrimmed) {
+      Alert.alert("Eksik Bilgi", "Lütfen telefon numarası veya email giriniz.");
       return;
     }
 
@@ -77,7 +81,8 @@ export default function DoctorLogin() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          phone: cleanedPhone,
+          phone: cleanedPhone || undefined,
+          email: emailTrimmed || undefined,
           otp: otp.trim(),
           role: "DOCTOR", // Specify doctor role
         }),
@@ -169,13 +174,27 @@ export default function DoctorLogin() {
 
           <View style={styles.form}>
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Telefon Numarası *</Text>
+              <Text style={styles.label}>Telefon Numarası</Text>
               <TextInput
                 style={styles.input}
                 placeholder="05551234567 veya +905551234567"
                 value={phone}
                 onChangeText={setPhone}
                 keyboardType="phone-pad"
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!loading && !requestingOTP && !otpSent}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Email Adresi</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="email@domain.com"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!loading && !requestingOTP && !otpSent}
@@ -208,9 +227,9 @@ export default function DoctorLogin() {
 
             {!otpSent ? (
               <Pressable
-                style={[styles.button, (requestingOTP || !phone.trim()) && styles.buttonDisabled]}
+                style={[styles.button, (requestingOTP || (!phone.trim() && !email.trim())) && styles.buttonDisabled]}
                 onPress={handleRequestOTP}
-                disabled={requestingOTP || !phone.trim()}
+                disabled={requestingOTP || (!phone.trim() && !email.trim())}
               >
                 {requestingOTP ? (
                   <ActivityIndicator size="small" color="#ffffff" />
