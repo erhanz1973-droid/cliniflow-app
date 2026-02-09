@@ -8,6 +8,7 @@ module.exports = (async () => {
     alias: {
       'whatwg-fetch': 'react-native/Libraries/NetworkRequest.js',
     },
+    assetExts: [...config.resolver.assetExts, 'jpg', 'jpeg', 'png', 'svg'],
   };
 
   return config;
