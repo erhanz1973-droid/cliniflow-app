@@ -35,12 +35,10 @@ export default function Login() {
         token: params.token,
         id: params.patientId,
         patientId: params.patientId,
-        role: "PATIENT", // 🔥 FIX: Default to PATIENT for deep link (patient flow)
-      }).then(() => {
-        router.replace("/home");
-      }).catch((error) => {
-        console.error("[LOGIN] Deep link auto-login error:", error);
+        type: "patient",
+        role: "PATIENT",
       });
+      router.replace("/home");
     }
   }, [params.token, params.patientId, isAuthReady, isAuthed, signIn, router]);
 
@@ -172,29 +170,17 @@ export default function Login() {
           token: json.token,
           id: json.patientId,
           patientId: json.patientId,
-          role: json.role || "PATIENT", // 🔥 FIX: Include role from login response
+          type: json.role?.toLowerCase() || "patient", // 🔥 FIX: Include type from login response
+          role: json.role || "PATIENT",
         });
 
-        // Role-based routing - DOCTOR goes to doctor dashboard, PATIENT goes to home/waiting
-        const userRole = json.role || "PATIENT";
-        const isDoctor = userRole === "DOCTOR";
-        
-        let targetRoute;
-        if (isDoctor) {
-          // Doctor routing based on status
-          const doctorStatus = json.status || "PENDING";
-          targetRoute = doctorStatus === "ACTIVE" ? "/doctor/dashboard" : "/waiting-approval";
-        } else {
-          // Patient routing
-          const patientStatus = json.status || "PENDING";
-          targetRoute = patientStatus === "APPROVED" ? "/home" : "/waiting-approval";
-        }
+        // Patient-only routing
+        const patientStatus = json.status || "PENDING";
+        const targetRoute = patientStatus === "APPROVED" ? "/home" : "/waiting-approval";
 
         Alert.alert(
           t("login.success"),
-          isDoctor 
-            ? t("login.welcome", { name: json.name || "" })
-            : t("login.welcomePending", { name: json.name || "" }),
+          t("login.welcomePending", { name: json.name || "" }),
           [
             {
               text: t("common.ok"),
