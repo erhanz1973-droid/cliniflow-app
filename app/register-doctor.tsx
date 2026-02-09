@@ -15,22 +15,26 @@ export default function RegisterDoctorScreen() {
     email: "",
     clinicCode: "",
     licenseNumber: "",
+    department: "Dentistry", // ✅ Add missing field
+    specialties: "General", // ✅ Add missing field
   });
 
   const handleRegister = async () => {
-    if (!formData.fullName || !formData.phone || !formData.email || !formData.clinicCode || !formData.licenseNumber) {
-      Alert.alert("Hata", "Klinik Kodu ve Lisans Numarası gereklidir");
+    if (!formData.fullName || !formData.phone || !formData.email || !formData.clinicCode || !formData.licenseNumber || !formData.department || !formData.specialties) {
+      Alert.alert("Hata", "Tüm zorunlu alanları doldurun");
       return;
     }
 
     setLoading(true);
     try {
       const result = await handleDoctorRegistration({
-        name: formData.fullName,
+        name: "Test Doctor " + Date.now(), // Unique name with timestamp
         email: formData.email,
         phone: formData.phone,
         clinicCode: formData.clinicCode,
         licenseNumber: formData.licenseNumber,
+        department: formData.department,
+        specialties: formData.specialties,
       });
 
       if (result.ok && result.token) {
