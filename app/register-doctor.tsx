@@ -49,15 +49,12 @@ export default function RegisterDoctorScreen() {
 
         Alert.alert(
           "Başvuru alındı",
-          "Doktor hesabınız admin onayından sonra Aktif edilecektir.",
+          "Doktor hesabınız admin onayından sonra giriş yapabilirsiniz.",
           [
             {
               text: "Tamam",
               onPress: () => {
-                const targetRoute = result.status === "ACTIVE"
-                  ? "/doctor/dashboard"
-                  : "/waiting-approval";
-                router.replace(targetRoute);
+                router.replace("/login-doctor"); // 🔥 ROUTE TO DOCTOR LOGIN
               },
             },
           ]

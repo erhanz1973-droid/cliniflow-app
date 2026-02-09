@@ -33,11 +33,15 @@ export interface DoctorResponse {
 
 // Doctor registration - EXPLICIT DOCTOR ENDPOINT
 export async function registerDoctor(data: DoctorRegisterRequest): Promise<DoctorResponse> {
-  return apiPost<DoctorResponse>('/api/register/doctor', {
-    ...data,
-    // ❌ DON'T send userType - backend already sets it to "DOCTOR"
-    // userType: 'DOCTOR', 
-  });
+  const payload = {
+    name: data.name,
+    email: data.email,
+    phone: data.phone,
+    clinicCode: data.clinicCode,
+    licenseNumber: data.licenseNumber
+  };
+  
+  return apiPost<DoctorResponse>('/api/register/doctor', payload);
 }
 
 // ❌ OTP YOK – doktor için kapalı

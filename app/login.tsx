@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from "react";
+// app/login.tsx
+// PATIENT-ONLY LOGIN SCREEN - NO DOCTOR ROUTING
+import React, { useState } from "react";
 import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useLanguage } from "../lib/language-context";
+import { useEffect } from "react";
 
 export default function Login() {
   const router = useRouter();
