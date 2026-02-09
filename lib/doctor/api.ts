@@ -6,7 +6,7 @@ export interface DoctorRegisterRequest {
   email: string;
   phone: string;
   clinicCode: string;
-  licenseNumber?: string;
+  licenseNumber: string; // ✅ Backend requires license number
   department?: string;
   specialties?: string[]; // ✅ Backend expects array
   title?: string;

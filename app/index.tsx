@@ -52,6 +52,7 @@ function RegisterScreen() {
           email: email.trim(),
           phone: phone.replace(/\D/g, ""),
           clinicCode: clinicCode.trim(),
+          licenseNumber: "DEFAULT_LICENSE", // ✅ Backend expects license number
           department: "Dentistry",
           specialties: ["General"] // ✅ Backend expects array
         });
