@@ -37,28 +37,46 @@ export default function RegisterDoctorScreen() {
         specialties: "General"
       });
 
-      if (result.ok && result.token) {
-        await signIn({
-          token: result.token,
-          doctorId: result.doctorId,
-          clinicId: result.clinicId,
-          role: "DOCTOR",
-          type: "doctor",
-          status: result.status,
-        });
+      if (result.ok) {
+        // Check if doctor is already approved
+        if (result.status === 'APPROVED' || result.status === 'ACTIVE') {
+          if (result.token) {
+            await signIn({
+              token: result.token,
+              doctorId: result.doctorId,
+              clinicId: result.clinicId,
+              role: "DOCTOR",
+              type: "doctor",
+              status: result.status,
+            });
+          }
 
-        Alert.alert(
-          "Başvuru alındı",
-          "Doktor hesabınız admin onayından sonra giriş yapabilirsiniz.",
-          [
-            {
-              text: "Tamam",
-              onPress: () => {
-                router.replace("/login-doctor"); // 🔥 ROUTE TO DOCTOR LOGIN
+          Alert.alert(
+            "Başarılı",
+            "Doktor hesabınız onaylı. Giriş yapılıyorsunuz.",
+            [
+              {
+                text: "Tamam",
+                onPress: () => {
+                  router.replace("/doctor/dashboard");
+                },
               },
-            },
-          ]
-        );
+            ]
+          );
+        } else {
+          Alert.alert(
+            "Başvuru alındı",
+            "Doktor hesabınız admin onayından sonra giriş yapabilirsiniz.",
+            [
+              {
+                text: "Tamam",
+                onPress: () => {
+                  router.replace("/doctor-login"); // Go to doctor login for pending approval
+                },
+              },
+            ]
+          );
+        }
       } else {
         Alert.alert("Hata", result.error || "Doktor kaydı başarısız");
       }
