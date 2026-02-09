@@ -27,24 +27,20 @@ function normalizeApiBase(raw: string): string {
   return base;
 }
 
-// 🔥 TEK KAYNAK
-const RAW_API_BASE = process.env.EXPO_PUBLIC_API_BASE || "";
-
-// 🔒 HER ZAMAN normalize edilir
-export const API_BASE = normalizeApiBase(RAW_API_BASE);
+// 🔥 TEK KAYNAK - Production backend
+export const API_BASE = "https://clinic.clinifly.net";
 
 // 🔥 Admin backend AYRI
 export const ADMIN_API_BASE = "https://cliniflow-admin.onrender.com";
 
 console.log("🔥 FINAL API CONFIG", {
-  RAW_API_BASE,
   API_BASE,
   ADMIN_API_BASE,
 });
 
 if (!API_BASE) {
   throw new Error(
-    `API_BASE is not defined. Set EXPO_PUBLIC_API_BASE in env. (raw: "${RAW_API_BASE}")`
+    `API_BASE is not defined.`
   );
 }
 
@@ -58,7 +54,7 @@ export function setAuthToken(token: string | null) {
   AUTH_TOKEN = token;
 }
 
-function authHeaders() {
+function authHeaders(): Record<string, string> {
   return AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {};
 }
 
@@ -153,6 +149,48 @@ export async function apiPost<T>(path: string, body: any): Promise<T> {
       throw new Error(`POST timeout: ${url}`);
     }
     console.error("[API] POST error:", err.message);
+    throw err;
+  }
+}
+
+// =====================
+// PUT
+// =====================
+
+export async function apiPut<T>(path: string, body: any): Promise<T> {
+  const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
+  console.log("[API] PUT", url, JSON.stringify(body).substring(0, 200));
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        ...authHeaders(),
+      },
+      body: JSON.stringify(body ?? {}),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    const text = await res.text();
+    console.log("[API] PUT response", res.status, text.substring(0, 200));
+
+    if (!res.ok) {
+      throw new Error(`PUT ${url} -> ${res.status}`);
+    }
+
+    return parseJsonSafe<T>(url, text);
+  } catch (err: any) {
+    if (err.name === "AbortError") {
+      throw new Error(`PUT timeout: ${url}`);
+    }
+    console.error("[API] PUT error:", err.message);
     throw err;
   }
 }
