@@ -1,5 +1,4 @@
 // lib/doctor/api.ts
-// Doctor-specific API layer
 import { apiGet, apiPost } from '../api';
 
 export interface DoctorRegisterRequest {
@@ -36,16 +35,13 @@ export interface DoctorResponse {
 export async function registerDoctor(data: DoctorRegisterRequest): Promise<DoctorResponse> {
   return apiPost<DoctorResponse>('/api/register/doctor', {
     ...data,
-    role: 'doctor' // Explicit doctor role
+    userType: 'DOCTOR', // ✅ TEK DOĞRU
   });
 }
 
-// Doctor login/OTP verification
-export async function verifyDoctorOtp(data: { phone: string; otp: string; email?: string }): Promise<DoctorResponse> {
-  return apiPost<DoctorResponse>('/auth/verify-otp', {
-    ...data,
-    type: 'doctor' // Explicit doctor type
-  });
+// ❌ OTP YOK – doktor için kapalı
+export async function verifyDoctorOtp() {
+  throw new Error('Doctor OTP flow is disabled');
 }
 
 // Get doctor data
