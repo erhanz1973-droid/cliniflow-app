@@ -28,13 +28,13 @@ export default function RegisterDoctorScreen() {
     setLoading(true);
     try {
       const result = await handleDoctorRegistration({
-        name: "Test Doctor " + Date.now(), // Unique name with timestamp
-        email: formData.email,
-        phone: formData.phone,
-        clinicCode: formData.clinicCode,
-        licenseNumber: formData.licenseNumber,
-        department: formData.department,
-        specialties: formData.specialties,
+        name: "Test Doctor", // Simple test name
+        email: "test@doctor.com", // Simple test email
+        phone: "9999999999", // Simple test phone
+        clinicCode: "SAVSAT",
+        licenseNumber: "TEST123",
+        department: "Dentistry",
+        specialties: "General"
       });
 
       if (result.ok && result.token) {
