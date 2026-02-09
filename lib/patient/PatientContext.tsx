@@ -1,6 +1,7 @@
 // lib/patient/PatientContext.tsx
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useAuth } from "../auth";
 
 export type Jaw = "upper" | "lower";
 
@@ -54,12 +55,20 @@ const STORAGE_KEY = "cliniflow.patient.v1";
 const PatientContext = createContext<PatientContextValue | undefined>(undefined);
 
 export function PatientProvider({ children }: { children: React.ReactNode }) {
+  const { user, isAuthReady } = useAuth();
   const [patient, setPatientState] = useState<Patient | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const refreshFromStorage = async () => {
     setIsLoading(true);
     try {
+      // 🔥 BLOCK FOR NON-PATIENT
+      if (!isAuthReady || user?.type !== "patient") {
+        setPatientState(null);
+        setIsLoading(false);
+        return;
+      }
+
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
       if (!raw) {
         setPatientState(null);
@@ -102,8 +111,7 @@ export function PatientProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refreshFromStorage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.type, isAuthReady]); // 🔥 Re-run on auth change
 
   const value = useMemo<PatientContextValue>(
     () => ({

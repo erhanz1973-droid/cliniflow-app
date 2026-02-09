@@ -264,6 +264,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       status: type === "doctor" ? input.status : undefined,
     };
     
+    // 🔒 EKSTRA GÜVENLİK: Clear patient storage when signing in as doctor
+    if (type === "doctor") {
+      try {
+        await AsyncStorage.removeItem("cliniflow.patient.v1");
+      } catch (error) {
+        console.warn("[AUTH] Failed to clear patient storage:", error);
+      }
+    }
+    
     setUser(next);
     await storageSet(AUTH_KEY, JSON.stringify(next));
   };
