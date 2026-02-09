@@ -59,6 +59,7 @@ function RegisterScreen() {
         patientId?: string;
         message?: string;
         status?: string;
+        error?: string;
       }>(endpoint, {
         name: name.trim(),
         email: email.trim(),
@@ -88,9 +89,19 @@ function RegisterScreen() {
           : "Kayıt tamamlandı. OTP doğrulamasına yönlendiriliyorsunuz."
       );
 
-      // Send OTP for both patient and doctor
+      // Send OTP - ONLY for patients
       try {
-        await sendOTP(phone.replace(/\D/g, ""), email);
+        const result = await sendOTP({
+          phone: phone.replace(/\D/g, ""),
+          email,
+          userType: userType === "doctor" ? "doctor" : "patient"
+        });
+        
+        // If OTP was skipped for doctor, don't navigate to OTP
+        if (result?.skipped) {
+          console.log("[REGISTER] OTP skipped for doctor - staying on register");
+          return;
+        }
       } catch (error) {
         console.error("[REGISTER] OTP send error:", error);
         // Continue with flow even if OTP fails
