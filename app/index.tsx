@@ -1,22 +1,11 @@
 import React, { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  Pressable,
-  StyleSheet,
-  ScrollView,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-  Image,
-} from "react-native";
-import { Stack, useRouter } from "expo-router";
+import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, Pressable, Image } from "react-native";
+import { useRouter, Stack } from "expo-router";
 import { apiPost } from "../lib/api";
+import { sendOTP } from "../lib/otp";
 import { useAuth } from "../lib/auth";
 import { useLanguage } from "../lib/language-context";
-import { sendOTP } from "../lib/otp";
+import { registerDoctor } from "../lib/doctor/api";
 
 export const unstable_settings = {
   initialRouteName: "index",
@@ -54,31 +43,42 @@ function RegisterScreen() {
 
     setLoading(true);
     try {
-      const res = await apiPost<{
-        ok: boolean;
-        patientId?: string;
-        doctorId?: string;
-        message?: string;
-        status?: string;
-        error?: string;
-      }>(endpoint, {
-        name: name.trim(),
-        email: email.trim(),
-        phone: phone.replace(/\D/g, ""),
-        clinicCode: clinicCode.trim(),
-        referralCode: referralCode.trim(),
-        userType: userType,
-        ...(userType === "doctor" && {
+      let res;
+      
+      if (userType === "doctor") {
+        // Use dedicated doctor registration API
+        res = await registerDoctor({
+          name: name.trim(),
+          email: email.trim(),
+          phone: phone.replace(/\D/g, ""),
+          clinicCode: clinicCode.trim(),
+          licenseNumber: "DEFAULT", // Required for doctors
           department: "Dentistry",
-          specialties: ["General"]
-        })
-      });
+          specialties: "General"
+        });
+      } else {
+        // Use patient registration API
+        res = await apiPost<{
+          ok: boolean;
+          patientId?: string;
+          message?: string;
+          status?: string;
+          error?: string;
+        }>(endpoint, {
+          name: name.trim(),
+          email: email.trim(),
+          phone: phone.replace(/\D/g, ""),
+          clinicCode: clinicCode.trim(),
+          referralCode: referralCode.trim(),
+          userType: userType,
+        });
+      }
 
       if (!res.ok) {
         if (res.error === "phone_already_exists") {
-          Alert.alert("Hata", res.message || "Bu telefon numarası zaten kayıtlı.");
+          Alert.alert("Hata", (res as any).message || "Bu telefon numarası zaten kayıtlı.");
         } else {
-          Alert.alert("Hata", res.message || "Kayıt başarısız");
+          Alert.alert("Hata", (res as any).message || "Kayıt başarısız");
         }
         return;
       }
@@ -111,7 +111,7 @@ function RegisterScreen() {
       router.replace({
         pathname: "/otp",
         params: {
-          userId: userType === "doctor" ? res.doctorId : res.patientId,
+          userId: userType === "doctor" ? (res as any).doctorId : (res as any).patientId,
           email,
           name,
           phone,
