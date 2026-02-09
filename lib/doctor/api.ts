@@ -35,7 +35,8 @@ export interface DoctorResponse {
 export async function registerDoctor(data: DoctorRegisterRequest): Promise<DoctorResponse> {
   return apiPost<DoctorResponse>('/api/register/doctor', {
     ...data,
-    userType: 'DOCTOR', // ✅ TEK DOĞRU
+    // ❌ DON'T send userType - backend already sets it to "DOCTOR"
+    // userType: 'DOCTOR', 
   });
 }
 
