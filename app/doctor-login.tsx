@@ -88,15 +88,20 @@ export default function DoctorLogin() {
 
     setLoading(true);
     try {
+      const requestBody = {
+        phone: cleanedPhone || undefined,
+        email: emailTrimmed || undefined,
+        otp: otp.trim(),
+        type: "doctor", // Specify doctor type
+      };
+      
+      console.log("[VERIFY-OTP-DOCTOR] Request body:", requestBody);
+      console.log("[VERIFY-OTP-DOCTOR] API URL:", `${API_BASE}/auth/verify-otp`);
+      
       const res = await fetch(`${API_BASE}/auth/verify-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone: cleanedPhone || undefined,
-          email: emailTrimmed || undefined,
-          otp: otp.trim(),
-          type: "doctor", // Specify doctor type
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const json = await res.json();
