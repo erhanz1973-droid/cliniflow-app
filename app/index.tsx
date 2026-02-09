@@ -52,9 +52,8 @@ function RegisterScreen() {
           email: email.trim(),
           phone: phone.replace(/\D/g, ""),
           clinicCode: clinicCode.trim(),
-          licenseNumber: "DEFAULT", // Required for doctors
           department: "Dentistry",
-          specialties: "General"
+          specialties: ["General"] // ✅ Backend expects array
         });
       } else {
         // Use patient registration API
