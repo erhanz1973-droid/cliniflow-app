@@ -29,6 +29,13 @@ export default function DoctorLogin() {
       return;
     }
 
+    // Basic email validation for frontend
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (emailTrimmed && !emailRegex.test(emailTrimmed)) {
+      Alert.alert("Hata", "Lütfen geçerli bir email adresi giriniz.");
+      return;
+    }
+
     setRequestingOTP(true);
     try {
       const res = await fetch(`${API_BASE}/auth/request-otp`, {
