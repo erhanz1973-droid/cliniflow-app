@@ -48,7 +48,7 @@ export default function DoctorLogin() {
         body: JSON.stringify({
           phone: cleanedPhone || undefined,
           email: emailTrimmed || undefined,
-          role: "DOCTOR", // Specify doctor role
+          role: "DOCTOR", // 🔥 kritik
         }),
       });
 
@@ -92,7 +92,7 @@ export default function DoctorLogin() {
         phone: cleanedPhone || undefined,
         email: emailTrimmed || undefined,
         otp: otp.trim(),
-        type: "doctor", // Specify doctor type
+        role: "DOCTOR",   // 🔥 kritik
       };
       
       console.log("[VERIFY-OTP-DOCTOR] Request body:", requestBody);
