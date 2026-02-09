@@ -88,14 +88,14 @@ export default function DoctorLogin() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/auth/verify-otp-doctor`, {
+      const res = await fetch(`${API_BASE}/auth/verify-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           phone: cleanedPhone || undefined,
           email: emailTrimmed || undefined,
           otp: otp.trim(),
-          role: "DOCTOR", // Specify doctor role
+          type: "doctor", // Specify doctor type
         }),
       });
 
