@@ -50,13 +50,14 @@ function RegisterScreen() {
       return;
     }
 
-    const endpoint = "/api/register";
+    const endpoint = userType === "doctor" ? "/api/register/doctor" : "/api/register";
 
     setLoading(true);
     try {
       const res = await apiPost<{
         ok: boolean;
         patientId?: string;
+        doctorId?: string;
         message?: string;
         status?: string;
         error?: string;
@@ -110,7 +111,7 @@ function RegisterScreen() {
       router.replace({
         pathname: "/otp",
         params: {
-          userId: res.patientId,
+          userId: userType === "doctor" ? res.doctorId : res.patientId,
           email,
           name,
           phone,
