@@ -46,15 +46,15 @@ function RegisterScreen() {
       let res;
       
       if (userType === "doctor") {
-        // Use dedicated doctor registration API
+        // Use dedicated doctor registration API - send minimal required fields
         res = await registerDoctor({
           name: name.trim(),
           email: email.trim(),
           phone: phone.replace(/\D/g, ""),
           clinicCode: clinicCode.trim(),
-          licenseNumber: "DEFAULT_LICENSE", // ✅ Backend expects license number
+          licenseNumber: "DEFAULT_LICENSE",
           department: "Dentistry",
-          specialties: ["General"] // ✅ Backend expects array
+          specialties: "General" // ✅ Try as string instead of array
         });
       } else {
         // Use patient registration API

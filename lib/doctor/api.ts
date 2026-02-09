@@ -8,7 +8,7 @@ export interface DoctorRegisterRequest {
   clinicCode: string;
   licenseNumber: string; // ✅ Backend requires license number
   department?: string;
-  specialties?: string[]; // ✅ Backend expects array
+  specialties?: string; // ✅ Database might expect string
   title?: string;
   experienceYears?: string;
   languages?: string;
