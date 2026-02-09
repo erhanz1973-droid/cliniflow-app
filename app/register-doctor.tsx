@@ -3,9 +3,11 @@ import React, { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { handleDoctorRegistration } from "../lib/doctor/register";
+import { useAuth } from "../lib/auth";
 
 export default function RegisterDoctorScreen() {
   const router = useRouter();
+  const { signIn } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     fullName: "",
@@ -16,25 +18,49 @@ export default function RegisterDoctorScreen() {
   });
 
   const handleRegister = async () => {
-    if (!formData.fullName || !formData.phone || !formData.email) {
-      Alert.alert("Hata", "Ad Soyad, Telefon ve E-posta zorunludur");
-      return;
-    }
-
-    if (!formData.clinicCode || !formData.licenseNumber) {
+    if (!formData.fullName || !formData.phone || !formData.email || !formData.clinicCode || !formData.licenseNumber) {
       Alert.alert("Hata", "Klinik Kodu ve Lisans Numarası gereklidir");
       return;
     }
 
     setLoading(true);
     try {
-      await handleDoctorRegistration({
+      const result = await handleDoctorRegistration({
         name: formData.fullName,
         email: formData.email,
         phone: formData.phone,
         clinicCode: formData.clinicCode,
         licenseNumber: formData.licenseNumber,
       });
+
+      if (result.ok && result.token) {
+        await signIn({
+          token: result.token,
+          doctorId: result.doctorId,
+          clinicId: result.clinicId,
+          role: "DOCTOR",
+          type: "doctor",
+          status: result.status,
+        });
+
+        Alert.alert(
+          "Başvuru alındı",
+          "Doktor hesabınız admin onayından sonra Aktif edilecektir.",
+          [
+            {
+              text: "Tamam",
+              onPress: () => {
+                const targetRoute = result.status === "ACTIVE"
+                  ? "/doctor/dashboard"
+                  : "/waiting-approval";
+                router.replace(targetRoute);
+              },
+            },
+          ]
+        );
+      } else {
+        Alert.alert("Hata", result.error || "Doktor kaydı başarısız");
+      }
     } catch (error: any) {
       console.error("Doctor registration error:", error);
       Alert.alert("Hata", error.message || "Kayıt başarısız oldu");
