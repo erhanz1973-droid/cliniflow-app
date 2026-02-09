@@ -18,7 +18,10 @@
         "NSCameraUsageDescription": "Clinifly uses the camera to capture dental images for your treatment records.",
         "NSMicrophoneUsageDescription": "Clinifly uses the microphone for video recording during consultations.",
         "NSPhotoLibraryUsageDescription": "Clinifly accesses your photo library to upload dental images.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
       }
     },
     "android": {
@@ -34,7 +37,9 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE"
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE"
       ],
       "intentFilters": [
         {
