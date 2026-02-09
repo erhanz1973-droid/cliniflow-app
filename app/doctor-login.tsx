@@ -29,12 +29,16 @@ export default function DoctorLogin() {
       return;
     }
 
-    // Basic email validation for frontend
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (emailTrimmed && !emailRegex.test(emailTrimmed)) {
-      Alert.alert("Hata", "Lütfen geçerli bir email adresi giriniz.");
-      return;
-    }
+    // Remove frontend email validation - let backend handle it
+    // const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // if (emailTrimmed && emailTrimmed.length < 5) {
+    //   Alert.alert("Hata", "Email adresi çok kısa.");
+    //   return;
+    // }
+    // if (emailTrimmed && !emailRegex.test(emailTrimmed)) {
+    //   Alert.alert("Hata", "Lütfen geçerli bir email adresi giriniz (örn: email@domain.com).");
+    //   return;
+    // }
 
     setRequestingOTP(true);
     try {
