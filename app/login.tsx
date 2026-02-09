@@ -74,6 +74,7 @@ export default function Login() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           phone: cleanedPhone,
+          type: "patient",
         }),
       });
 
@@ -143,6 +144,7 @@ export default function Login() {
         body: JSON.stringify({
           phone: cleanedPhone,
           otp: otp.trim(),
+          type: "patient",
         }),
       });
 
