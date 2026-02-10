@@ -9,6 +9,7 @@ export default function RootLayout() {
       <LanguageProvider>
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="doctor" />
         </Stack>
       </LanguageProvider>
     </AuthProvider>
