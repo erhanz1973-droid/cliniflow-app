@@ -1,39 +1,85 @@
 // app/doctor/pending.tsx
 // DOCTOR PENDING SCREEN - NO TABS
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, Image, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { Pressable } from "react-native";
+import { useAuth } from "../../lib/auth";
+import { getCurrentDoctorProfile } from "../../lib/doctor/api";
 
 export default function DoctorPendingScreen() {
   const router = useRouter();
+  const { isAuthed } = useAuth();
+  const [doctorStatus, setDoctorStatus] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Check doctor status periodically
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const profileResponse = await getCurrentDoctorProfile();
+        if (profileResponse.ok && profileResponse.doctor) {
+          const status = profileResponse.doctor.status;
+          setDoctorStatus(status);
+          
+          // If approved, redirect to dashboard
+          if (status === "APPROVED" || status === "ACTIVE") {
+            console.log("[DOCTOR PENDING] Status approved, redirecting to dashboard");
+            router.replace("/doctor/dashboard");
+            return;
+          }
+        }
+      } catch (error) {
+        console.error("[DOCTOR PENDING] Status check error:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // Check immediately
+    checkStatus();
+    
+    // Check every 30 seconds
+    const interval = setInterval(checkStatus, 30000);
+    
+    return () => clearInterval(interval);
+  }, []);
 
   const handleRefresh = () => {
-    // Refresh the page to check status
+    setLoading(true);
     router.replace("/doctor-login");
   };
 
   return (
     <View style={styles.container}>
-      <View style={styles.content}>
-        <View style={styles.iconContainer}>
-          <Image 
-            source={require('../../assets/images/icon.png')} 
-            style={styles.logo}
-            resizeMode="contain"
-          />
+      {loading ? (
+        <View style={styles.content}>
+          <ActivityIndicator size="large" color="#2563eb" />
+          <Text style={styles.loadingText}>Durum kontrol ediliyor...</Text>
         </View>
-        
-        <View style={styles.statusContainer}>
-          <View style={styles.pendingIcon}>
-            <Text style={styles.pendingEmoji}>⏳</Text>
+      ) : (
+        <View style={styles.content}>
+          <View style={styles.iconContainer}>
+            <Image 
+              source={require('../../assets/images/icon.png')} 
+              style={styles.logo}
+              resizeMode="contain"
+            />
           </View>
           
-          <Text style={styles.title}>Başvurunuz Değerlendiriliyor</Text>
-          <Text style={styles.subtitle}>
-            Doktor başvurunuz incelenmektedir. Onaylandığında bildirim alacaksınız.
-          </Text>
-        </View>
+          <View style={styles.statusContainer}>
+            <View style={styles.pendingIcon}>
+              <Text style={styles.pendingEmoji}>⏳</Text>
+            </View>
+            
+            <Text style={styles.title}>Başvurunuz Değerlendiriliyor</Text>
+            <Text style={styles.subtitle}>
+              Doktor başvurunuz incelenmektedir. Onaylandığında bildirim alacaksınız.
+            </Text>
+            {doctorStatus && (
+              <Text style={styles.statusText}>Mevcut Durum: {doctorStatus}</Text>
+            )}
+          </View>
 
         <View style={styles.infoContainer}>
           <Text style={styles.infoTitle}>Ne zaman onaylanır?</Text>
@@ -60,7 +106,7 @@ export default function DoctorPendingScreen() {
             Sorularınız için: support@cliniflow.com
           </Text>
         </View>
-      </View>
+      )}
     </View>
   );
 }
@@ -78,15 +124,15 @@ const styles = StyleSheet.create({
   },
   iconContainer: {
     alignItems: "center",
-    marginBottom: 40,
+    marginBottom: 24,
   },
   logo: {
-    width: 120,
-    height: 40,
+    width: 180,
+    height: 60,
   },
   statusContainer: {
     alignItems: "center",
-    marginBottom: 40,
+    marginBottom: 32,
   },
   pendingIcon: {
     width: 80,
