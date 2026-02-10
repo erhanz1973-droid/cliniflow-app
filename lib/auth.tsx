@@ -381,10 +381,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [user, isAuthLoading, isOtpVerified]
   );
 
-/* ================= HOOK ================= */
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
   return ctx;
 }
+
+export { AuthProvider, useAuth };
