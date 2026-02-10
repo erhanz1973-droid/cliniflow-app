@@ -1,5 +1,5 @@
 // lib/doctor/api.ts
-import { apiGet, apiPost } from '../api';
+import { apiGet, apiPost, apiPut } from '../api';
 
 export interface DoctorRegisterRequest {
   name: string;
@@ -62,4 +62,22 @@ export async function getDoctorApplications(): Promise<any> {
 // Approve doctor (admin only)
 export async function approveDoctor(doctorId: string): Promise<any> {
   return apiPost<any>('/api/admin/approve-doctor', { doctorId });
+}
+
+// Get current doctor profile
+export async function getCurrentDoctorProfile(): Promise<any> {
+  return apiGet<any>('/api/doctor/me');
+}
+
+// Update current doctor profile
+export async function updateCurrentDoctorProfile(data: {
+  name?: string;
+  phone?: string;
+  department?: string;
+  title?: string;
+  experience_years?: string | number;
+  languages?: string;
+  specialties?: string;
+}): Promise<any> {
+  return apiPut<any>('/api/doctor/me', data);
 }

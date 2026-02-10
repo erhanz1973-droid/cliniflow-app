@@ -28,9 +28,9 @@ export default function DoctorDashboard() {
     }
     
     // Check doctor status (only if type is doctor)
-    if (user.status !== "ACTIVE") {
-      console.log("[Doctor Dashboard] Doctor not active (status:", user.status, "), redirecting to waiting approval");
-      router.replace("/waiting-approval");
+    if (user.status !== "APPROVED") {
+      console.log("[Doctor Dashboard] Doctor not approved (status:", user.status, "), redirecting to pending");
+      router.replace("/doctor/pending");
       return;
     }
     
@@ -40,31 +40,41 @@ export default function DoctorDashboard() {
   if (isAuthReady && user) {
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>👨‍⚕️ Doktor Paneli</Text>
+        <Text style={styles.title}>👨‍⚕️ Ana Sayfa</Text>
         <Text style={styles.subtitle}>
-          Hoş geldin{user.name ? `, ${user.name}` : ''}
+          Hoş geldin{user.name ? `, Dr. ${user.name}` : ''}
         </Text>
 
-        <Pressable
-          style={styles.button}
-          onPress={() => router.push('/doctor/patients')}
-        >
-          <Text style={styles.buttonText}>👥 Hastalar</Text>
-        </Pressable>
+        <View style={styles.statsContainer}>
+          <View style={styles.statCard}>
+            <Text style={styles.statNumber}>--</Text>
+            <Text style={styles.statLabel}>Aktif Hasta</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statNumber}>--</Text>
+            <Text style={styles.statLabel}>Bugünkü Randevu</Text>
+          </View>
+        </View>
 
-        <Pressable
-          style={styles.button}
-          onPress={() => router.push('/doctor/diagnosis')}
-        >
-          <Text style={styles.buttonText}>🦷 Tanı (ICD-10)</Text>
-        </Pressable>
+        <View style={styles.quickActions}>
+          <Text style={styles.sectionTitle}>Hızlı İşlemler</Text>
+          
+          <Pressable
+            style={styles.quickAction}
+            onPress={() => router.push('/doctor/patients')}
+          >
+            <Text style={styles.quickActionIcon}>👥</Text>
+            <Text style={styles.quickActionText}>Hastalar</Text>
+          </Pressable>
 
-        <Pressable
-          style={styles.buttonSecondary}
-          onPress={() => router.push('/doctor/profile')}
-        >
-          <Text style={styles.buttonSecondaryText}>👤 Profil</Text>
-        </Pressable>
+          <Pressable
+            style={styles.quickAction}
+            onPress={() => router.push('/doctor/diagnosis')}
+          >
+            <Text style={styles.quickActionIcon}>🦷</Text>
+            <Text style={styles.quickActionText}>Tanı (ICD-10)</Text>
+          </Pressable>
+        </View>
       </View>
     );
   } else {
@@ -75,35 +85,7 @@ export default function DoctorDashboard() {
     );
   }
 
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>👨‍⚕️ Doktor Paneli</Text>
-      <Text style={styles.subtitle}>
-        Hoş geldin{user.name ? `, ${user.name}` : ''}
-      </Text>
-
-      <Pressable
-        style={styles.button}
-        onPress={() => router.push('/doctor/patients')}
-      >
-        <Text style={styles.buttonText}>👥 Hastalar</Text>
-      </Pressable>
-
-      <Pressable
-        style={styles.button}
-        onPress={() => router.push('/doctor/diagnosis')}
-      >
-        <Text style={styles.buttonText}>🦷 Tanı (ICD-10)</Text>
-      </Pressable>
-
-      <Pressable
-        style={styles.buttonSecondary}
-        onPress={() => router.push('/doctor/profile')}
-      >
-        <Text style={styles.buttonSecondaryText}>👤 Profil</Text>
-      </Pressable>
-    </View>
-  );
+  return null; // Remove duplicate return
 }
 
 const styles = StyleSheet.create({
@@ -111,7 +93,6 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     backgroundColor: '#F9FAFB',
-    justifyContent: 'center',
   },
   center: {
     flex: 1,
@@ -130,28 +111,58 @@ const styles = StyleSheet.create({
     marginBottom: 40,
     color: '#6B7280',
   },
-  button: {
-    backgroundColor: '#2563EB',
-    padding: 20,
-    borderRadius: 10,
-    marginBottom: 15,
-    alignItems: 'center',
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 30,
   },
-  buttonText: {
-    color: '#FFFFFF',
+  statCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 20,
+    flex: 1,
+    marginHorizontal: 5,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  statNumber: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#2563EB',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  quickActions: {
+    marginBottom: 20,
+  },
+  sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-  },
-  buttonSecondary: {
-    backgroundColor: '#E5E7EB',
-    padding: 18,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  buttonSecondaryText: {
     color: '#111827',
+    marginBottom: 16,
+  },
+  quickAction: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  quickActionIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  quickActionText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '500',
+    color: '#111827',
   },
 });
