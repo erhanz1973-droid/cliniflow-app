@@ -81,30 +81,31 @@ export default function DoctorPendingScreen() {
             )}
           </View>
 
-        <View style={styles.infoContainer}>
-          <Text style={styles.infoTitle}>Ne zaman onaylanır?</Text>
-          <Text style={styles.infoText}>
-            Başvurularınız genellikle 24-48 saat içinde incelenir ve onaylanır.
-          </Text>
-        </View>
+          <View style={styles.infoContainer}>
+            <Text style={styles.infoTitle}>Ne zaman onaylanır?</Text>
+            <Text style={styles.infoText}>
+              Başvurularınız genellikle 24-48 saat içinde incelenir ve onaylanır.
+            </Text>
+          </View>
 
-        <View style={styles.actionsContainer}>
-          <Pressable style={styles.refreshButton} onPress={handleRefresh}>
-            <Text style={styles.refreshButtonText}>Durumu Kontrol Et</Text>
-          </Pressable>
-          
-          <Pressable 
-            style={styles.logoutButton} 
-            onPress={() => router.replace("/doctor-login")}
-          >
-            <Text style={styles.logoutButtonText}>Çıkış Yap</Text>
-          </Pressable>
-        </View>
+          <View style={styles.actionsContainer}>
+            <Pressable style={styles.refreshButton} onPress={handleRefresh}>
+              <Text style={styles.refreshButtonText}>Durumu Kontrol Et</Text>
+            </Pressable>
+            
+            <Pressable 
+              style={styles.logoutButton} 
+              onPress={() => router.replace("/doctor-login")}
+            >
+              <Text style={styles.logoutButtonText}>Çıkış Yap</Text>
+            </Pressable>
+          </View>
 
-        <View style={styles.contactContainer}>
-          <Text style={styles.contactText}>
-            Sorularınız için: support@cliniflow.com
-          </Text>
+          <View style={styles.contactContainer}>
+            <Text style={styles.contactText}>
+              Sorularınız için: support@cliniflow.com
+            </Text>
+          </View>
         </View>
       )}
     </View>
@@ -151,46 +152,56 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#111827",
     textAlign: "center",
-    marginBottom: 12,
+    marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
     color: "#6b7280",
     textAlign: "center",
     lineHeight: 24,
-    maxWidth: 300,
+  },
+  statusText: {
+    fontSize: 14,
+    color: "#2563eb",
+    textAlign: "center",
+    marginTop: 8,
+    fontWeight: "600",
+  },
+  loadingText: {
+    fontSize: 16,
+    color: "#6b7280",
+    textAlign: "center",
+    marginTop: 16,
   },
   infoContainer: {
-    backgroundColor: "#ffffff",
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 40,
-    width: "100%",
-    maxWidth: 350,
+    backgroundColor: "#f0f9ff",
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: "#3b82f6",
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 24,
   },
   infoTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#374151",
+    color: "#1e40af",
     marginBottom: 8,
   },
   infoText: {
     fontSize: 14,
-    color: "#6b7280",
+    color: "#1e40af",
     lineHeight: 20,
   },
   actionsContainer: {
     width: "100%",
-    maxWidth: 350,
-    gap: 12,
+    maxWidth: 300,
   },
   refreshButton: {
     backgroundColor: "#2563eb",
-    borderRadius: 10,
-    padding: 16,
+    borderRadius: 8,
+    padding: 14,
     alignItems: "center",
+    marginBottom: 12,
   },
   refreshButtonText: {
     color: "#ffffff",
@@ -199,23 +210,24 @@ const styles = StyleSheet.create({
   },
   logoutButton: {
     backgroundColor: "transparent",
-    borderRadius: 10,
-    padding: 16,
+    borderRadius: 8,
+    padding: 14,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: "#2563eb",
   },
   logoutButtonText: {
-    color: "#6b7280",
+    color: "#2563eb",
     fontSize: 16,
     fontWeight: "600",
   },
   contactContainer: {
-    marginTop: 40,
     alignItems: "center",
+    marginTop: 24,
   },
   contactText: {
     fontSize: 14,
-    color: "#9ca3af",
+    color: "#6b7280",
+    textAlign: "center",
   },
 });
