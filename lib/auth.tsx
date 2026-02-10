@@ -302,11 +302,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const setIsAuthReady = (ready: boolean) => {
-    // 🔥 FIX: Prevent recursive calls to setIsAuthReady
-    if (typeof setIsAuthReady === 'function') {
-      setIsAuthReady(ready);
-      console.log('[AUTH] Auth ready set to:', ready);
-    }
+    console.log('[AUTH] Auth ready set to:', ready);
   };
 
   useEffect(() => {
