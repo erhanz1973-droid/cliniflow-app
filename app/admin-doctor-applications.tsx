@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuth } from "../lib/auth";
+import { useAuth } from "../lib/auth"; // @ts-ignore
 import { API_BASE } from "../lib/api";
 
 type DoctorApplication = {

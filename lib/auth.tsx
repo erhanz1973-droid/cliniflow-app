@@ -371,19 +371,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           setUser(updatedUser);
           await storageSet(AUTH_KEY, JSON.stringify(updatedUser));
-          
-          return data;
+          console.log('[AUTH] Role updated:', newRole);
         } catch (error) {
-          console.error("[AUTH] Update role error:", error);
-          throw error;
+          console.error('[AUTH] Failed to update role:', error);
         }
       },
     }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [user, isAuthLoading, isOtpVerified]
   );
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
 
 /* ================= HOOK ================= */
 
