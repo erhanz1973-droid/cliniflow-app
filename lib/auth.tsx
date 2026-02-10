@@ -179,7 +179,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!parsed) {
         await storageSet(AUTH_KEY, null);
       }
-      console.log('[AuthProvider] Auth data loaded:', parsed ? 'User found' : 'No user');
+      console.log('[AuthProvider] Auth data loaded:', parsed ? 'User found' : 'No user', 'Raw data:', raw, 'Parsed:', parsed);
     } catch (error) {
       console.error("[AUTH] Error loading auth:", error);
       // On error, clear any corrupted data
