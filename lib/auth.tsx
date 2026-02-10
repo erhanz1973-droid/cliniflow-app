@@ -158,6 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isOtpVerified, setIsOtpVerified] = useState(false); // 🔥 CRITICAL: OTP verification flag
 
   const refreshAuth = async () => {
+    console.log('[AuthProvider] refreshAuth called');
     setIsAuthLoading(true);
     console.log('[AuthProvider] refreshAuth started, isAuthLoading:', true);
 
@@ -169,6 +170,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
         await storageSet(AUTH_KEY, null);
         setIsAuthLoading(false);
+        setIsAuthReady(true);
         console.log('[AuthProvider] 🔥 OTP ROUTE - Auth blocked, isAuthLoading:', false, 'isAuthReady:', true);
         return;
       }
