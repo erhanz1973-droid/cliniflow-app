@@ -116,8 +116,13 @@ export default function DoctorLogin() {
           if (profileResponse.ok && profileResponse.doctor) {
             const doctorStatus = profileResponse.doctor.status;
             
-            // Route based on status
-            const targetRoute = (doctorStatus === "APPROVED" || doctorStatus === "ACTIVE") ? "/doctor/dashboard" : "/doctor/pending";
+            console.log("[DOCTOR LOGIN] Doctor status:", doctorStatus);
+            
+            // Route based on status - more flexible check
+            const isActive = doctorStatus === "APPROVED" || doctorStatus === "ACTIVE";
+            const targetRoute = isActive ? "/doctor/dashboard" : "/doctor/pending";
+            
+            console.log("[DOCTOR LOGIN] Target route:", targetRoute);
             
             Alert.alert(
               "Giriş Başarılı",
