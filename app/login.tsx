@@ -342,6 +342,14 @@ export default function Login() {
             >
               <Text style={styles.link}>{t("login.noAccount")}</Text>
             </Pressable>
+
+            <Pressable
+              style={styles.linkButton}
+              onPress={() => router.push("/doctor-login")}
+              disabled={loading || requestingOTP}
+            >
+              <Text style={styles.link}>Doktor musunuz? Doktor Girişi</Text>
+            </Pressable>
           </View>
         </View>
       </ScrollView>
