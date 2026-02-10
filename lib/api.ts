@@ -28,10 +28,13 @@ function normalizeApiBase(raw: string): string {
 }
 
 // 🔥 TEK KAYNAK - Production backend
-export const API_BASE = "https://clinic.clinifly.net";
+export const AUTH_API_BASE = "https://clinic.clinifly.net";
 
 // 🔥 Admin backend AYRI
 export const ADMIN_API_BASE = "https://cliniflow-admin.onrender.com";
+
+// 🔥 LEGACY - Backward compatibility (will be removed)
+export const API_BASE = AUTH_API_BASE;
 
 console.log("🔥 FINAL API CONFIG", {
   API_BASE,

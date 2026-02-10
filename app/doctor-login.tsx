@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from "react-native";
 import { useRouter } from "expo-router";
-import { API_BASE } from "../lib/api";
+import { authRequestOTP, authVerifyOTP } from "../lib/authApi";
 import { useAuth } from "../lib/auth";
 import { getCurrentDoctorProfile } from "../lib/doctor/api";
 
@@ -42,19 +42,13 @@ export default function DoctorLogin() {
 
     setRequestingOTP(true);
     try {
-      const res = await fetch(`${API_BASE}/auth/request-otp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone: cleanedPhone || undefined,
-          email: emailTrimmed || undefined,
-          role: "DOCTOR", // 🔥 kritik
-        }),
+      const json = await authRequestOTP({
+        phone: cleanedPhone || undefined,
+        email: emailTrimmed || undefined,
+        role: "DOCTOR",
       });
 
-      const json = await res.json();
-
-      if (!res.ok) {
+      if (!json.ok) {
         let errorMsg = json.message || json.error || "OTP gönderilemedi";
         Alert.alert("Hata", errorMsg);
         return;
@@ -92,21 +86,14 @@ export default function DoctorLogin() {
         phone: cleanedPhone || undefined,
         email: emailTrimmed || undefined,
         otp: otp.trim(),
-        role: "DOCTOR",   // 🔥 kritik
+        role: "DOCTOR" as const,
       };
       
       console.log("[VERIFY-OTP-DOCTOR] Request body:", requestBody);
-      console.log("[VERIFY-OTP-DOCTOR] API URL:", `${API_BASE}/auth/verify-otp`);
       
-      const res = await fetch(`${API_BASE}/auth/verify-otp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
+      const json = await authVerifyOTP(requestBody);
 
-      const json = await res.json();
-
-      if (!res.ok) {
+      if (!json.ok) {
         let errorMsg = json.message || json.error || "OTP doğrulama başarısız";
         Alert.alert("Hata", errorMsg);
         return;
