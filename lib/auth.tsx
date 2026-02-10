@@ -192,7 +192,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await storageSet(AUTH_KEY, null);
       setUser(null);
     } finally {
+      // 🔥 FIX: Always set loading to false and ready to true
       setIsAuthLoading(false);
+      setIsAuthReady(true);
       console.log('[AuthProvider] refreshAuth complete, isAuthLoading:', false, 'isAuthReady:', true);
     }
   };
@@ -265,9 +267,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // 🔥 TYPE-SPECIFIC FIELDS - NO CROSS-CONTAMINATION
       patientId: type === "patient" ? input.patientId : undefined,
       doctorId: type === "doctor" ? input.doctorId : undefined,
-      clinicId: type === "doctor" || type === "admin" ? input.clinicId : undefined,
+      clinicId: (type === "doctor" || type === "admin") ? input.clinicId : undefined,
       clinicCode: type === "admin" ? input.clinicCode : undefined,
       status: type === "doctor" ? input.status : undefined,
+      profilePhotoUrl: input.profilePhotoUrl,
+      diplomaFileUrl: input.diplomaFileUrl,
+      department: input.department,
+      specialties: input.specialties,
+      title: input.title,
+      experienceYears: input.experienceYears,
+      languages: input.languages,
     };
     
     // 🔒 EKSTRA GÜVENLİK: Clear patient storage when signing in as doctor
@@ -281,11 +290,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     setUser(next);
     await storageSet(AUTH_KEY, JSON.stringify(next));
+    console.log('[AUTH] User signed in:', type, 'ID:', id);
   };
 
   const signOut = async () => {
     setUser(null);
     await storageSet(AUTH_KEY, null);
+    console.log('[AUTH] User signed out');
+  };
+
+  const setIsAuthReady = (ready: boolean) => {
+    // 🔥 FIX: Prevent recursive calls to setIsAuthReady
+    if (typeof setIsAuthReady === 'function') {
+      setIsAuthReady(ready);
+      console.log('[AUTH] Auth ready set to:', ready);
+    }
   };
 
   useEffect(() => {
