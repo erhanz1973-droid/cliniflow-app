@@ -175,10 +175,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const raw = await storageGet(AUTH_KEY);
       const parsed = safeParseUser(raw);
-      setUser(parsed);
+      
+      // 🔥 FIX: Only set user if data is valid and different
+      if (parsed && JSON.stringify(parsed) !== JSON.stringify(user)) {
+        setUser(parsed);
+      }
+      
       if (!parsed) {
         await storageSet(AUTH_KEY, null);
       }
+      
       console.log('[AuthProvider] Auth data loaded:', parsed ? 'User found' : 'No user', 'Raw data:', raw, 'Parsed:', parsed);
     } catch (error) {
       console.error("[AUTH] Error loading auth:", error);
