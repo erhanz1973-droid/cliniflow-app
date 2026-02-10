@@ -266,7 +266,7 @@ export default function Login() {
                 keyboardType="phone-pad"
                 autoCapitalize="none"
                 autoCorrect={false}
-                editable={!loading && !requestingOTP && !otpSent}
+                editable={!loading && !requestingOTP}
               />
             </View>
 
