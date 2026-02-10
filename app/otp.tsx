@@ -169,10 +169,13 @@ export default function OtpScreen() {
 
     setResending(true);
     try {
-      const res = await fetch(`${ADMIN_API_BASE}/auth/request-otp`, {
+      const res = await fetch(`${API_BASE}/auth/request-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phoneToUse }),
+        body: JSON.stringify({ 
+          phone: phoneToUse,
+          role: "PATIENT" // 🔥 CRITICAL: Send role for patient OTP
+        }),
       });
 
       // Safe JSON parsing
