@@ -307,7 +307,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       user,
       isAuthLoading,
-      isAuthReady: !isAuthLoading,
+      isAuthReady: !isAuthLoading && !!user, // 🔥 FIX: Only ready when loading is false AND user exists
       isAuthed: !!user?.token,
       // 🔥 CLEAN SEPARATION: Type-based logic - PRIMARY routing key
       isDoctor: user?.type === "doctor",
