@@ -100,6 +100,8 @@ export default function DoctorLogin() {
       }
 
       if (json.ok && json.token && json.doctorId) {
+        console.log("[DOCTOR LOGIN] OTP Verify Response:", json);
+        
         // Save token to auth system
         await signIn({
           token: json.token,
