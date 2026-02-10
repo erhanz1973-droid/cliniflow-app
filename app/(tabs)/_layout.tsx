@@ -227,9 +227,8 @@ function TabLayout() {
 
   return (
     <Tabs
-      key={currentLanguage} // Force re-render when language changes
       screenOptions={{
-        headerShown: true,
+        headerShown: false,
         tabBarActiveTintColor: "#2563EB",
         tabBarInactiveTintColor: "#6B7280",
         tabBarStyle: {
@@ -250,7 +249,14 @@ function TabLayout() {
         },
       }}
     >
-      {isDoctor ? doctorTabs : patientTabs}
+      <Tabs.Screen name="home" options={{ title: t("nav.home"), headerTitle: t("nav.home"), tabBarIcon: ({ color, size, focused }) => (<Text style={{ color, fontSize: size }}>🏠</Text>) }} />
+      <Tabs.Screen name="treatments" options={{ title: t("nav.treatments"), headerTitle: t("nav.treatments"), tabBarIcon: ({ color, size, focused }) => (<Text style={{ color, fontSize: size }}>🩺</Text>) }} />
+      <Tabs.Screen name="health" options={{ title: t("nav.health"), headerTitle: t("nav.health"), tabBarIcon: ({ color, size, focused }) => (<Text style={{ color, fontSize: size }}>❤️</Text>) }} />
+      <Tabs.Screen name="travel" options={{ title: t("nav.travel"), headerTitle: t("nav.travel"), tabBarIcon: ({ color, size, focused }) => (<Text style={{ color, fontSize: size }}>✈️</Text>) }} />
+      <Tabs.Screen name="send-photo" options={{ title: "Fotoğraf Gönder", headerTitle: "Fotoğraf Gönder", tabBarIcon: ({ color, size, focused }) => (<Text style={{ color, fontSize: size }}>📷</Text>) }} />
+      <Tabs.Screen name="referrals" options={{ title: t("nav.referrals"), headerTitle: t("nav.referrals"), tabBarIcon: ({ color, size, focused }) => (<Text style={{ color, fontSize: size }}>👥</Text>) }} />
+      <Tabs.Screen name="calendar" options={{ title: t("nav.calendar"), headerTitle: "Takvim", tabBarIcon: ({ color, size, focused }) => (<Text style={{ color, fontSize: size }}>📅</Text>) }} />
+      <Tabs.Screen name="treatment-plans" options={{ title: t("nav.treatment-plans"), headerTitle: "Tedavi Planları", tabBarIcon: ({ color, size, focused }) => (<Text style={{ color, fontSize: size }}>🩺</Text>) }} />
     </Tabs>
   );
 };
