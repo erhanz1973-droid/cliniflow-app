@@ -18,23 +18,35 @@ export default function RegisterDoctorScreen() {
     department: "Dentistry", // ✅ Add missing field
     specialties: "General", // ✅ Add missing field
   });
+  
+  // Check if all required fields are filled
+  const isFormValid = formData.fullName.trim() && 
+                    formData.phone.trim() && 
+                    formData.email.trim() && 
+                    formData.clinicCode.trim() && 
+                    formData.licenseNumber.trim() && 
+                    formData.department.trim() && 
+                    formData.specialties.trim();
 
   const handleRegister = async () => {
-    if (!formData.fullName || !formData.phone || !formData.email || !formData.clinicCode || !formData.licenseNumber || !formData.department || !formData.specialties) {
+    if (!isFormValid) {
       Alert.alert("Hata", "Tüm zorunlu alanları doldurun");
       return;
     }
 
+    console.log('[DOCTOR REG] Form data:', formData);
+    console.log('[DOCTOR REG] Clinic code:', formData.clinicCode.trim());
+
     setLoading(true);
     try {
       const result = await handleDoctorRegistration({
-        name: "Test Doctor", // Simple test name
-        email: "test@doctor.com", // Simple test email
-        phone: "9999999999", // Simple test phone
-        clinicCode: "SAVSAT",
-        licenseNumber: "TEST123",
-        department: "Dentistry",
-        specialties: "General"
+        name: formData.fullName.trim(),
+        email: formData.email.trim(),
+        phone: formData.phone.trim(),
+        clinicCode: formData.clinicCode.trim(),
+        licenseNumber: formData.licenseNumber.trim(),
+        department: formData.department.trim(),
+        specialties: formData.specialties.trim()
       });
 
       if (result.ok) {
@@ -82,7 +94,28 @@ export default function RegisterDoctorScreen() {
       }
     } catch (error: any) {
       console.error("Doctor registration error:", error);
-      Alert.alert("Hata", error.message || "Kayıt başarısız oldu");
+      
+      // Handle 409 Conflict (already registered) specifically
+      if (error.message && error.message.includes("409")) {
+        Alert.alert(
+          "Zaten Kayıtlı",
+          "Bu telefon numarası veya email ile kayıtlı bir doktor zaten mevcut. Giriş yapmak için doktor login ekranına gidin.",
+          [
+            {
+              text: "Giriş Yap",
+              onPress: () => {
+                router.replace("/doctor-login");
+              },
+            },
+            {
+              text: "İptal",
+              style: "cancel"
+            }
+          ]
+        );
+      } else {
+        Alert.alert("Hata", error.message || "Kayıt başarısız oldu");
+      }
     } finally {
       setLoading(false);
     }
@@ -131,7 +164,7 @@ export default function RegisterDoctorScreen() {
 
       <TouchableOpacity
         onPress={handleRegister}
-        disabled={loading}
+        disabled={loading || !isFormValid}
         style={styles.registerButton}
       >
         {loading ? (
