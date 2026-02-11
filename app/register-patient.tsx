@@ -22,6 +22,14 @@ export default function RegisterPatientScreen() {
       return;
     }
 
+    console.log('[PATIENT REG] Form data:', formData);
+    console.log('[PATIENT REG] Sending to backend:', {
+      clinicCode: formData.clinicCode,
+      phone: formData.phone,
+      patientName: formData.patientName,
+      email: formData.email
+    });
+
     setLoading(true);
     try {
       await handlePatientRegistration({
