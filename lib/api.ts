@@ -1,45 +1,14 @@
 // cliniflow-app/lib/api.ts
 
 /**
- * Merkezi API helper
- * - SINGLE source of truth for API base
- * - DEV / PROD farkı YOK
- * - Unsafe local IP'ler otomatik clamp edilir
+ * STATIC API configuration - NO DYNAMIC LOGIC
+ * Single source of truth for all API calls
  */
 
-function normalizeApiBase(raw: string): string {
-  const base = String(raw || "").trim().replace(/\/+$/, "");
-  if (!base) return "";
-
-  // ❌ Asla izin verilmeyen adresler
-  if (
-    base.includes("172.20.") ||
-    base.includes("localhost") ||
-    base.includes(":5050")
-  ) {
-    console.warn(
-      "[API] Unsafe API base detected, forcing production backend:",
-      base
-    );
-    return "https://clinic.clinifly.net";
-  }
-
-  return base;
-}
-
-// 🔥 TEK KAYNAK - Production backend
-export const AUTH_API_BASE = "https://clinic.clinifly.net";
-
-// 🔥 Admin backend AYRI
-export const ADMIN_API_BASE = "https://cliniflow-admin.onrender.com";
-
-// 🔥 LEGACY - Backward compatibility (will be removed)
-export const API_BASE = AUTH_API_BASE;
-
-console.log("🔥 FINAL API CONFIG", {
-  API_BASE,
-  ADMIN_API_BASE,
-});
+// 🔥 STATIC - Production backend (Render)
+export const API_BASE = "https://cliniflow-backend-dg8a.onrender.com";
+export const AUTH_API_BASE = API_BASE;
+export const ADMIN_API_BASE = API_BASE; // Single backend for all operations
 
 if (!API_BASE) {
   throw new Error(
@@ -58,7 +27,9 @@ export function setAuthToken(token: string | null) {
 }
 
 function authHeaders(): Record<string, string> {
-  return AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {};
+  const headers = AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {};
+  console.log('[API] Auth headers:', AUTH_TOKEN ? `Bearer ${AUTH_TOKEN.substring(0, 20)}...` : 'No token');
+  return headers;
 }
 
 // =====================
@@ -143,7 +114,8 @@ export async function apiPost<T>(path: string, body: any): Promise<T> {
     console.log("[API] POST response", res.status, text.substring(0, 200));
 
     if (!res.ok) {
-      throw new Error(`POST ${url} -> ${res.status}`);
+      console.error("[API] POST error response:", text);
+      throw new Error(`POST ${url} -> ${res.status}: ${text}`);
     }
 
     return parseJsonSafe<T>(url, text);
