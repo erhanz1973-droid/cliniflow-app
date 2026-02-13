@@ -3,11 +3,11 @@ import React, { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { API_BASE } from "../lib/api";
-import { handlePatientRegistration } from "../lib/patient/register";
+import { usePatientRegistration } from "../lib/patient/register";
 
 export default function RegisterPatientScreen() {
   const router = useRouter();
-  // E) KESİNLİKLE signIn() ÇAĞIRMAYACAK
+  const { handlePatientRegistration } = usePatientRegistration();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     clinicCode: "",
