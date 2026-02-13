@@ -51,6 +51,9 @@ export default function OtpScreen() {
     setIsVerifying(true);
     otpVerifiedRef.current = true;
 
+    // Add small delay to prevent server overload
+    await new Promise(resolve => setTimeout(resolve, 500));
+
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS);
 
@@ -66,6 +69,8 @@ export default function OtpScreen() {
       console.log("[OTP] Sending verification request:", {
         userType,
         endpoint: `${ADMIN_API_BASE}/auth/verify-otp`,
+        API_BASE: "https://cliniflow-backend-dg8a.onrender.com",
+        ADMIN_API_BASE: "https://cliniflow-backend-dg8a.onrender.com",
         otp: code,
         phone: phoneToVerify,
         email: email || undefined,
