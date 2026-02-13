@@ -14,6 +14,7 @@ export default function RegisterPatientScreen() {
     phone: "",
     patientName: "",
     email: "",
+    referralCode: "", // Add referral code field
   });
 
   const handleRegister = async () => {
@@ -27,7 +28,8 @@ export default function RegisterPatientScreen() {
       clinicCode: formData.clinicCode,
       phone: formData.phone,
       patientName: formData.patientName,
-      email: formData.email
+      email: formData.email,
+      referralCode: formData.referralCode // Add referral code to backend call
     });
 
     setLoading(true);
@@ -36,7 +38,8 @@ export default function RegisterPatientScreen() {
         name: formData.patientName,
         email: formData.email,
         phone: formData.phone,
-        clinicCode: formData.clinicCode
+        clinicCode: formData.clinicCode,
+        inviterReferralCode: formData.referralCode // Add referral code to API call
       });
     } catch (error: any) {
       console.error('Registration error:', error);
@@ -104,6 +107,19 @@ export default function RegisterPatientScreen() {
         value={formData.email}
         onChangeText={(text) => setFormData({ ...formData, email: text })}
         keyboardType="email-address"
+      />
+
+      <TextInput
+        style={{
+          borderWidth: 1,
+          borderColor: "#ddd",
+          padding: 15,
+          borderRadius: 8,
+          marginBottom: 20,
+        }}
+        placeholder="Referans Kodu (isteğe bağlı)"
+        value={formData.referralCode}
+        onChangeText={(text) => setFormData({ ...formData, referralCode: text })}
       />
 
       <TouchableOpacity

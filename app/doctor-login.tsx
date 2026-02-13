@@ -12,6 +12,7 @@ export default function DoctorLogin() {
   const { signIn } = useAuth();
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [clinicCode, setClinicCode] = useState("");
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
   const [requestingOTP, setRequestingOTP] = useState(false);
@@ -26,6 +27,11 @@ export default function DoctorLogin() {
 
     if (!cleanedPhone.trim() && !emailTrimmed) {
       Alert.alert("Eksik Bilgi", "Lütfen telefon numarası veya email giriniz.");
+      return;
+    }
+
+    if (!clinicCode.trim()) {
+      Alert.alert("Eksik Bilgi", "Lütfen klini kodunu giriniz.");
       return;
     }
 
@@ -46,6 +52,7 @@ export default function DoctorLogin() {
         phone: cleanedPhone || undefined,
         email: emailTrimmed || undefined,
         role: "DOCTOR",
+        clinicCode: clinicCode.trim(),
       });
 
       if (!json.ok) {
@@ -83,12 +90,13 @@ export default function DoctorLogin() {
     setLoading(true);
     try {
       const requestBody = {
-        phone: cleanedPhone || undefined,
         email: emailTrimmed || undefined,
         otp: otp.trim(),
+        phone: cleanedPhone || undefined,
         role: "DOCTOR" as const,
+        clinicCode: clinicCode.trim(),
       };
-      
+
       console.log("[VERIFY-OTP-DOCTOR] Request body:", requestBody);
       
       const json = await authVerifyOTP(requestBody);
@@ -184,6 +192,19 @@ export default function DoctorLogin() {
 
           <View style={styles.form}>
             <View style={styles.inputGroup}>
+              <Text style={styles.label}>Klinik Kodu *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="CEM, SAVSAT, vb."
+                value={clinicCode}
+                onChangeText={setClinicCode}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                editable={!loading && !requestingOTP && !otpSent}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
               <Text style={styles.label}>Telefon Numarası</Text>
               <TextInput
                 style={styles.input}
@@ -276,10 +297,10 @@ export default function DoctorLogin() {
 
             <Pressable
               style={styles.linkButton}
-              onPress={() => router.push("/login")}
+              onPress={() => router.push("/register-doctor")}
               disabled={loading || requestingOTP}
             >
-              <Text style={styles.link}>Hasta Girişi</Text>
+              <Text style={styles.link}>Doktor Kaydı</Text>
             </Pressable>
           </View>
         </View>

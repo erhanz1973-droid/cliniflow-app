@@ -1,8 +1,8 @@
 // lib/auth.tsx
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
 import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { API_BASE } from "./api";
+import { API_BASE, setAuthToken } from "./api";
 
 /* ================= TYPES ================= */
 
@@ -46,7 +46,7 @@ type AuthContextValue = {
   updateRole: (newRole: UserRole) => Promise<any>;
 };
 
-const AUTH_KEY = "cliniflow.auth.v1";
+const AUTH_KEY = "clinifly.auth.v1";
 
 /* ================= CONTEXT ================= */
 
@@ -157,56 +157,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isOtpVerified, setIsOtpVerified] = useState(false); // 🔥 CRITICAL: OTP verification flag
 
+  // Stable callback for setIsOtpVerified
+  const handleSetOtpVerified = useCallback((verified: boolean) => {
+    setIsOtpVerified(verified);
+  }, []);
+
   const refreshAuth = async () => {
     console.log('[AuthProvider] refreshAuth called');
     setIsAuthLoading(true);
-    console.log('[AuthProvider] refreshAuth started, isAuthLoading:', true);
 
     try {
-      // 🔥 CRITICAL: BLOCK AUTO RESTORE DURING OTP
-      // OTP screen must be a NO-AUTH ZONE
-      if (typeof window !== "undefined" && window.location.pathname === "/otp") {
-        console.log('[AuthProvider] 🔥 OTP ROUTE DETECTED - BLOCKING auth restore');
-        setUser(null);
-        await storageSet(AUTH_KEY, null);
-        setIsAuthLoading(false);
-        setIsAuthReady(true);
-        console.log('[AuthProvider] 🔥 OTP ROUTE - Auth blocked, isAuthLoading:', false, 'isAuthReady:', true);
-        return;
-      }
-
       const raw = await storageGet(AUTH_KEY);
+      console.log('[AUTH] Raw storage data:', raw ? 'exists' : 'missing');
       const parsed = safeParseUser(raw);
+      console.log('[AUTH] Parsed user data:', parsed ? { id: parsed.id, hasToken: !!parsed.token } : 'null');
       
-      // 🔥 FIX: Only set user if data is valid and different
       if (parsed && JSON.stringify(parsed) !== JSON.stringify(user)) {
         setUser(parsed);
+        console.log('[AUTH] Setting token for user:', parsed.id, 'Token:', parsed.token ? 'exists' : 'missing');
+        setAuthToken(parsed.token); // 🔥 CRITICAL: Sync token with API layer
+        console.log('[AUTH] Token set to API layer');
       }
-      
+
       if (!parsed) {
         await storageSet(AUTH_KEY, null);
+        setUser(null);
+        setAuthToken(null); // 🔥 CRITICAL: Clear token from API layer
+        console.log('[AUTH] No user found, token cleared');
       }
-      
-      console.log('[AuthProvider] Auth data loaded:', parsed ? 'User found' : 'No user', 'Raw data:', raw, 'Parsed:', parsed);
+
+      console.log('[AuthProvider] Auth data loaded:', parsed ? 'User found' : 'No user');
     } catch (error) {
       console.error("[AUTH] Error loading auth:", error);
-      // On error, clear any corrupted data
       await storageSet(AUTH_KEY, null);
       setUser(null);
+      setAuthToken(null); // 🔥 CRITICAL: Clear token from API layer
     } finally {
-      // 🔥 FIX: Always set loading to false and ready to true
       setIsAuthLoading(false);
-      setIsAuthReady(true);
-      console.log('[AuthProvider] refreshAuth complete, isAuthLoading:', false, 'isAuthReady:', true);
+      console.log('[AuthProvider] refreshAuth complete');
     }
   };
 
   const signIn = async (input: any) => {
     // 🔥 CRITICAL: FAIL FAST GUARDS
-    // Block signIn() if on OTP route
-    if (typeof window !== "undefined" && window.location.pathname === "/otp") {
-      throw new Error("signIn blocked: Cannot sign in on OTP route");
-    }
 
     // 🔥 CRITICAL: OTP VERIFICATION CHECK - ONLY FOR PATIENTS
     // signIn() MUST THROW if patient and isOtpVerified === false
@@ -284,7 +277,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // 🔒 EKSTRA GÜVENLİK: Clear patient storage when signing in as doctor
     if (type === "doctor") {
       try {
-        await AsyncStorage.removeItem("cliniflow.patient.v1");
+        await AsyncStorage.removeItem("clinifly.patient.v1");
       } catch (error) {
         console.warn("[AUTH] Failed to clear patient storage:", error);
       }
@@ -292,17 +285,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     setUser(next);
     await storageSet(AUTH_KEY, JSON.stringify(next));
+    setAuthToken(token); // 🔥 CRITICAL: Sync token with API layer
     console.log('[AUTH] User signed in:', type, 'ID:', id);
   };
 
   const signOut = async () => {
     setUser(null);
+    setAuthToken(null); // 🔥 CRITICAL: Clear token from API layer
     await storageSet(AUTH_KEY, null);
     console.log('[AUTH] User signed out');
-  };
-
-  const setIsAuthReady = (ready: boolean) => {
-    console.log('[AUTH] Auth ready set to:', ready);
   };
 
   useEffect(() => {
@@ -312,19 +303,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await refreshAuth();
       } catch (error) {
         console.error('[AuthProvider] Auth initialization error:', error);
-        // Ensure isAuthReady becomes true even on error
+        // Ensure loading is false even on error
         setIsAuthLoading(false);
-        console.log('[AuthProvider] Auth initialization failed but ready, isAuthLoading:', false, 'isAuthReady:', true);
+        console.log('[AuthProvider] Auth initialization failed but loading false');
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, isAuthLoading]);
+  }, []); // Empty dependency array - run once on mount only
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
       isAuthLoading,
-      isAuthReady: !isAuthLoading && !!user, // 🔥 FIX: Only ready when loading is false AND user exists
+      isAuthReady: !isAuthLoading, // 🔥 FIX: Ready when loading is false, regardless of user
       isAuthed: !!user?.token,
       // 🔥 CLEAN SEPARATION: Type-based logic - PRIMARY routing key
       isDoctor: user?.type === "doctor",
@@ -334,7 +324,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn,
       signOut,
       refreshAuth,
-      setOtpVerified: setIsOtpVerified, // 🔥 CRITICAL: Set OTP verification flag
+      setOtpVerified: handleSetOtpVerified, // 🔥 CRITICAL: Use stable callback
       updateRole: async (newRole: UserRole) => {
         if (!user?.token) {
           throw new Error("No token found");
@@ -373,8 +363,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       },
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user, isAuthLoading, isOtpVerified]
+    [user, isAuthLoading, isOtpVerified, signIn, signOut, refreshAuth, handleSetOtpVerified]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -385,5 +374,3 @@ export function useAuth() {
   if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
   return ctx;
 }
-
-export { AuthProvider, useAuth };

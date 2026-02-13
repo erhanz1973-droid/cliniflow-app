@@ -7,6 +7,7 @@ export interface PatientRegisterRequest {
   email: string;
   phone: string;
   clinicCode?: string;
+  inviterReferralCode?: string; // Add referral code field
 }
 
 export interface PatientLoginRequest {

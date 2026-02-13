@@ -22,11 +22,8 @@ export default function RegisterDoctorScreen() {
   // Check if all required fields are filled
   const isFormValid = formData.fullName.trim() && 
                     formData.phone.trim() && 
-                    formData.email.trim() && 
                     formData.clinicCode.trim() && 
-                    formData.licenseNumber.trim() && 
-                    formData.department.trim() && 
-                    formData.specialties.trim();
+                    formData.licenseNumber.trim();
 
   const handleRegister = async () => {
     if (!isFormValid) {
@@ -149,14 +146,14 @@ export default function RegisterDoctorScreen() {
       />
 
       <TextInput
-        placeholder="Klinik Adı (opsiyonel)"
+        placeholder="Klinik Kodu (ZORUNLU)"
         value={formData.clinicCode}
         onChangeText={(text) => setFormData({ ...formData, clinicCode: text })}
         style={styles.input}
       />
 
       <TextInput
-        placeholder="Diploma / Lisans No (opsiyonel)"
+        placeholder="Lisans No (ZORUNLU)"
         value={formData.licenseNumber}
         onChangeText={(text) => setFormData({ ...formData, licenseNumber: text })}
         style={styles.input}

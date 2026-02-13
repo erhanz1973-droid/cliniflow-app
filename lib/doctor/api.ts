@@ -38,7 +38,9 @@ export async function registerDoctor(data: DoctorRegisterRequest): Promise<Docto
     email: data.email,
     phone: data.phone,
     clinicCode: data.clinicCode,
-    licenseNumber: data.licenseNumber
+    licenseNumber: data.licenseNumber,
+    department: data.department || 'General',    // ✅ Add department
+    specialties: data.specialties || 'General'    // ✅ Add specialties
   };
   
   return apiPost<DoctorResponse>('/api/register/doctor', payload);

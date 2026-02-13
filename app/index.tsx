@@ -1,28 +1,38 @@
-import React from 'react';
-import { Redirect } from 'expo-router';
-import { useAuth } from '../lib/auth';
+import { View, ActivityIndicator } from "react-native";
+import { useRouter } from "expo-router";
+import { useEffect } from "react";
+import { useAuth } from "../lib/auth";
 
 export default function Index() {
-  const { user, isAuthReady, isAuthLoading } = useAuth();
-  
-  console.log("[INDEX] Auth ready:", isAuthReady, "User:", user, "Loading:", isAuthLoading);
-  
-  // 🔥 FIX: Only show loading if auth is still loading OR no user yet
-  if (!isAuthReady || isAuthLoading || !user) {
-    return <Redirect href="/loading" />;
-  }
-  
-  // If user is authenticated, redirect based on role
-  if (isAuthReady && user) {
-    console.log("[INDEX] User authenticated, type:", user.type, "redirecting based on role");
-    
-    if (user.type === 'doctor') {
-      return <Redirect href="/doctor/dashboard" />;
-    } else {
-      return <Redirect href="/(tabs)/home" />;
+  const router = useRouter();
+  const { user, isAuthLoading } = useAuth();
+
+  useEffect(() => {
+    if (isAuthLoading) return;
+
+    if (!user) {
+      router.replace("/login");
+      return;
     }
-  }
-  
-  // If not authenticated, redirect to login
-  return <Redirect href="/login" />;
+
+    if (user.type === "doctor") {
+      router.replace("/doctor/dashboard");
+      return;
+    }
+
+    if (user.type === "patient") {
+      router.replace("/(tabs)");
+      return;
+    }
+
+    router.replace("/login");
+  }, [isAuthLoading, user]);
+
+  // ⚠️ Burası ÖNEMLİ
+  // Asla uzun süreli loading UI gösterme
+  return (
+    <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+      <ActivityIndicator />
+    </View>
+  );
 }

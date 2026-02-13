@@ -1,14 +1,15 @@
 // app/doctor/dashboard.tsx
 // Doctor Dashboard – Role + Status Guarded
 
-import React, { useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, Pressable, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 
 export default function DoctorDashboard() {
   const router = useRouter();
-  const { user, isAuthReady } = useAuth(); // 🔥 FIX: Use isAuthReady instead of isAuthLoading
+  const { user, isAuthReady, signOut } = useAuth(); // 🔥 FIX: Use isAuthReady instead of isAuthLoading
+  const [selectedLanguage, setSelectedLanguage] = useState('tr'); // Language state
 
   // 🔐 ROLE + STATUS GUARD
   useEffect(() => {
@@ -41,6 +42,52 @@ export default function DoctorDashboard() {
   if (isAuthReady && user) {
     return (
       <View style={styles.container}>
+        {/* Header with logout and language selection */}
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <Text style={styles.headerTitle}>👨‍⚕️ Doktor Paneli</Text>
+          </View>
+          <View style={styles.headerRight}>
+            {/* Language Selection */}
+            <TouchableOpacity 
+              style={styles.languageButton}
+              onPress={() => {
+                Alert.alert(
+                  'Dil Seçimi',
+                  'Uygulama dilini seçin:',
+                  [
+                    { text: 'Türkçe', onPress: () => setSelectedLanguage('tr') },
+                    { text: 'English', onPress: () => setSelectedLanguage('en') },
+                    { text: 'İptal', style: 'cancel' }
+                  ]
+                );
+              }}
+            >
+              <Text style={styles.languageText}>{selectedLanguage === 'tr' ? '🇹🇷 TR' : '🇬🇧 EN'}</Text>
+            </TouchableOpacity>
+            
+            {/* Logout Button */}
+            <TouchableOpacity 
+              style={styles.logoutButton}
+              onPress={() => {
+                Alert.alert(
+                  'Çıkış Yap',
+                  'Çıkış yapmak istediğinizden emin misiniz?',
+                  [
+                    { text: 'İptal', style: 'cancel' },
+                    { text: 'Çıkış Yap', onPress: () => {
+                      signOut();
+                      router.replace('/');
+                    }}
+                  ]
+                );
+              }}
+            >
+              <Text style={styles.logoutText}>🚪 Çıkış</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         <Text style={styles.title}>👨‍⚕️ Ana Sayfa</Text>
         <Text style={styles.subtitle}>
           Hoş geldin{user.name ? `, Dr. ${user.name}` : ''}
@@ -70,10 +117,10 @@ export default function DoctorDashboard() {
 
           <Pressable
             style={styles.quickAction}
-            onPress={() => router.push('/doctor/diagnosis')}
+            onPress={() => router.push('/treatment')}
           >
             <Text style={styles.quickActionIcon}>🦷</Text>
-            <Text style={styles.quickActionText}>Tanı (ICD-10)</Text>
+            <Text style={styles.quickActionText}>Tedavi Planlama</Text>
           </Pressable>
         </View>
       </View>
@@ -94,6 +141,48 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     backgroundColor: '#F9FAFB',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 10,
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  languageButton: {
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  languageText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  logoutButton: {
+    backgroundColor: '#DC2626',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  logoutText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   center: {
     flex: 1,

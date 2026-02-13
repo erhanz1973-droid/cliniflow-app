@@ -10,15 +10,23 @@ export async function authRequestOTP(payload: {
   phone?: string;
   email?: string;
   role: "DOCTOR" | "PATIENT";
+  clinicCode?: string;
 }) {
   const url = `${AUTH_API_BASE}/auth/request-otp`;
   console.log("[AUTH API] POST", url, JSON.stringify(payload));
   
-  const res = await fetch(url, {
+  // Create timeout controller
+const controller = new AbortController();
+const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    signal: controller.signal,
   });
+
+clearTimeout(timeoutId);
   
   const text = await res.text();
   console.log("[AUTH API] POST response", res.status, text.substring(0, 200));
@@ -35,15 +43,33 @@ export async function authVerifyOTP(payload: {
   email?: string;
   otp: string;
   role: "DOCTOR" | "PATIENT";
+  clinicCode?: string;
 }) {
   const url = `${AUTH_API_BASE}/auth/verify-otp`;
-  console.log("[AUTH API] POST", url, JSON.stringify(payload));
   
-  const res = await fetch(url, {
+  // 🔥 CRITICAL: Convert role to type for backend compatibility
+  const backendPayload = {
+    phone: payload.phone,
+    email: payload.email,
+    otp: payload.otp,
+    type: payload.role.toLowerCase(), // "DOCTOR" -> "doctor", "PATIENT" -> "patient"
+    clinicCode: payload.clinicCode,
+  };
+  
+  console.log("[AUTH API] POST", url, JSON.stringify(backendPayload));
+  
+  // Create timeout controller
+const controller = new AbortController();
+const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(backendPayload),
+    signal: controller.signal,
   });
+
+clearTimeout(timeoutId);
   
   const text = await res.text();
   console.log("[AUTH API] POST response", res.status, text.substring(0, 200));
