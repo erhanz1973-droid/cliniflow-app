@@ -29,7 +29,7 @@ export default function RegisterPatientScreen() {
       phone: formData.phone,
       patientName: formData.patientName,
       email: formData.email,
-      referralCode: formData.referralCode // Add referral code to backend call
+      referralCode: formData.referralCode?.trim() // Trim referral code
     });
 
     setLoading(true);

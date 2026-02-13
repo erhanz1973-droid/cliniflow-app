@@ -10,6 +10,13 @@ export function usePatientRegistration() {
 
   const handlePatientRegistration = async (formData: PatientRegisterRequest) => {
     try {
+      const registrationData = {
+        ...formData,
+        patientName: formData.name, // ✅ Map name to patientName
+        userType: 'PATIENT' // Explicit patient role
+      };
+      
+      const result = await registerPatient(registrationData);
       const result = await registerPatient(formData);
       
       if (result.ok) {

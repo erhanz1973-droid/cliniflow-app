@@ -4,10 +4,12 @@ import { apiGet, apiPost } from '../api';
 
 export interface PatientRegisterRequest {
   name: string;
+  patientName: string; // ✅ Add patientName field
   email: string;
   phone: string;
   clinicCode?: string;
   inviterReferralCode?: string; // Add referral code field
+  userType: string; // ✅ Add userType field
 }
 
 export interface PatientLoginRequest {

@@ -183,7 +183,7 @@ export default function Login() {
 
         // Patient-only routing
         const patientStatus = json.status || "PENDING";
-        const targetRoute = patientStatus === "APPROVED" ? "/home" : "/waiting-approval";
+        const targetRoute = patientStatus === "ACTIVE" ? "/home" : "/waiting-approval";
 
         Alert.alert(
           t("login.success"),
