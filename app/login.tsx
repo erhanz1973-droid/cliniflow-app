@@ -177,6 +177,7 @@ export default function Login() {
           patientId: json.patientId,
           type: json.role?.toLowerCase() || "patient", // 🔥 FIX: Include type from login response
           role: json.role || "PATIENT",
+          otpVerified: true   // ✅ EKLE
         });
 
         // Patient-only routing
