@@ -3,6 +3,7 @@
 import { registerPatient, PatientRegisterRequest } from './api';
 import { router } from 'expo-router';
 import { Alert } from 'react-native';
+import { signIn } from '../auth';
 
 export async function handlePatientRegistration(formData: PatientRegisterRequest) {
   try {
@@ -11,6 +12,17 @@ export async function handlePatientRegistration(formData: PatientRegisterRequest
     if (result.ok) {
       // Check if patient is already approved
       if (result.status === 'ACTIVE' || result.status === 'APPROVED') {
+        // Sign in the patient immediately
+        if (result.token && result.patientId) {
+          await signIn({
+            token: result.token,
+            id: result.patientId,
+            patientId: result.patientId,
+            type: 'patient',
+            role: result.role || 'PATIENT',
+          });
+        }
+        
         Alert.alert(
           "Başarılı",
           "Hesabınız zaten onaylı. Giriş yapılıyorsunuz.",
@@ -18,8 +30,8 @@ export async function handlePatientRegistration(formData: PatientRegisterRequest
             {
               text: "Tamam",
               onPress: () => {
-                // Navigate directly to login for approved patients
-                router.push('/login');
+                // Navigate directly to home for approved patients
+                router.replace('/home');
               },
             },
           ]
