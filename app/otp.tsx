@@ -77,6 +77,8 @@ export default function OtpScreen() {
         type: "patient", // 🔥 CRITICAL: ONLY patient type allowed
       });
 
+      console.log("VERIFY URL:", `${ADMIN_API_BASE}/auth/verify-otp`);
+
       const res = await fetch(`${ADMIN_API_BASE}/auth/verify-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -103,6 +105,8 @@ export default function OtpScreen() {
 
       // Safe JSON parsing
       const text = await res.text();
+      console.log("RAW VERIFY RESPONSE:", text);
+      
       let json;
       try {
         json = text ? JSON.parse(text) : null;
