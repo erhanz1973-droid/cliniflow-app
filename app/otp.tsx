@@ -84,7 +84,21 @@ export default function OtpScreen() {
         signal: controller.signal,
       });
 
-      const json = await res.json();
+      // Better error handling for JSON parsing
+      let json;
+      try {
+        const text = await res.text();
+        console.log("[OTP] Raw response:", text);
+        
+        if (text.startsWith('<')) {
+          throw new Error("Server returned HTML instead of JSON");
+        }
+        
+        json = JSON.parse(text);
+      } catch (parseError) {
+        console.error("[OTP] JSON Parse error:", parseError);
+        throw new Error("Server response error. Please try again.");
+      }
 
       if (!res.ok) {
         let errorMsg = json.message || json.error || `Verify failed (${res.status})`;
