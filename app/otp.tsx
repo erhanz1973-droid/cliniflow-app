@@ -101,20 +101,14 @@ export default function OtpScreen() {
         }
       });
 
-      // Better error handling for JSON parsing
+      // Safe JSON parsing
+      const text = await res.text();
       let json;
       try {
-        const text = await res.text();
-        console.log("[OTP] Raw response:", text);
-        
-        if (text.startsWith('<')) {
-          throw new Error("Server returned HTML instead of JSON");
-        }
-        
-        json = JSON.parse(text);
-      } catch (parseError) {
-        console.error("[OTP] JSON Parse error:", parseError);
-        throw new Error("Server response error. Please try again.");
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        console.log("VERIFY RAW RESPONSE:", text);
+        throw new Error("Server returned non-JSON response.");
       }
 
       if (!res.ok) {
