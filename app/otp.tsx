@@ -138,10 +138,6 @@ export default function OtpScreen() {
       if (json.ok && json.token) {
         console.log("VERIFY OTP RESPONSE:", json); // 🔥 DEBUG: Log full response
         
-        // 🔥 CRITICAL: Set OTP verification flag BEFORE signIn
-        setOtpVerified(true);
-        console.log('[OTP] 🔥 OTP VERIFIED - Flag set to true');
-        
         // 🔥 CRITICAL: signIn() ONLY after successful OTP verification
         // Use the EXACT backend response structure
         
