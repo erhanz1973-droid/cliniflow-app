@@ -40,6 +40,7 @@ export default function Login() {
         patientId: params.patientId,
         type: "patient",
         role: "PATIENT",
+        otpVerified: true   // ✅ EKLE
       });
       router.replace("/home");
     }
