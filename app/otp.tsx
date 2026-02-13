@@ -89,6 +89,18 @@ export default function OtpScreen() {
         signal: controller.signal,
       });
 
+      console.log("[OTP] Full request details:", {
+        method: "POST",
+        url: `${ADMIN_API_BASE}/auth/verify-otp`,
+        headers: { "Content-Type": "application/json" },
+        body: {
+          otp: code,
+          email: email || undefined,
+          phone: phoneToVerify,
+          type: "patient"
+        }
+      });
+
       // Better error handling for JSON parsing
       let json;
       try {
