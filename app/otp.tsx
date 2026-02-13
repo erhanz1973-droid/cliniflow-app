@@ -166,6 +166,7 @@ export default function OtpScreen() {
             patientId: json.patientId,
             type: "patient",
             role: "PATIENT",
+            otpVerified: true   // ✅ EKLE
           });
           router.replace("/home");
         } else if (json.type === "admin") {

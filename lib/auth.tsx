@@ -203,7 +203,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // 🔥 CRITICAL: OTP VERIFICATION CHECK - ONLY FOR PATIENTS
     // signIn() MUST THROW if patient and isOtpVerified === false
-    if (input.type === "patient" && !isOtpVerified) {
+    if (input.type === "patient" && !input.otpVerified) {
       throw new Error("signIn blocked: OTP not verified for patient");
     }
 
