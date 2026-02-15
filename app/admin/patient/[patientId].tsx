@@ -72,7 +72,7 @@ export default function AdminPatientDetailScreen() {
       setLoading(true);
       const token = localStorage.getItem("admin_token");
       
-      const response = await fetch(`${API_BASE}/patients/${patientId}`, {
+      const response = await fetch(`${API_BASE}/api/admin/patients/${patientId}`, {
         headers: {
           "Authorization": `Bearer ${token}`,
           "Content-Type": "application/json",
@@ -99,7 +99,7 @@ export default function AdminPatientDetailScreen() {
       setGroupsLoading(true);
       const token = localStorage.getItem("admin_token");
       
-      const response = await fetch(`${API_BASE}/treatment-groups?patientId=${patientId}`, {
+      const response = await fetch(`${API_BASE}/api/treatment-groups?patientId=${patientId}`, {
         headers: {
           "Authorization": `Bearer ${token}`,
           "Content-Type": "application/json",
