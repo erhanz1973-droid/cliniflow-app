@@ -1,0 +1,513 @@
+// app/travel.tsx
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  ScrollView,
+  ActivityIndicator,
+  Alert,
+} from "react-native";
+import { useLocalSearchParams } from "expo-router";
+
+type EditOwner = "ADMIN" | "PATIENT" | "BOTH";
+
+type Flight = {
+  type: "ARRIVAL" | "DEPARTURE";
+  from: string;
+  to: string;
+  date: string; // YYYY-MM-DD
+  flightNo?: string;
+};
+
+type Hotel = {
+  name: string;
+  address?: string;
+  checkIn?: string;  // YYYY-MM-DD
+  checkOut?: string; // YYYY-MM-DD
+};
+
+type TravelData = {
+  schemaVersion?: number;
+  updatedAt?: number;
+  patientId?: string;
+
+  editPolicy?: {
+    hotel?: EditOwner;
+    flights?: EditOwner;
+    notes?: EditOwner;
+  };
+
+  hotel: Hotel | null;
+  flights: Flight[];
+  notes?: string;
+};
+
+const API_BASE =
+  (process.env.EXPO_PUBLIC_API_BASE as string) || "http://127.0.0.1:5050";
+
+const OWNER_LABEL: Record<EditOwner, string> = {
+  ADMIN: "Admin dolduruyor",
+  PATIENT: "Hasta dolduruyor",
+  BOTH: "İkisi de doldurabilir",
+};
+
+function normalizeTravel(json: any): TravelData {
+  const hotel =
+    json?.hotel == null
+      ? null
+      : typeof json.hotel === "string"
+        ? { name: String(json.hotel) }
+        : {
+            name: String(json.hotel?.name ?? ""),
+            address: json.hotel?.address ? String(json.hotel.address) : "",
+            checkIn: json.hotel?.checkIn ? String(json.hotel.checkIn) : "",
+            checkOut: json.hotel?.checkOut ? String(json.hotel.checkOut) : "",
+          };
+
+  const flights: Flight[] = Array.isArray(json?.flights)
+    ? json.flights.map((f: any) => ({
+        type: f?.type === "DEPARTURE" ? "DEPARTURE" : "ARRIVAL",
+        from: String(f?.from ?? ""),
+        to: String(f?.to ?? ""),
+        date: String(f?.date ?? ""),
+        flightNo: f?.flightNo ? String(f.flightNo) : "",
+      }))
+    : [];
+
+  const editPolicy = {
+    hotel: (json?.editPolicy?.hotel as EditOwner) || "ADMIN",
+    flights: (json?.editPolicy?.flights as EditOwner) || "ADMIN",
+    notes: (json?.editPolicy?.notes as EditOwner) || "ADMIN",
+  };
+
+  return {
+    schemaVersion: json?.schemaVersion ?? 1,
+    updatedAt: json?.updatedAt ?? Date.now(),
+    patientId: json?.patientId,
+
+    editPolicy,
+
+    hotel,
+    flights,
+    notes: json?.notes ? String(json.notes) : "",
+  };
+}
+
+export default function TravelScreen() {
+  const params = useLocalSearchParams();
+  const patientId = String(params.patientId || "");
+
+  const [data, setData] = useState<TravelData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (!patientId) {
+      setErr("patientId missing (örn: /travel?patientId=p2)");
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setErr("");
+
+    fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/travel`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`GET travel failed: ${r.status}`);
+        return r.json();
+      })
+      .then((json) => {
+        if (cancelled) return;
+        setData(normalizeTravel(json));
+      })
+      .catch((e: any) => {
+        if (cancelled) return;
+        setErr(e?.message || "Fetch error");
+        setData(null);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [patientId]);
+
+  const owner = useMemo(() => {
+    const ep = data?.editPolicy;
+    return {
+      hotel: (ep?.hotel || "ADMIN") as EditOwner,
+      flights: (ep?.flights || "ADMIN") as EditOwner,
+      notes: (ep?.notes || "ADMIN") as EditOwner,
+    };
+  }, [data?.editPolicy]);
+
+  const canPatientEdit = (k: "hotel" | "flights" | "notes") =>
+    owner[k] === "PATIENT" || owner[k] === "BOTH";
+
+  const anythingEditable =
+    canPatientEdit("hotel") || canPatientEdit("flights") || canPatientEdit("notes");
+
+  function updateHotelField(field: keyof Hotel, value: string) {
+    if (!data) return;
+    const current = data.hotel || { name: "" };
+    setData({ ...data, hotel: { ...current, [field]: value } });
+  }
+
+  function updateFlight(i: number, field: keyof Flight, value: string) {
+    if (!data) return;
+    const flights = [...data.flights];
+    flights[i] = { ...flights[i], [field]: value } as Flight;
+    setData({ ...data, flights });
+  }
+
+  function addFlight(type: Flight["type"]) {
+    if (!data) return;
+    setData({
+      ...data,
+      flights: [...data.flights, { type, from: "", to: "", date: "", flightNo: "" }],
+    });
+  }
+
+  function removeFlight(i: number) {
+    if (!data) return;
+    setData({ ...data, flights: data.flights.filter((_, idx) => idx !== i) });
+  }
+
+  async function save() {
+    if (!data) return;
+    if (!anythingEditable) {
+      Alert.alert("Bu sayfada düzenleyebileceğin alan yok.");
+      return;
+    }
+
+    // Hasta yetkili olmadığı alanları istemeden overwrite etmesin:
+    // payload'ı server’ın beklediği formatta gönderiyoruz ama kilitli alanları aynen bırakıyoruz.
+    setSaving(true);
+    setErr("");
+
+    const payload: TravelData = {
+      ...data,
+      updatedAt: Date.now(),
+      patientId: data.patientId || patientId,
+      schemaVersion: data.schemaVersion ?? 1,
+      editPolicy: data.editPolicy, // policy server’da dursun
+      // hotel/flights/notes zaten state'te var
+    };
+
+    try {
+      const r = await fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/travel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) throw new Error(`POST travel failed: ${r.status}`);
+
+      let json: any = null;
+      try {
+        json = await r.json();
+      } catch {
+        // no json
+      }
+      setData(json ? normalizeTravel(json) : payload);
+      Alert.alert("Kaydedildi");
+    } catch (e: any) {
+      setErr(e?.message || "Save error");
+      Alert.alert("Kaydetme hatası", e?.message || "");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <View style={{ padding: 16 }}>
+        <ActivityIndicator />
+        <Text style={{ marginTop: 8 }}>Loading travel...</Text>
+      </View>
+    );
+  }
+
+  if (err && !data) {
+    return (
+      <View style={{ padding: 16 }}>
+        <Text style={{ fontWeight: "700", marginBottom: 8 }}>Travel Error</Text>
+        <Text style={{ marginBottom: 8 }}>{err}</Text>
+        <Text>API_BASE: {API_BASE}</Text>
+      </View>
+    );
+  }
+
+  if (!data) {
+    return (
+      <View style={{ padding: 16 }}>
+        <Text>No travel data</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
+      <Text style={{ fontSize: 20, fontWeight: "800" }}>Travel</Text>
+      <Text style={{ opacity: 0.7 }}>Patient: {patientId}</Text>
+
+      {/* HOTEL */}
+      <View style={{ borderWidth: 1, borderColor: "#ddd", borderRadius: 10, padding: 12 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10 }}>
+          <Text style={{ fontSize: 16, fontWeight: "800" }}>Hotel</Text>
+          <Text style={{ fontSize: 12, opacity: 0.7 }}>
+            {OWNER_LABEL[owner.hotel]}
+          </Text>
+        </View>
+
+        <TextInput
+          style={{
+            borderWidth: 1,
+            borderColor: "#ccc",
+            borderRadius: 8,
+            padding: 10,
+            marginTop: 10,
+            opacity: canPatientEdit("hotel") ? 1 : 0.6,
+          }}
+          placeholder="Hotel name"
+          editable={canPatientEdit("hotel")}
+          value={data.hotel?.name || ""}
+          onChangeText={(t) => updateHotelField("name", t)}
+        />
+        <TextInput
+          style={{
+            borderWidth: 1,
+            borderColor: "#ccc",
+            borderRadius: 8,
+            padding: 10,
+            marginTop: 8,
+            opacity: canPatientEdit("hotel") ? 1 : 0.6,
+          }}
+          placeholder="Address"
+          editable={canPatientEdit("hotel")}
+          value={data.hotel?.address || ""}
+          onChangeText={(t) => updateHotelField("address", t)}
+        />
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+          <TextInput
+            style={{
+              flex: 1,
+              borderWidth: 1,
+              borderColor: "#ccc",
+              borderRadius: 8,
+              padding: 10,
+              opacity: canPatientEdit("hotel") ? 1 : 0.6,
+            }}
+            placeholder="Check-in (YYYY-MM-DD)"
+            editable={canPatientEdit("hotel")}
+            value={data.hotel?.checkIn || ""}
+            onChangeText={(t) => updateHotelField("checkIn", t)}
+          />
+          <TextInput
+            style={{
+              flex: 1,
+              borderWidth: 1,
+              borderColor: "#ccc",
+              borderRadius: 8,
+              padding: 10,
+              opacity: canPatientEdit("hotel") ? 1 : 0.6,
+            }}
+            placeholder="Check-out (YYYY-MM-DD)"
+            editable={canPatientEdit("hotel")}
+            value={data.hotel?.checkOut || ""}
+            onChangeText={(t) => updateHotelField("checkOut", t)}
+          />
+        </View>
+
+        {!canPatientEdit("hotel") ? (
+          <Text style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
+            Bu bölüm admin tarafından dolduruluyor, burada sadece görüntüleyebilirsin.
+          </Text>
+        ) : null}
+      </View>
+
+      {/* FLIGHTS */}
+      <View style={{ borderWidth: 1, borderColor: "#ddd", borderRadius: 10, padding: 12 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10 }}>
+          <Text style={{ fontSize: 16, fontWeight: "800" }}>Flights</Text>
+          <Text style={{ fontSize: 12, opacity: 0.7 }}>
+            {OWNER_LABEL[owner.flights]}
+          </Text>
+        </View>
+
+        {data.flights.length === 0 ? (
+          <Text style={{ marginTop: 8, opacity: 0.7 }}>Henüz uçuş yok.</Text>
+        ) : null}
+
+        {data.flights.map((f, i) => (
+          <View
+            key={i}
+            style={{
+              borderWidth: 1,
+              borderColor: "#ccc",
+              borderRadius: 10,
+              padding: 10,
+              marginTop: 10,
+              opacity: canPatientEdit("flights") ? 1 : 0.65,
+            }}
+          >
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ fontWeight: "800" }}>{f.type}</Text>
+              <Pressable
+                onPress={() => removeFlight(i)}
+                disabled={!canPatientEdit("flights")}
+                style={{
+                  paddingVertical: 6,
+                  paddingHorizontal: 10,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: "#aaa",
+                  opacity: canPatientEdit("flights") ? 1 : 0.5,
+                }}
+              >
+                <Text>Remove</Text>
+              </Pressable>
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+              <TextInput
+                style={{ flex: 1, borderWidth: 1, borderColor: "#bbb", borderRadius: 8, padding: 10 }}
+                placeholder="From"
+                editable={canPatientEdit("flights")}
+                value={f.from}
+                onChangeText={(t) => updateFlight(i, "from", t)}
+              />
+              <TextInput
+                style={{ flex: 1, borderWidth: 1, borderColor: "#bbb", borderRadius: 8, padding: 10 }}
+                placeholder="To"
+                editable={canPatientEdit("flights")}
+                value={f.to}
+                onChangeText={(t) => updateFlight(i, "to", t)}
+              />
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+              <TextInput
+                style={{ flex: 1, borderWidth: 1, borderColor: "#bbb", borderRadius: 8, padding: 10 }}
+                placeholder="Date (YYYY-MM-DD)"
+                editable={canPatientEdit("flights")}
+                value={f.date}
+                onChangeText={(t) => updateFlight(i, "date", t)}
+              />
+              <TextInput
+                style={{ flex: 1, borderWidth: 1, borderColor: "#bbb", borderRadius: 8, padding: 10 }}
+                placeholder="Flight No"
+                editable={canPatientEdit("flights")}
+                value={f.flightNo || ""}
+                onChangeText={(t) => updateFlight(i, "flightNo", t)}
+              />
+            </View>
+          </View>
+        ))}
+
+        <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+          <Pressable
+            onPress={() => addFlight("ARRIVAL")}
+            disabled={!canPatientEdit("flights")}
+            style={{
+              flex: 1,
+              padding: 10,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "#aaa",
+              opacity: canPatientEdit("flights") ? 1 : 0.5,
+              alignItems: "center",
+            }}
+          >
+            <Text>+ Arrival</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => addFlight("DEPARTURE")}
+            disabled={!canPatientEdit("flights")}
+            style={{
+              flex: 1,
+              padding: 10,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "#aaa",
+              opacity: canPatientEdit("flights") ? 1 : 0.5,
+              alignItems: "center",
+            }}
+          >
+            <Text>+ Departure</Text>
+          </Pressable>
+        </View>
+
+        {!canPatientEdit("flights") ? (
+          <Text style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
+            Bu bölüm admin tarafından dolduruluyor, burada sadece görüntüleyebilirsin.
+          </Text>
+        ) : null}
+      </View>
+
+      {/* NOTES */}
+      <View style={{ borderWidth: 1, borderColor: "#ddd", borderRadius: 10, padding: 12 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10 }}>
+          <Text style={{ fontSize: 16, fontWeight: "800" }}>Notes</Text>
+          <Text style={{ fontSize: 12, opacity: 0.7 }}>
+            {OWNER_LABEL[owner.notes]}
+          </Text>
+        </View>
+
+        <TextInput
+          style={{
+            borderWidth: 1,
+            borderColor: "#ccc",
+            borderRadius: 8,
+            padding: 10,
+            marginTop: 10,
+            minHeight: 90,
+            textAlignVertical: "top",
+            opacity: canPatientEdit("notes") ? 1 : 0.6,
+          }}
+          multiline
+          placeholder="Notes..."
+          editable={canPatientEdit("notes")}
+          value={data.notes || ""}
+          onChangeText={(t) => setData({ ...data, notes: t })}
+        />
+
+        {!canPatientEdit("notes") ? (
+          <Text style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
+            Bu bölüm admin tarafından dolduruluyor, burada sadece görüntüleyebilirsin.
+          </Text>
+        ) : null}
+      </View>
+
+      {/* SAVE */}
+      <Pressable
+        onPress={save}
+        disabled={saving || !anythingEditable}
+        style={{
+          padding: 14,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: "#999",
+          opacity: saving || !anythingEditable ? 0.5 : 1,
+          alignItems: "center",
+        }}
+      >
+        {saving ? <ActivityIndicator /> : <Text style={{ fontWeight: "800" }}>Save</Text>}
+      </Pressable>
+
+      {err ? (
+        <Text style={{ marginTop: 6, color: "crimson" }}>{err}</Text>
+      ) : null}
+
+      <Text style={{ marginTop: 10, fontSize: 12, opacity: 0.6 }}>
+        API: {API_BASE}
+      </Text>
+    </ScrollView>
+  );
+}

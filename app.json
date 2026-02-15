@@ -1,0 +1,92 @@
+{
+  "expo": {
+    "name": "Clinifly",
+    "slug": "clinifly",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "clinifly",
+    "userInterfaceStyle": "automatic",
+    "developmentClient": {
+      "silentLaunch": true
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "net.clinifly.mobile",
+      "buildNumber": "3",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Clinifly uses the camera to capture dental images for your treatment records.",
+        "NSMicrophoneUsageDescription": "Clinifly uses the microphone for video recording during consultations.",
+        "NSPhotoLibraryUsageDescription": "Clinifly accesses your photo library to upload dental images.",
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "net.clinifly.patient",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": {
+            "scheme": "clinifly"
+          },
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Clinifly uses the camera to capture dental images for your treatment records."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Clinifly accesses your photo library to upload dental images."
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-router",
+      [
+        "expo-file-system",
+        {
+          "fileSystemPermissions": ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"]
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "sound": "default",
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#2563eb"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "e0ac1304-7841-4e28-bbde-6bf8d53a6533"
+      }
+    },
+    "owner": "erhanz"
+  }
+}
