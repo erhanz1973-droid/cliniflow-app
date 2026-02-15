@@ -567,10 +567,10 @@ export default function Home() {
         } catch {}
         
         // Count unread messages (from ADMIN/clinic, not from patient, after last seen)
-        // Note: Admin messages have from: "CLINIC" or from !== "PATIENT"
+        // Note: Admin messages have from_patient: false, patient messages have from_patient: true
         const unreadCount = messages.filter((m: any) => {
           // Message is from admin/clinic (not from patient)
-          if (m.from === "PATIENT") {
+          if (m.from_patient === true) {
             // Skip patient's own messages (they don't count as unread)
             return false;
           }

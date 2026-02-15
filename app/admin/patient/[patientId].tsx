@@ -70,11 +70,10 @@ export default function AdminPatientDetailScreen() {
   const loadPatientDetails = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem("admin_token");
       
       const response = await fetch(`${API_BASE}/api/admin/patients/${patientId}`, {
         headers: {
-          "Authorization": `Bearer ${token}`,
+          "Authorization": `Bearer ${user?.token}`,
           "Content-Type": "application/json",
         },
       });
@@ -95,31 +94,33 @@ export default function AdminPatientDetailScreen() {
   };
 
   const loadTreatmentGroups = async () => {
-    try {
-      setGroupsLoading(true);
-      const token = localStorage.getItem("admin_token");
-      
-      const response = await fetch(`${API_BASE}/api/treatment-groups?patientId=${patientId}`, {
+  try {
+    setGroupsLoading(true);
+
+    const response = await fetch(
+      `${API_BASE}/api/admin/treatment-groups?patientId=${patientId}`,
+      {
         headers: {
-          "Authorization": `Bearer ${token}`,
+          Authorization: `Bearer ${user?.token}`,
           "Content-Type": "application/json",
         },
-      });
-
-      const data = await response.json();
-      
-      if (response.ok && data.ok) {
-        setTreatmentGroups(data.data || []);
-      } else {
-        throw new Error(data.error || "Treatment grupları yüklenemedi");
       }
-    } catch (error) {
-      console.error("Load treatment groups error:", error);
-      Alert.alert("Hata", "Treatment grupları yüklenemedi");
-    } finally {
-      setGroupsLoading(false);
+    );
+
+    const data = await response.json();
+
+    if (response.ok && data.ok) {
+      setTreatmentGroups(data.data || []);
+    } else {
+      throw new Error(data.error || "Treatment grupları yüklenemedi");
     }
-  };
+  } catch (error) {
+    console.error("Load treatment groups error:", error);
+    Alert.alert("Hata", "Treatment grupları yüklenemedi");
+  } finally {
+    setGroupsLoading(false);
+  }
+};
 
   const formatDate = (dateString: string) => {
     if (!dateString) return "-";
