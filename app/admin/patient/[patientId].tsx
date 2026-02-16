@@ -17,12 +17,19 @@ import { API_BASE } from "../../../lib/api";
 
 interface TreatmentGroup {
   id: string;
-  name: string;
-  primary_doctor_id: string;
-  doctor_ids: string[];
+  group_name: string;
+  description: string;
   status: string;
   created_at: string;
-  description?: string;
+  treatment_group_doctors: Array<{
+    doctor_id: string;
+    is_primary: boolean;
+    doctors: {
+      id: string;
+      name: string;
+      email: string;
+    };
+  }>;
 }
 
 interface Patient {
@@ -33,6 +40,7 @@ interface Patient {
   status: string;
   created_at: string;
   clinic_id: string;
+  treatment_groups?: TreatmentGroup[];
 }
 
 export default function AdminPatientDetailScreen() {
@@ -60,13 +68,7 @@ export default function AdminPatientDetailScreen() {
     }
   }, [isAuthReady, user, patientId]);
 
-  // Load treatment groups when groups tab is active
-  useEffect(() => {
-    if (activeTab === "groups" && patientId) {
-      loadTreatmentGroups();
-    }
-  }, [activeTab, patientId]);
-
+  
   const loadPatientDetails = async () => {
     try {
       setLoading(true);
@@ -81,7 +83,9 @@ export default function AdminPatientDetailScreen() {
       const data = await response.json();
       
       if (response.ok && data.ok) {
-        setPatient(data.data);
+        setPatient(data.patient);
+        // Extract treatment groups from patient response
+        setTreatmentGroups(data.patient?.treatment_groups || []);
       } else {
         throw new Error(data.error || "Hasta bilgileri yüklenemedi");
       }
@@ -93,35 +97,7 @@ export default function AdminPatientDetailScreen() {
     }
   };
 
-  const loadTreatmentGroups = async () => {
-  try {
-    setGroupsLoading(true);
-
-    const response = await fetch(
-      `${API_BASE}/api/admin/treatment-groups?patientId=${patientId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${user?.token}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    const data = await response.json();
-
-    if (response.ok && data.ok) {
-      setTreatmentGroups(data.data || []);
-    } else {
-      throw new Error(data.error || "Treatment grupları yüklenemedi");
-    }
-  } catch (error) {
-    console.error("Load treatment groups error:", error);
-    Alert.alert("Hata", "Treatment grupları yüklenemedi");
-  } finally {
-    setGroupsLoading(false);
-  }
-};
-
+  
   const formatDate = (dateString: string) => {
     if (!dateString) return "-";
     return new Date(dateString).toLocaleDateString('tr-TR');
@@ -175,24 +151,31 @@ export default function AdminPatientDetailScreen() {
           <Text style={styles.emptyStateText}>Bu hasta için henüz treatment group oluşturulmadı.</Text>
         </View>
       ) : (
-        treatmentGroups.map((group) => (
+        treatmentGroups.map((group) => {
+          // Find primary doctor and count assigned doctors using junction table
+          const primary = group.treatment_group_doctors?.find(d => d.is_primary)?.doctors;
+          const assigned = group.treatment_group_doctors || [];
+          const assignedCount = assigned.length;
+          
+          return (
           <View key={group.id} style={styles.groupCard}>
             <View style={styles.groupHeader}>
-              <Text style={styles.groupName}>{group.name}</Text>
+              <Text style={styles.groupName}>{group.group_name || "İsimsiz Grup"}</Text>
               <Text style={[styles.groupStatus, { 
                 backgroundColor: group.status === 'ACTIVE' ? '#34C759' : '#FF3B30' 
               }]}>{group.status}</Text>
             </View>
             <View style={styles.groupDetails}>
-              <Text style={styles.groupDetail}>Primary Doctor: {group.primary_doctor_id}</Text>
-              <Text style={styles.groupDetail}>Assigned Doctors: {group.doctor_ids?.length || 0}</Text>
+              <Text style={styles.groupDetail}>Primary Doctor: {primary ? primary.name : "-"}</Text>
+              <Text style={styles.groupDetail}>Assigned Doctors: {assignedCount} doctor(s)</Text>
               <Text style={styles.groupDetail}>Created: {formatDate(group.created_at)}</Text>
               {group.description && (
                 <Text style={styles.groupDescription}>{group.description}</Text>
               )}
             </View>
           </View>
-        ))
+          );
+        })
       )}
     </View>
   );

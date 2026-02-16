@@ -111,6 +111,7 @@ export default function DoctorTreatmentScreen() {
   const [photos, setPhotos] = useState<PhotoFile[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingTooth, setEditingTooth] = useState<Tooth | null>(null);
+  const [isPrimaryDoctor, setIsPrimaryDoctor] = useState(false);
 
   /* ---------- ROLE + STATUS GUARD ---------- */
   useEffect(() => {
@@ -146,6 +147,13 @@ export default function DoctorTreatmentScreen() {
       );
       const patientData = await safeJson(patientRes);
       setPatientInfo(patientData.patient);
+
+      // Check if current doctor is the primary doctor
+      if (patientData.patient?.primary_doctor_id === user?.id) {
+        setIsPrimaryDoctor(true);
+      } else {
+        setIsPrimaryDoctor(false);
+      }
 
       const teethRes = await fetch(
         `${API_BASE}/api/doctor/treatment/${patientId}/teeth`,
@@ -197,6 +205,13 @@ export default function DoctorTreatmentScreen() {
             Alert.alert("Bilgi", "Bu diş için henüz kayıt yok.");
             return;
           }
+          
+          // 🔐 PRIMARY DOCTOR CHECK
+          if (!isPrimaryDoctor) {
+            Alert.alert("Erişim Engellendi", "Bu hastanın primary doktoru değilsiniz. Sadece görüntüleme yetkiniz var.");
+            return;
+          }
+          
           setSelectedTooth(tooth);
           setEditingTooth(tooth);
           setShowModal(true);

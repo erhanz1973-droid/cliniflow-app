@@ -31,10 +31,9 @@ export default function CreateTreatmentGroupScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fetchingDoctors, setFetchingDoctors] = useState(false);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>("");
   const [selectedDoctors, setSelectedDoctors] = useState<string[]>([]);
   const [primaryDoctorId, setPrimaryDoctorId] = useState<string>("");
-  const [groupName, setGroupName] = useState("");
-  const [description, setDescription] = useState("");
 
   useEffect(() => {
     if (!isAuthReady || !user) {
@@ -119,46 +118,33 @@ export default function CreateTreatmentGroupScreen() {
       return;
     }
     
+    // Strong validation for doctor selection
+    if (!selectedDoctorId || selectedDoctorId.trim() === '') {
+      Alert.alert("Hata", "Bir doktor seçmelisiniz. Tedavi grubu oluşturulamaz.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    console.log("[CREATE GROUP] Submitting with:", {
+      patientId,
+      selectedDoctorId,
+      doctorId: selectedDoctorId?.trim()
+    });
+
     setIsSubmitting(true);
     
-    // Validation
-    if (!groupName.trim()) {
-      Alert.alert("Hata", "Grup adı zorunludur");
-      setIsSubmitting(false);
-      return;
-    }
-
-    if (selectedDoctors.length === 0) {
-      Alert.alert("Hata", "En az bir doktor seçmelisiniz");
-      setIsSubmitting(false);
-      return;
-    }
-
-    if (!primaryDoctorId) {
-      Alert.alert("Hata", "Birincil doktor seçmelisiniz");
-      setIsSubmitting(false);
-      return;
-    }
-
-    if (!selectedDoctors.includes(primaryDoctorId)) {
-      Alert.alert("Hata", "Birincil doktor seçili doktorlar arasında olmalıdır");
-      setIsSubmitting(false);
-      return;
-    }
-
     try {
       setLoading(true);
       const token = localStorage.getItem("admin_token");
 
       const requestBody = {
         patient_id: patientId,
-        doctor_ids: selectedDoctors,
-        primary_doctor_id: primaryDoctorId,
-        name: groupName.trim(),
-        description: description.trim(),
+        doctor_id: selectedDoctorId.trim()
       };
 
-      const response = await fetch(`${API_BASE}/api/admin/treatment-groups`, {
+      console.log("[CREATE GROUP] Request body:", requestBody);
+
+      const response = await fetch(`${API_BASE}/api/admin/treatments`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -169,23 +155,11 @@ export default function CreateTreatmentGroupScreen() {
 
       const data = await response.json();
 
-      if (response.ok && data.id) {
-        console.log("Group created:", data.id);
-        Alert.alert(
-          "Başarılı",
-          "Tedavi grubu başarıyla oluşturuldu",
-          [
-            {
-              text: "Tamam",
-              onPress: () => router.replace({
-                pathname: "/admin/patient/[patientId]",
-                params: { patientId, tab: "groups" },
-              }),
-            },
-          ]
-        );
+      if (response.ok && data.ok) {
+        Alert.alert("Başarılı", "Tedavi grubu başarıyla oluşturuldu");
+        router.back();
       } else {
-        console.error("Create failed:", data);
+        console.error("[CREATE GROUP] API Error:", data);
         throw new Error(data.error || "Tedavi grubu oluşturulamadı");
       }
     } catch (error) {
@@ -218,45 +192,22 @@ export default function CreateTreatmentGroupScreen() {
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Grup Adı</Text>
-          <TextInput
-            style={styles.input}
-            value={groupName}
-            onChangeText={setGroupName}
-            placeholder="Tedavi grubu adını girin"
-            multiline
-          />
-        </View>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Açıklama</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            value={description}
-            onChangeText={setDescription}
-            placeholder="Tedavi grubu açıklaması"
-            multiline
-            numberOfLines={4}
-          />
-        </View>
-
-        <View style={styles.formGroup}>
           <Text style={styles.label}>Doktor Seçimi</Text>
           <Text style={styles.subLabel}>
-            En az bir doktor seçmelisiniz. İlk seçilen doktor birincil doktor olur.
+            Seçtiğiniz doktor için tedavi grubu oluşturulacaktır. Grup adı otomatik olarak belirlenecektir.
           </Text>
           
           {doctors.map((doctor) => (
             <View key={doctor.id} style={styles.doctorItem}>
               <TouchableOpacity
-                style={styles.doctorCheckbox}
-                onPress={() => toggleDoctorSelection(doctor.id)}
+                style={styles.doctorRadio}
+                onPress={() => setSelectedDoctorId(doctor.id)}
               >
                 <View style={[
                   styles.checkbox,
-                  selectedDoctors.includes(doctor.id) && styles.checkboxChecked
+                  selectedDoctorId === doctor.id && styles.checkboxChecked
                 ]}>
-                  {selectedDoctors.includes(doctor.id) && (
+                  {selectedDoctorId === doctor.id && (
                     <Text style={styles.checkmark}>✓</Text>
                   )}
                 </View>
@@ -264,25 +215,25 @@ export default function CreateTreatmentGroupScreen() {
               
               <TouchableOpacity
                 style={styles.doctorInfo}
-                onPress={() => setPrimaryDoctor(doctor.id)}
+                onPress={() => setSelectedDoctorId(doctor.id)}
               >
                 <View style={styles.doctorDetails}>
                   <Text style={styles.doctorName}>{doctor.name}</Text>
                   <Text style={styles.doctorDepartment}>{doctor.department}</Text>
-                </View>
-                {selectedDoctors.includes(doctor.id) && (
-                  <View style={[
-                    styles.primaryBadge,
-                    primaryDoctorId === doctor.id && styles.primaryBadgeSelected
-                  ]}>
-                    <Text style={[
-                      styles.primaryBadgeText,
-                      primaryDoctorId === doctor.id && styles.primaryBadgeSelectedText
+                  {selectedDoctorId === doctor.id && (
+                    <View style={[
+                      styles.primaryBadge,
+                      styles.primaryBadgeSelected
                     ]}>
-                      {primaryDoctorId === doctor.id ? "Birincil" : "Seç"}
-                    </Text>
-                  </View>
-                )}
+                      <Text style={[
+                        styles.primaryBadgeText,
+                        styles.primaryBadgeSelectedText
+                      ]}>
+                        Seçili Doktor
+                      </Text>
+                    </View>
+                  )}
+                </View>
               </TouchableOpacity>
             </View>
           ))}
@@ -372,8 +323,15 @@ const styles = StyleSheet.create({
     height: 100,
     textAlignVertical: "top",
   },
-  doctorItem: {
-    flexDirection: "row",
+  note: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 4,
+    marginBottom: 8,
+    fontStyle: "italic",
+  },
+  doctorRadio: {
+    flex: 1,
     alignItems: "center",
     backgroundColor: "#FFFFFF",
     padding: 16,
