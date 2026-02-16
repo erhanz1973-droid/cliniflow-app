@@ -172,7 +172,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const raw = await storageGet(AUTH_KEY);
       console.log('[AUTH] Raw storage data:', raw ? 'exists' : 'missing');
       const parsed = safeParseUser(raw);
-      console.log('[AUTH] Parsed user data:', parsed ? { id: parsed.id, role: parsed.role, hasToken: !!parsed.token } : 'null');
       
       if (parsed && JSON.stringify(parsed) !== JSON.stringify(user)) {
         setUser(parsed);
@@ -198,7 +197,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsAuthLoading(false);
       setIsInitialized(true); // 🔥 CRITICAL: Mark as initialized
       console.log('[AuthProvider] refreshAuth complete');
-      console.log('[AuthProvider] FINAL USER STATE:', JSON.stringify(user, null, 2));
     }
   };
 
@@ -270,13 +268,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       languages: input.languages,
     };
     
-    // � DEBUG: Log user object after creation
-    console.log("[AUTH] User object created:", JSON.stringify(next, null, 2));
-    console.log("[AUTH] User token exists:", !!next.token);
-    console.log("[AUTH] User role:", next.role);
-    console.log("[AUTH] User type:", next.type);
-    
-    // �🔒 EKSTRA GÜVENLİK: Clear patient storage when signing in as doctor
+    // 🔒 EKSTRA GÜVENLİK: Clear patient storage when signing in as doctor
     if (type === "doctor") {
       try {
         await AsyncStorage.removeItem("clinifly.patient.v1");
@@ -289,7 +281,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await storageSet(AUTH_KEY, JSON.stringify(next));
     setAuthToken(token); // 🔥 CRITICAL: Sync token with API layer
     console.log('[AUTH] User signed in:', type, 'ID:', id);
-    console.log('[AUTH] USER STATE AFTER LOGIN:', JSON.stringify(next, null, 2));
   };
 
   const signOut = async () => {

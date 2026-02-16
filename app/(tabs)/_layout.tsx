@@ -54,23 +54,12 @@ function TabLayout() {
     };
   }, [router]);
 
-  // Enhanced debugging
-  useEffect(() => {
-    console.log("[TAB LAYOUT] Auth state:", {
-      isAuthLoading,
-      isAuthReady,
-      user: user ? { id: user.id, role: user.role, hasToken: !!user.token } : null,
-      isPatient,
-      isDoctor
-    });
-  }, [isAuthLoading, isAuthReady, user, isPatient, isDoctor]);
-
   // Don't render until language and auth are loaded
   if (isLoading || isAuthLoading || !isAuthReady) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color="#2563EB" />
-        <Text>Loading... {isAuthLoading ? 'Auth' : 'Lang'}...</Text>
+        <Text>Loading...</Text>
       </View>
     );
   }
