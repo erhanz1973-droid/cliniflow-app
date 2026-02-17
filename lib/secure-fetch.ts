@@ -34,6 +34,7 @@ export async function secureFetch(
     if (!res.ok) {
       const raw = await res.text();
       console.error(`[API] Request failed (${res.status}):`, raw);
+      console.error(`[API] Raw response starts with:`, raw.substring(0, 100));
       throw new Error(raw || `Request failed with status ${res.status}`);
     }
 
@@ -41,6 +42,7 @@ export async function secureFetch(
     if (!contentType?.includes('application/json')) {
       const raw = await res.text();
       console.error(`[API] Non-JSON response:`, raw);
+      console.error(`[API] Raw response starts with:`, raw.substring(0, 100));
       throw new Error('Invalid API response format');
     }
 

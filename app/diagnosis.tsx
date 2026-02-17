@@ -19,6 +19,7 @@ interface Diagnosis {
   icd10_code: string;
   icd10_description: string;
   is_primary: boolean;
+  tooth_number?: string;
 }
 
 export default function DiagnosisScreen() {
@@ -46,6 +47,7 @@ export default function DiagnosisScreen() {
   const [isToothModalVisible, setIsToothModalVisible] = useState(false);
   const [isIcdModalVisible, setIsIcdModalVisible] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [activeTooth, setActiveTooth] = useState<string | null>(null);
 
   /* ------------------ ICD SEARCH ------------------ */
 
@@ -147,7 +149,14 @@ export default function DiagnosisScreen() {
 
       console.log("PARSED DIAGNOSES LIST:", list);
 
-      const primary = list.find((d: Diagnosis) => d.is_primary);
+      // Filter diagnoses by selected tooth
+      const toothDiagnoses = activeTooth 
+        ? list.filter((d: Diagnosis) => d.tooth_number === activeTooth)
+        : [];
+
+      console.log("FILTERED TOOTH DIAGNOSES:", toothDiagnoses);
+
+      const primary = toothDiagnoses.find((d: Diagnosis) => d.is_primary);
       if (primary) {
         setPrimaryDiagnosis({
           code: primary.icd10_code,
@@ -156,7 +165,7 @@ export default function DiagnosisScreen() {
         setPrimaryQuery(primary.icd10_code);
       }
 
-      const secondary = list.filter((d: Diagnosis) => !d.is_primary);
+      const secondary = toothDiagnoses.filter((d: Diagnosis) => !d.is_primary);
       if (secondary.length > 0) {
         setSecondaryDiagnoses(
           secondary.map((d: Diagnosis) => ({
@@ -176,11 +185,10 @@ export default function DiagnosisScreen() {
   /* ------------------ TOOTH ------------------ */
 
   const toggleTooth = (tooth: string) => {
-    setSelectedTeeth(prev =>
-      prev.includes(tooth)
-        ? prev.filter(t => t !== tooth)
-        : [...prev, tooth]
-    );
+    setActiveTooth(tooth);
+    // Reset diagnosis form when changing tooth
+    setPrimaryDiagnosis({ code: '', description: '' });
+    setSecondaryDiagnoses([]);
   };
 
   /* ------------------ SECONDARY ------------------ */
@@ -217,14 +225,16 @@ export default function DiagnosisScreen() {
         {
           icd10_code: primaryDiagnosis.code,
           icd10_description: primaryDiagnosis.description,
-          is_primary: true
+          is_primary: true,
+          tooth_number: activeTooth
         },
         ...secondaryDiagnoses
           .filter(d => d.code)
           .map(d => ({
             icd10_code: d.code,
             icd10_description: d.description,
-            is_primary: false
+            is_primary: false,
+            tooth_number: activeTooth
           }))
       ];
 
@@ -258,49 +268,64 @@ export default function DiagnosisScreen() {
     <View style={{ flex: 1 }}>
       <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🦷 Diş Seçimi</Text>
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>🦷 Diş Seçimi</Text>
 
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-            {selectedTeeth.length === 0 ? (
-              <Text style={{ color: '#888' }}>Diş seçilmedi</Text>
-            ) : (
-              selectedTeeth.map(t => (
-                <View key={t} style={styles.toothChip}>
-                  <Text style={{ color: '#fff' }}>{t}</Text>
-                </View>
-              ))
-            )}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+        {!activeTooth ? (
+          <Text style={{ color: '#888', padding: 10 }}>Lütfen bir diş seçin</Text>
+        ) : (
+          <View style={styles.toothChip}>
+            <Text style={styles.toothChipText}>{activeTooth}</Text>
           </View>
+        )}
+      </View>
 
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => setIsToothModalVisible(true)}
-          >
-            <Text style={styles.primaryButtonText}>Diş Seç</Text>
-          </TouchableOpacity>
-        </View>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 }}>
+        {[...Array(32)].map((_, i) => {
+          const tooth = (i + 1).toString();
+          return (
+            <TouchableOpacity
+              key={tooth}
+              style={[
+                styles.toothButton,
+                activeTooth === tooth && styles.toothButtonActive
+              ]}
+              onPress={() => toggleTooth(tooth)}
+            >
+              <Text style={[
+                styles.toothButtonText,
+                activeTooth === tooth && styles.toothButtonTextActive
+              ]}>
+                {tooth}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
 
-        {/* Primary */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🔴 Birincil Tanı</Text>
+    {/* Primary */}
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>🔴 Birincil Tanı</Text>
 
-          <TouchableOpacity
-            style={styles.icdSelector}
-            onPress={() => setIsIcdModalVisible(true)}
-          >
-            <Text style={styles.icdSelectorText}>
-              {primaryDiagnosis.code 
-                ? `${primaryDiagnosis.code} - ${primaryDiagnosis.description}`
-                : "ICD-10 kodu seçmek için dokunun..."
-              }
-            </Text>
-            <Text style={styles.icdSelectorIcon}>🔍</Text>
-          </TouchableOpacity>
-        </View>
+      <TouchableOpacity
+        style={styles.icdSelector}
+        onPress={() => setIsIcdModalVisible(true)}
+      >
+        <Text style={styles.icdSelectorText}>
+          {primaryDiagnosis.code 
+            ? `${primaryDiagnosis.code} - ${primaryDiagnosis.description}`
+            : "ICD-10 kodu seçmek için dokunun..."
+          }
+        </Text>
+        <Text style={styles.icdSelectorIcon}>🔍</Text>
+      </TouchableOpacity>
+    </View>
 
-        {/* Secondary */}
-        <View style={styles.section}>
+    {/* Secondary */}
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>🔵 İkincil Tanılar</Text>
           <Text style={styles.sectionTitle}>🔵 İkincil Tanılar</Text>
 
           {secondaryDiagnoses.map((d, index) => (
@@ -344,7 +369,7 @@ export default function DiagnosisScreen() {
         <TouchableOpacity
           style={styles.submitButton}
           onPress={handleSubmit}
-          disabled={loading || !primaryDiagnosis.code}
+          disabled={loading || !primaryDiagnosis.code || !activeTooth}
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
@@ -658,5 +683,33 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 12,
     textAlign: 'center'
+  },
+  toothChipText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold'
+  },
+  toothButton: {
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    margin: 4
+  },
+  toothButtonActive: {
+    backgroundColor: '#007AFF',
+    borderColor: '#007AFF'
+  },
+  toothButtonText: {
+    fontSize: 12,
+    color: '#333',
+    fontWeight: 'bold'
+  },
+  toothButtonTextActive: {
+    color: '#fff'
   }
 });
