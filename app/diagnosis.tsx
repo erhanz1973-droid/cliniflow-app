@@ -136,7 +136,14 @@ export default function DiagnosisScreen() {
         user?.token
       );
 
-      const list = diagnosesData?.data || diagnosesData || [];
+      console.log("DIAGNOSES API RESPONSE:", diagnosesData);
+
+      const list =
+        diagnosesData?.diagnoses ||
+        diagnosesData?.data ||
+        [];
+
+      console.log("PARSED DIAGNOSES LIST:", list);
 
       const primary = list.find((d: Diagnosis) => d.is_primary);
       if (primary) {
@@ -157,6 +164,7 @@ export default function DiagnosisScreen() {
         );
       }
     } catch (error) {
+      console.log("LOAD ENCOUNTER ERROR:", error);
       Alert.alert('Hata', 'Veri yüklenemedi');
     } finally {
       setLoading(false);
