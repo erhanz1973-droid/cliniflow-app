@@ -8,13 +8,13 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_BASE": "https://cliniflow-admin.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://cliniflow-backend-dg8a.onrender.com"
       }
     },
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_BASE": "https://cliniflow-admin.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://cliniflow-backend-dg8a.onrender.com"
       },
       "ios": {
         "simulator": false
@@ -26,7 +26,7 @@
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_BASE": "https://cliniflow-admin.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://cliniflow-backend-dg8a.onrender.com"
       },
       "ios": {
         "resourceClass": "m-medium"

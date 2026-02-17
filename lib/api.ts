@@ -1,12 +1,12 @@
 // cliniflow-app/lib/api.ts
 
 /**
- * STATIC API configuration - NO DYNAMIC LOGIC
+ * API configuration with environment variable support
  * Single source of truth for all API calls
  */
 
-// 🔥 STATIC - Production backend (Render)
-export const API_BASE = "https://cliniflow-backend.onrender.com";
+// 🔥 ENVIRONMENT VARIABLE BASED - Test backend (Render)
+export const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "https://cliniflow-backend-dg8a.onrender.com";
 export const AUTH_API_BASE = API_BASE;
 export const ADMIN_API_BASE = API_BASE; // Single backend for all operations
 

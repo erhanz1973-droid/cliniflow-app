@@ -1,9 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+  ScrollView,
+  Modal
+} from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../lib/auth';
-import { API_BASE } from '../lib/api';
-import ICD10Dropdown from '../components/ICD10Dropdown';
+import { API_ROUTES } from '../lib/api-routes';
+import { securePost, secureGet, secureFetch } from '../lib/secure-fetch';
 
 interface Diagnosis {
   icd10_code: string;
@@ -15,21 +25,69 @@ export default function DiagnosisScreen() {
   const router = useRouter();
   const { patientId, encounterId } = useLocalSearchParams();
   const { user } = useAuth();
-  
+
   const [loading, setLoading] = useState(false);
   const [encounter, setEncounter] = useState<any>(null);
-  const [diagnoses, setDiagnoses] = useState<Diagnosis[]>([]);
-  
-  // Form state
-  const [primaryDiagnosis, setPrimaryDiagnosis] = useState<{ code: string; description: string }>({ code: '', description: '' });
-  const [secondaryDiagnoses, setSecondaryDiagnoses] = useState<{ code: string; description: string }[]>([{ code: '', description: '' }]);
+
+  const [primaryDiagnosis, setPrimaryDiagnosis] = useState<{ code: string; description: string }>({
+    code: '',
+    description: ''
+  });
+
+  const [primaryQuery, setPrimaryQuery] = useState('');
+  const [icdResults, setIcdResults] = useState<any[]>([]);
+
+  const [secondaryDiagnoses, setSecondaryDiagnoses] = useState<
+    { code: string; description: string }[]
+  >([]);
+
   const [notes, setNotes] = useState('');
+  const [selectedTeeth, setSelectedTeeth] = useState<string[]>([]);
+  const [isToothModalVisible, setIsToothModalVisible] = useState(false);
+
+  /* ------------------ ICD SEARCH ------------------ */
+
+  const searchIcd = async (query: string) => {
+  setPrimaryQuery(query);
+
+  if (!query || query.length < 2) {
+    setIcdResults([]);
+    return;
+  }
+
+  try {
+    console.log("ICD search triggered:", query);
+
+    const response = await secureFetch(
+      `/api/icd/search?q=${encodeURIComponent(query)}` 
+    );
+
+    const data = await response.json();
+
+    console.log("ICD API RESPONSE:", data);
+
+    const results =
+      data?.results ||
+      data?.data ||
+      data?.diagnoses ||
+      [];
+
+    setIcdResults(results);
+
+  } catch (err) {
+    console.log("ICD search error:", err);
+    setIcdResults([]);
+  }
+};
+
+  /* ------------------ ENCOUNTER INIT ------------------ */
 
   useEffect(() => {
+    if (!patientId) return;
+
     if (encounterId) {
-      loadEncounterData();
+      loadEncounter();
     } else {
-      // Create new encounter first
       createEncounter();
     }
   }, [patientId, encounterId]);
@@ -37,402 +95,380 @@ export default function DiagnosisScreen() {
   const createEncounter = async () => {
     try {
       setLoading(true);
-      console.log("[DIAGNOSIS] Creating new encounter for patient:", patientId);
-      
-      const response = await fetch(`${API_BASE}/api/treatment/encounters`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          patient_id: patientId
-        })
-      });
 
-      const encounterData = await response.json();
-      console.log("[DIAGNOSIS] New encounter created:", encounterData);
-      
-      if (response.ok) {
-        setEncounter(encounterData);
-      } else {
-        console.error("[DIAGNOSIS] Failed to create encounter:", encounterData);
-        Alert.alert('Hata', 'Muayene oluşturulamadı');
-      }
+      const result = await securePost(
+        API_ROUTES.doctor.encounters,
+        {
+          patient_id: patientId,
+          notes: 'Initial examination for diagnosis'
+        },
+        user?.token
+      );
+
+      setEncounter(result?.encounter || result);
     } catch (error) {
-      console.error('Create encounter error:', error);
       Alert.alert('Hata', 'Muayene oluşturulamadı');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadEncounterData = async () => {
+  const loadEncounter = async () => {
     try {
       setLoading(true);
-      
-      // Get encounter data
-      const encounterResponse = await fetch(`${API_BASE}/api/treatment/encounters/${encounterId}`, {
-        headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      const encounterData = await encounterResponse.json();
-      console.log("[DIAGNOSIS] Encounter data:", encounterData);
+
+      const encounterData = await secureGet(
+        API_ROUTES.doctor.encounterById(encounterId as string),
+        user?.token
+      );
+
       setEncounter(encounterData);
-      
-      // Get existing diagnoses
-      const diagnosesResponse = await fetch(`${API_BASE}/api/treatment/encounters/${encounterId}/diagnoses`, {
-        headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      const diagnosesData = await diagnosesResponse.json();
-      console.log("[DIAGNOSIS] Diagnoses response:", diagnosesData);
-      
-      // 🔥 CRITICAL: Handle different response formats
-      const diagnosesArray = Array.isArray(diagnosesData) 
-        ? diagnosesData 
-        : diagnosesData?.data || diagnosesData?.diagnoses || [];
-      
-      console.log("[DIAGNOSIS] Parsed diagnoses array:", diagnosesArray);
-      setDiagnoses(diagnosesArray);
-      
-      // Pre-fill form with existing data
-      const primaryDiagnosis = diagnosesArray.find((d: any) => d.is_primary);
-      if (primaryDiagnosis) {
+
+      const diagnosesData = await secureGet(
+        API_ROUTES.doctor.encounterDiagnoses(encounterId as string),
+        user?.token
+      );
+
+      const list = diagnosesData?.data || diagnosesData || [];
+
+      const primary = list.find((d: Diagnosis) => d.is_primary);
+      if (primary) {
         setPrimaryDiagnosis({
-          code: primaryDiagnosis.icd10_code,
-          description: primaryDiagnosis.icd10_description
+          code: primary.icd10_code,
+          description: primary.icd10_description
         });
+        setPrimaryQuery(primary.icd10_code);
       }
-      
-      const secondaryDiagnoses = diagnosesArray.filter((d: any) => !d.is_primary);
-      if (secondaryDiagnoses.length > 0) {
-        setSecondaryDiagnoses(secondaryDiagnoses.map((d: any) => ({ 
-          code: d.icd10_code, 
-          description: d.icd10_description 
-        })));
+
+      const secondary = list.filter((d: Diagnosis) => !d.is_primary);
+      if (secondary.length > 0) {
+        setSecondaryDiagnoses(
+          secondary.map((d: Diagnosis) => ({
+            code: d.icd10_code,
+            description: d.icd10_description
+          }))
+        );
       }
-      
     } catch (error) {
-      console.error('Load encounter error:', error);
-      Alert.alert('Hata', 'Veri yüklenirken hata oluştu');
+      Alert.alert('Hata', 'Veri yüklenemedi');
     } finally {
       setLoading(false);
     }
   };
 
-  const addSecondaryDiagnosis = () => {
-    setSecondaryDiagnoses([...secondaryDiagnoses, { code: '', description: '' }]);
+  /* ------------------ TOOTH ------------------ */
+
+  const toggleTooth = (tooth: string) => {
+    setSelectedTeeth(prev =>
+      prev.includes(tooth)
+        ? prev.filter(t => t !== tooth)
+        : [...prev, tooth]
+    );
   };
 
-  const removeSecondaryDiagnosis = (index: number) => {
-    const newSecondaryDiagnoses = secondaryDiagnoses.filter((_, i) => i !== index);
-    setSecondaryDiagnoses(newSecondaryDiagnoses);
+  /* ------------------ SECONDARY ------------------ */
+
+  const addSecondary = () => {
+    setSecondaryDiagnoses(prev => [...prev, { code: '', description: '' }]);
   };
+
+  const removeSecondary = (index: number) => {
+    setSecondaryDiagnoses(prev => prev.filter((_, i) => i !== index));
+  };
+
+  /* ------------------ SUBMIT ------------------ */
 
   const handleSubmit = async () => {
+    const finalEncounterId = encounterId || encounter?.id;
+
+    if (!finalEncounterId) {
+      Alert.alert('Hata', 'Muayene bulunamadı');
+      return;
+    }
+
+    if (!primaryDiagnosis.code) {
+      Alert.alert('Hata', 'Birincil tanı seçilmelidir');
+      return;
+    }
+
     try {
       setLoading(true);
-      
-      // Validate primary diagnosis
-      if (!primaryDiagnosis.code) {
-        Alert.alert('Hata', 'Birincil tanı seçilmelidir');
-        return;
-      }
 
-      // Only one primary diagnosis allowed
-      const hasPrimaryInSecondary = secondaryDiagnoses.some(d => d.code === primaryDiagnosis.code);
-      if (hasPrimaryInSecondary) {
-        Alert.alert('Hata', 'Birincil tanı ikincil tanılar olarak eklenemez');
-        return;
-      }
-
-      // Prepare diagnoses array
       const diagnosesToSubmit = [
         {
           icd10_code: primaryDiagnosis.code,
           icd10_description: primaryDiagnosis.description,
           is_primary: true
         },
-        ...secondaryDiagnoses.filter(d => d.code).map(d => ({
-          icd10_code: d.code,
-          icd10_description: d.description,
-          is_primary: false
-        }))
+        ...secondaryDiagnoses
+          .filter(d => d.code)
+          .map(d => ({
+            icd10_code: d.code,
+            icd10_description: d.description,
+            is_primary: false
+          }))
       ];
 
-      console.log("[DIAGNOSIS] Submitting diagnoses:", diagnosesToSubmit);
-
-      const response = await fetch(`${API_BASE}/api/treatment/encounters/${encounterId}/diagnoses`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
+      await securePost(
+        API_ROUTES.doctor.encounterDiagnoses(finalEncounterId),
+        {
+          diagnoses: diagnosesToSubmit,
+          toothNumbers: selectedTeeth,
+          notes
         },
-        body: JSON.stringify({
-          diagnoses: diagnosesToSubmit
-        })
-      });
+        user?.token
+      );
 
-      const result = await response.json();
-      console.log("[DIAGNOSIS] Submit response:", result);
-
-      if (response.ok) {
-        Alert.alert('Başarılı', 'Tanılar kaydedildi');
-        router.back();
-      } else {
-        Alert.alert('Hata', result.message || 'Tanılar kaydedilemedi');
-      }
+      Alert.alert('Başarılı', 'Tanılar kaydedildi');
+      router.back();
     } catch (error) {
-      console.error('Submit diagnoses error:', error);
-      Alert.alert('Hata', 'Tanılar kaydedilemedi');
+      Alert.alert('Hata', 'Kaydedilemedi');
     } finally {
       setLoading(false);
     }
   };
 
+  /* ------------------ RENDER ------------------ */
+
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Tanı Belirleme</Text>
-        <Text style={styles.subtitle}>Hasta: {patientId}</Text>
-        {encounter && encounter.id && (
-          <Text style={styles.encounterInfo}>Muayene #{encounter.id.substring(0, 8)}</Text>
-        )}
-      </View>
+    <View style={{ flex: 1 }}>
+      <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
 
-      {/* Primary Diagnosis (Zorunlu) */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🔴 Birincil Tanı (Zorunlu)</Text>
-        
-        <ICD10Dropdown
-          selectedCode={primaryDiagnosis.code}
-          onCodeSelect={(code) => setPrimaryDiagnosis({ code: code.code, description: code.description })}
-          placeholder="ICD-10 kodu ara..."
-        />
-        
-        <TextInput
-          style={styles.input}
-          placeholder="Açıklama"
-          value={primaryDiagnosis.description}
-          onChangeText={setPrimaryDiagnosis}
-          multiline
-          numberOfLines={3}
-          editable={false} // Read-only, populated from dropdown
-        />
-      </View>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>🦷 Diş Seçimi</Text>
 
-      {/* Secondary Diagnoses */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🔵 İkincil Tanılar</Text>
-        
-        {secondaryDiagnoses.map((diagnosis, index) => (
-          <View key={index} style={styles.secondaryDiagnosisRow}>
-            <View style={styles.secondaryDiagnosisInput}>
-              <ICD10Dropdown
-                selectedCode={diagnosis.code}
-                onCodeSelect={(code) => {
-                  const newSecondaryDiagnoses = [...secondaryDiagnoses];
-                  newSecondaryDiagnoses[index] = { code: code.code, description: code.description };
-                  setSecondaryDiagnoses(newSecondaryDiagnoses);
-                }}
-                placeholder="ICD-10 kodu ara..."
-              />
-              
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+            {selectedTeeth.length === 0 ? (
+              <Text style={{ color: '#888' }}>Diş seçilmedi</Text>
+            ) : (
+              selectedTeeth.map(t => (
+                <View key={t} style={styles.toothChip}>
+                  <Text style={{ color: '#fff' }}>{t}</Text>
+                </View>
+              ))
+            )}
+          </View>
+
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => setIsToothModalVisible(true)}
+          >
+            <Text style={styles.primaryButtonText}>Diş Seç</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Primary */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>🔴 Birincil Tanı</Text>
+
+          <TextInput
+            value={primaryQuery}
+            onChangeText={searchIcd}
+            placeholder="ICD-10 kodu ara..."
+            style={styles.input}
+          />
+
+          {icdResults.length > 0 && (
+            <View style={styles.dropdown}>
+              <ScrollView keyboardShouldPersistTaps="handled">
+                {icdResults.map((item, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={styles.dropdownItem}
+                    onPress={() => {
+                      setPrimaryDiagnosis({
+                        code: item.code,
+                        description: item.category
+                      });
+                      setPrimaryQuery(item.code);
+                      setIcdResults([]);
+                    }}
+                  >
+                    <Text style={{ fontWeight: 'bold' }}>{item.code}</Text>
+                    <Text style={{ fontSize: 12, color: '#666' }}>
+                      {item.category}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+
+        {/* Secondary */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>🔵 İkincil Tanılar</Text>
+
+          {secondaryDiagnoses.map((d, index) => (
+            <View key={index} style={styles.secondaryRow}>
               <TextInput
                 style={styles.secondaryInput}
-                placeholder="Açıklama"
-                value={diagnosis.description}
-                onChangeText={(text: string) => {
-                  const newSecondaryDiagnoses = [...secondaryDiagnoses];
-                  newSecondaryDiagnoses[index] = { code: diagnosis.code, description: text };
-                  setSecondaryDiagnoses(newSecondaryDiagnoses);
+                placeholder="Kod"
+                value={d.code}
+                onChangeText={(text) => {
+                  const copy = [...secondaryDiagnoses];
+                  copy[index].code = text;
+                  setSecondaryDiagnoses(copy);
                 }}
-                multiline
-                numberOfLines={2}
-                editable={false} // Read-only, populated from dropdown
               />
+
+              <TouchableOpacity
+                style={styles.removeButton}
+                onPress={() => removeSecondary(index)}
+              >
+                <Text style={{ color: '#fff' }}>Sil</Text>
+              </TouchableOpacity>
             </View>
-            
-            <TouchableOpacity
-              style={styles.removeButton}
-              onPress={() => removeSecondaryDiagnosis(index)}
-            >
-              <Text style={styles.removeButtonText}>Sil</Text>
-            </TouchableOpacity>
-          </View>
-        ))}
-        
-        <TouchableOpacity style={styles.addButton} onPress={addSecondaryDiagnosis}>
-          <Text style={styles.addButtonText}>+ İkincil Tanı Ekle</Text>
-        </TouchableOpacity>
-      </View>
+          ))}
 
-      {/* Notes */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📝 Notlar</Text>
-        <TextInput
-          style={styles.notesInput}
-          placeholder="Ek notlar..."
-          value={notes}
-          onChangeText={setNotes}
-          multiline
-          numberOfLines={4}
-        />
-      </View>
-
-      {/* Submit Button */}
-      <TouchableOpacity 
-        style={[styles.submitButton, loading && styles.submitButtonDisabled]} 
-        onPress={handleSubmit}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.submitButtonText}>Tanıları Kaydet</Text>
-        )}
-      </TouchableOpacity>
-
-      {loading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <TouchableOpacity style={styles.addButton} onPress={addSecondary}>
+            <Text style={{ color: '#fff' }}>+ Ekle</Text>
+          </TouchableOpacity>
         </View>
-      )}
-    </ScrollView>
+
+        {/* Notes */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>📝 Not</Text>
+          <TextInput
+            style={styles.notesInput}
+            value={notes}
+            onChangeText={setNotes}
+            multiline
+          />
+        </View>
+
+        <TouchableOpacity
+          style={styles.submitButton}
+          onPress={handleSubmit}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.submitText}>Kaydet</Text>
+          )}
+        </TouchableOpacity>
+
+      </ScrollView>
+
+      {/* Tooth Modal */}
+      <Modal visible={isToothModalVisible} animationType="slide">
+        <View style={{ flex: 1, padding: 20 }}>
+          {[["18","17","16","15","14","13","12","11"],
+            ["21","22","23","24","25","26","27","28"],
+            ["48","47","46","45","44","43","42","41"],
+            ["31","32","33","34","35","36","37","38"]].map((row, i) => (
+            <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', marginVertical: 6 }}>
+              {row.map(t => {
+                const selected = selectedTeeth.includes(t);
+                return (
+                  <TouchableOpacity
+                    key={t}
+                    onPress={() => toggleTooth(t)}
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 6,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: selected ? '#1976D2' : '#E0E0E0'
+                    }}
+                  >
+                    <Text style={{ color: selected ? '#fff' : '#000' }}>{t}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ))}
+
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => setIsToothModalVisible(false)}
+          >
+            <Text style={styles.primaryButtonText}>Tamam</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
+/* ------------------ STYLES ------------------ */
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  header: {
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 5,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 10,
-  },
-  encounterInfo: {
-    fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '600',
-  },
+  container: { flex: 1, backgroundColor: '#f5f5f5' },
   section: {
     backgroundColor: '#fff',
     margin: 10,
     padding: 15,
-    borderRadius: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderRadius: 10
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 15,
-    color: '#333',
-  },
+  sectionTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 10 },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
+    borderColor: '#ccc',
+    padding: 10,
+    borderRadius: 8
+  },
+  dropdown: {
     backgroundColor: '#fff',
-    marginBottom: 10,
+    borderRadius: 8,
+    maxHeight: 200,
+    marginTop: 5,
+    borderWidth: 1,
+    borderColor: '#eee'
   },
-  secondaryDiagnosisRow: {
-    flexDirection: 'row',
+  dropdownItem: { padding: 10, borderBottomWidth: 1, borderColor: '#eee' },
+  toothChip: {
+    backgroundColor: '#1976D2',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 16,
+    marginRight: 6,
+    marginBottom: 6
+  },
+  primaryButton: {
+    backgroundColor: '#1976D2',
+    padding: 12,
+    borderRadius: 8,
     alignItems: 'center',
-    marginBottom: 10,
+    marginTop: 10
   },
-  secondaryDiagnosisInput: {
-    flex: 1,
-    marginRight: 10,
-  },
+  primaryButtonText: { color: '#fff', fontWeight: 'bold' },
+  secondaryRow: { flexDirection: 'row', marginBottom: 10 },
   secondaryInput: {
+    flex: 1,
     borderWidth: 1,
     borderColor: '#ddd',
-    borderRadius: 8,
     padding: 10,
-    fontSize: 14,
-    backgroundColor: '#fff',
+    borderRadius: 8
   },
   removeButton: {
     backgroundColor: '#ff4444',
+    marginLeft: 8,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  removeButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
+    justifyContent: 'center',
+    borderRadius: 8
   },
   addButton: {
     backgroundColor: '#007AFF',
-    padding: 12,
+    padding: 10,
     borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    alignItems: 'center'
   },
   notesInput: {
     borderWidth: 1,
     borderColor: '#ddd',
+    padding: 10,
     borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: '#fff',
-    textAlignVertical: 'top',
+    minHeight: 80
   },
   submitButton: {
     backgroundColor: '#007AFF',
     padding: 15,
     borderRadius: 10,
     alignItems: 'center',
-    margin: 20,
+    margin: 20
   },
-  submitButtonDisabled: {
-    backgroundColor: '#ccc',
-  },
-  submitButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  loadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  submitText: { color: '#fff', fontWeight: 'bold', fontSize: 16 }
 });

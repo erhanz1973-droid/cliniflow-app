@@ -3,6 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Fla
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../lib/auth';
 import { API_BASE } from '../lib/api';
+import { API_ROUTES } from '../lib/api-routes';
+import { securePost, secureGet } from '../lib/secure-fetch';
 
 interface Encounter {
   id: string;
@@ -65,21 +67,11 @@ export default function TreatmentScreen() {
       setLoading(true);
       
       // Get existing encounters for this patient
-      const encountersResponse = await fetch(`${API_BASE}/api/treatment/encounters/patient/${patientId}`, {
-        headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const encounterJson = await secureGet(
+        API_ROUTES.doctor.encountersByPatient(patientId as string),
+        user?.token
+      );
       
-      if (!encountersResponse.ok) {
-        console.log("[Encounter] Fetch failed");
-        setEncounter(null);
-        setHasPrimaryDiagnosis(false);
-        return;
-      }
-      
-      const encounterJson = await encountersResponse.json();
       console.log("[Encounter] API response:", encounterJson);
       
       // Normalize response - handle different response formats
@@ -107,15 +99,19 @@ export default function TreatmentScreen() {
       
       setEncounter(recentEncounter);
       
-      // Check if it has primary diagnosis
-      const diagnosesResponse = await fetch(`${API_BASE}/api/treatment/encounters/${recentEncounter.id}/diagnoses`, {
-        headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      // Get encounter data
+      const encounterData = await secureGet(
+        API_ROUTES.doctor.encounterById(recentEncounter.id),
+        user?.token
+      );
       
-      const diagnoses = await diagnosesResponse.json();
+      // Check if it has primary diagnosis
+      const diagnosesData = await secureGet(
+        API_ROUTES.doctor.encounterDiagnoses(recentEncounter.id),
+        user?.token
+      );
+      
+      const diagnoses = diagnosesData?.data || diagnosesData?.diagnoses || diagnosesData || [];
       const primaryDiagnosis = diagnoses.find((d: any) => d.is_primary);
       setHasPrimaryDiagnosis(!!primaryDiagnosis);
       
@@ -144,25 +140,16 @@ export default function TreatmentScreen() {
       if (!encounterId) {
         console.log("[Encounter] No encounter found, creating new one...");
         
-        const res = await fetch(`${API_BASE}/api/treatment/encounters`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${user?.token}`,
-            'Content-Type': 'application/json'
+        const json = await securePost(
+          API_ROUTES.doctor.encounters,
+          {
+            patient_id: patientIdStr,
+            notes: "Initial examination"
           },
-          body: JSON.stringify({
-            patient_id: patientIdStr
-          })
-        });
+          user?.token
+        );
 
-        const json = await res.json();
-
-        if (!res.ok) {
-          console.log("Encounter create error:", json);
-          throw new Error(json?.message || "Encounter oluşturulamadı");
-        }
-
-        encounterId = json.id || json.data?.id;
+        encounterId = json.encounter?.id || json.id;
         console.log("[Encounter] New encounter created:", encounterId);
 
         // 🔥 CRITICAL: State'i güncelle

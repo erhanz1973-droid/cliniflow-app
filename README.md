@@ -20,10 +20,10 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
 
 Admin and Patient apps must always use the same backend per environment.
 
-- Local development: set `EXPO_PUBLIC_API_BASE` in `.env.local`
-- Production: set `EXPO_PUBLIC_API_BASE` in `.env.production`
+- Local development: set `EXPO_PUBLIC_API_URL` in `.env.local`
+- Production: set `EXPO_PUBLIC_API_URL` in `.env.production`
 
-If referrals do not appear in admin, check `EXPO_PUBLIC_API_BASE` first.
+If referrals do not appear in admin, check `EXPO_PUBLIC_API_URL` first.
 
 In the output, you'll find options to open the app in a
 

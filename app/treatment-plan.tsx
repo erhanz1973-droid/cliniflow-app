@@ -3,6 +3,8 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityInd
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../lib/auth';
 import { API_BASE } from '../lib/api';
+import { API_ROUTES } from '../lib/api-routes';
+import { secureGet, securePost } from '../lib/secure-fetch';
 
 export default function TreatmentPlanScreen() {
   const router = useRouter();
@@ -29,29 +31,22 @@ export default function TreatmentPlanScreen() {
       setLoading(true);
       
       // Get encounter and diagnoses
-      const encounterResponse = await fetch(`${API_BASE}/api/treatment/encounters/${encounterId}`, {
-        headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      const encounterData = await encounterResponse.json();
+      const encounterData = await secureGet(
+        API_ROUTES.doctor.encounterById(encounterId as string),
+        user?.token
+      );
       setEncounter(encounterData);
       
       // Get diagnoses
-      const diagnosesResponse = await fetch(`${API_BASE}/api/treatment/encounters/${encounterId}/diagnoses`, {
-        headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      const diagnosesData = await diagnosesResponse.json();
-      setDiagnoses(diagnosesData);
+      const diagnosesData = await secureGet(
+        API_ROUTES.doctor.encounterDiagnoses(encounterId as string),
+        user?.token
+      );
+      const diagnoses = diagnosesData?.data || diagnosesData?.diagnoses || diagnosesData || [];
+      setDiagnoses(diagnoses);
       
       // CRITICAL: Check if primary diagnosis exists
-      const primaryDiagnosis = diagnosesData.find((d: any) => d.is_primary);
+      const primaryDiagnosis = diagnoses.find((d: any) => d.is_primary);
       if (!primaryDiagnosis) {
         Alert.alert('Hata', 'Önce birincil tanı girilmelidir');
         router.replace({
@@ -62,14 +57,10 @@ export default function TreatmentPlanScreen() {
       }
       
       // Get treatment plans
-      const plansResponse = await fetch(`${API_BASE}/api/treatment/encounters/${encounterId}/treatment-plans`, {
-        headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      const plansData = await plansResponse.json();
+      const plansData = await secureGet(
+        API_ROUTES.TREATMENT_ENCOUNTERS_TREATMENT_PLANS(encounterId as string),
+        user?.token
+      );
       const activePlan = plansData.find((p: any) => p.status !== 'completed' && p.status !== 'rejected');
       
       if (!activePlan) {
@@ -79,14 +70,10 @@ export default function TreatmentPlanScreen() {
         setTreatmentPlan(activePlan);
         
         // Get treatment items
-        const itemsResponse = await fetch(`${API_BASE}/api/treatment/treatment-plans/${activePlan.id}/items`, {
-          headers: {
-            'Authorization': `Bearer ${user?.token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        const itemsData = await itemsResponse.json();
+        const itemsData = await secureGet(
+          API_ROUTES.TREATMENT_PLANS_ITEMS(activePlan.id),
+          user?.token
+        );
         setTreatmentItems(itemsData);
       }
       
@@ -100,7 +87,7 @@ export default function TreatmentPlanScreen() {
 
   const createTreatmentPlan = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/treatment/encounters/${encounterId}/treatment-plans`, {
+      const response = await fetch(`${API_BASE}${API_ROUTES.TREATMENT_ENCOUNTERS_TREATMENT_PLANS(encounterId as string)}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${user?.token}`,
@@ -134,7 +121,7 @@ export default function TreatmentPlanScreen() {
     }
 
     try {
-      const response = await fetch(`${API_BASE}/api/treatment/treatment-plans/${treatmentPlan.id}/items`, {
+      const response = await fetch(`${API_BASE}${API_ROUTES.TREATMENT_PLANS_ITEMS(treatmentPlan.id)}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${user?.token}`,
@@ -166,7 +153,7 @@ export default function TreatmentPlanScreen() {
 
   const updateItemStatus = async (itemId: string, status: string) => {
     try {
-      const response = await fetch(`${API_BASE}/api/treatment/treatment-items/${itemId}/status`, {
+      const response = await fetch(`${API_BASE}${API_ROUTES.TREATMENT_ITEMS_STATUS(itemId)}`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${user?.token}`,

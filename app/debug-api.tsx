@@ -82,9 +82,9 @@ export default function DebugApiScreen() {
           value={__DEV__ ? "Development" : "Production"}
         />
         <Info
-          label="EXPO_PUBLIC_API_BASE"
+          label="EXPO_PUBLIC_API_URL"
           value={
-            process.env.EXPO_PUBLIC_API_BASE || "(Ayarlanmamış)"
+            process.env.EXPO_PUBLIC_API_URL || "(Ayarlanmamış)"
           }
           mono
         />
