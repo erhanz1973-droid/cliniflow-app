@@ -51,7 +51,13 @@ export default function DiagnosisScreen() {
   const searchIcd = async (query: string) => {
   setPrimaryQuery(query);
 
-  if (!query || query.length < 2) {
+  if (!query) {
+    setIcdResults([]);
+    return;
+  }
+
+  // Intelligent minimum length logic
+  if (query.length === 1 && !/[0-9]/.test(query)) {
     setIcdResults([]);
     return;
   }
@@ -423,12 +429,24 @@ export default function DiagnosisScreen() {
               </ScrollView>
             ) : (
               <View style={styles.icdEmptyState}>
-                <Text style={styles.icdEmptyText}>
-                  {primaryQuery.length < 2 
-                    ? "En az 2 karakter girin..." 
-                    : "Sonuç bulunamadı"
-                  }
-                </Text>
+                {primaryQuery.length === 1 && !/[0-9]/.test(primaryQuery) ? (
+                  <View>
+                    <Text style={styles.icdEmptyText}>
+                      ICD kodu için en az 2 karakter girin (örn: K0)
+                    </Text>
+                    <Text style={styles.icdHelperText}>
+                      Tek harf araması için rakam içermeli (örn: M1)
+                    </Text>
+                  </View>
+                ) : primaryQuery.length === 0 ? (
+                  <Text style={styles.icdEmptyText}>
+                    ICD-10 kodu veya açıklama girin...
+                  </Text>
+                ) : (
+                  <Text style={styles.icdEmptyText}>
+                    Sonuç bulunamadı
+                  </Text>
+                )}
               </View>
             )}
           </View>
@@ -596,5 +614,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#999',
     textAlign: 'center'
+  },
+  icdHelperText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 8
   }
 });
