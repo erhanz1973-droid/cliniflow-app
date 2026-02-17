@@ -44,6 +44,7 @@ export default function DiagnosisScreen() {
   const [notes, setNotes] = useState('');
   const [selectedTeeth, setSelectedTeeth] = useState<string[]>([]);
   const [isToothModalVisible, setIsToothModalVisible] = useState(false);
+  const [isIcdModalVisible, setIsIcdModalVisible] = useState(false);
 
   /* ------------------ ICD SEARCH ------------------ */
 
@@ -261,38 +262,18 @@ export default function DiagnosisScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>🔴 Birincil Tanı</Text>
 
-          <TextInput
-            value={primaryQuery}
-            onChangeText={searchIcd}
-            placeholder="ICD-10 kodu ara..."
-            style={styles.input}
-          />
-
-          {icdResults.length > 0 && (
-            <View style={styles.dropdown}>
-              <ScrollView keyboardShouldPersistTaps="handled">
-                {icdResults.map((item, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.dropdownItem}
-                    onPress={() => {
-                      setPrimaryDiagnosis({
-                        code: item.code,
-                        description: item.category
-                      });
-                      setPrimaryQuery(item.code);
-                      setIcdResults([]);
-                    }}
-                  >
-                    <Text style={{ fontWeight: 'bold' }}>{item.code}</Text>
-                    <Text style={{ fontSize: 12, color: '#666' }}>
-                      {item.category}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
+          <TouchableOpacity
+            style={styles.icdSelector}
+            onPress={() => setIsIcdModalVisible(true)}
+          >
+            <Text style={styles.icdSelectorText}>
+              {primaryDiagnosis.code 
+                ? `${primaryDiagnosis.code} - ${primaryDiagnosis.description}`
+                : "ICD-10 kodu seçmek için dokunun..."
+              }
+            </Text>
+            <Text style={styles.icdSelectorIcon}>🔍</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Secondary */}
@@ -389,6 +370,70 @@ export default function DiagnosisScreen() {
           </TouchableOpacity>
         </View>
       </Modal>
+
+      {/* ICD Search Modal */}
+      <Modal visible={isIcdModalVisible} animationType="slide">
+        <View style={styles.icdModalContainer}>
+          {/* Modal Header */}
+          <View style={styles.icdModalHeader}>
+            <TouchableOpacity onPress={() => setIsIcdModalVisible(false)}>
+              <Text style={styles.icdModalCloseButton}>✕</Text>
+            </TouchableOpacity>
+            <Text style={styles.icdModalTitle}>ICD-10 Kodu Arama</Text>
+            <View style={{ width: 30 }} />
+          </View>
+
+          {/* Search Input */}
+          <View style={styles.icdSearchSection}>
+            <TextInput
+              style={styles.icdSearchInput}
+              placeholder="ICD-10 kodu veya açıklama ara..."
+              value={primaryQuery}
+              onChangeText={searchIcd}
+              autoFocus
+            />
+          </View>
+
+          {/* Search Results */}
+          <View style={styles.icdResultsSection}>
+            {icdResults.length > 0 ? (
+              <ScrollView keyboardShouldPersistTaps="handled">
+                {icdResults.map((item, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={styles.icdResultItem}
+                    onPress={() => {
+                      setPrimaryDiagnosis({
+                        code: item.code || item.icd10_code,
+                        description: item.category || item.icd10_description
+                      });
+                      setIsIcdModalVisible(false);
+                      setPrimaryQuery('');
+                      setIcdResults([]);
+                    }}
+                  >
+                    <Text style={styles.icdResultCode}>
+                      {item.code || item.icd10_code}
+                    </Text>
+                    <Text style={styles.icdResultDescription}>
+                      {item.category || item.icd10_description}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            ) : (
+              <View style={styles.icdEmptyState}>
+                <Text style={styles.icdEmptyText}>
+                  {primaryQuery.length < 2 
+                    ? "En az 2 karakter girin..." 
+                    : "Sonuç bulunamadı"
+                  }
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -410,15 +455,6 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8
   },
-  dropdown: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    maxHeight: 200,
-    marginTop: 5,
-    borderWidth: 1,
-    borderColor: '#eee'
-  },
-  dropdownItem: { padding: 10, borderBottomWidth: 1, borderColor: '#eee' },
   toothChip: {
     backgroundColor: '#1976D2',
     paddingHorizontal: 10,
@@ -470,5 +506,95 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     margin: 20
   },
-  submitText: { color: '#fff', fontWeight: 'bold', fontSize: 16 }
+  submitText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  
+  // ICD Selector Styles
+  icdSelector: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    padding: 15,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  icdSelectorText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#000'
+  },
+  icdSelectorIcon: {
+    fontSize: 18,
+    color: '#666'
+  },
+  
+  // ICD Modal Styles
+  icdModalContainer: {
+    flex: 1,
+    backgroundColor: '#f5f5f5'
+  },
+  icdModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  icdModalCloseButton: {
+    fontSize: 24,
+    color: '#666',
+    padding: 5
+  },
+  icdModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000'
+  },
+  icdSearchSection: {
+    padding: 20,
+    backgroundColor: '#fff'
+  },
+  icdSearchInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    padding: 15,
+    borderRadius: 10,
+    fontSize: 16,
+    backgroundColor: '#fff'
+  },
+  icdResultsSection: {
+    flex: 1,
+    padding: 20
+  },
+  icdResultItem: {
+    backgroundColor: '#fff',
+    padding: 15,
+    marginBottom: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#eee'
+  },
+  icdResultCode: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#007AFF',
+    marginBottom: 5
+  },
+  icdResultDescription: {
+    fontSize: 14,
+    color: '#666'
+  },
+  icdEmptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  icdEmptyText: {
+    fontSize: 16,
+    color: '#999',
+    textAlign: 'center'
+  }
 });
