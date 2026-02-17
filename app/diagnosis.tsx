@@ -45,6 +45,7 @@ export default function DiagnosisScreen() {
   const [selectedTeeth, setSelectedTeeth] = useState<string[]>([]);
   const [isToothModalVisible, setIsToothModalVisible] = useState(false);
   const [isIcdModalVisible, setIsIcdModalVisible] = useState(false);
+  const [searching, setSearching] = useState(false);
 
   /* ------------------ ICD SEARCH ------------------ */
 
@@ -63,6 +64,7 @@ export default function DiagnosisScreen() {
   }
 
   try {
+    setSearching(true);
     console.log("ICD search triggered:", query);
 
     const data = await secureFetch(
@@ -82,6 +84,8 @@ export default function DiagnosisScreen() {
   } catch (err) {
     console.log("ICD search error:", err);
     setIcdResults([]);
+  } finally {
+    setSearching(false);
   }
 };
 
@@ -192,6 +196,8 @@ export default function DiagnosisScreen() {
   /* ------------------ SUBMIT ------------------ */
 
   const handleSubmit = async () => {
+    if (loading) return;
+    
     const finalEncounterId = encounterId || encounter?.id;
 
     if (!finalEncounterId) {
@@ -222,6 +228,10 @@ export default function DiagnosisScreen() {
           }))
       ];
 
+      console.log("SUBMITTING DIAGNOSES:", diagnosesToSubmit);
+      console.log("PRIMARY DIAGNOSIS:", primaryDiagnosis);
+      console.log("SECONDARY DIAGNOSES:", secondaryDiagnoses);
+
       await securePost(
         API_ROUTES.doctor.encounterDiagnoses(finalEncounterId),
         {
@@ -232,6 +242,7 @@ export default function DiagnosisScreen() {
         user?.token
       );
 
+      console.log("DIAGNOSES SAVED SUCCESSFULLY");
       Alert.alert('Başarılı', 'Tanılar kaydedildi');
       router.back();
     } catch (error) {
@@ -333,7 +344,7 @@ export default function DiagnosisScreen() {
         <TouchableOpacity
           style={styles.submitButton}
           onPress={handleSubmit}
-          disabled={loading}
+          disabled={loading || !primaryDiagnosis.code}
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
@@ -388,7 +399,11 @@ export default function DiagnosisScreen() {
         <View style={styles.icdModalContainer}>
           {/* Modal Header */}
           <View style={styles.icdModalHeader}>
-            <TouchableOpacity onPress={() => setIsIcdModalVisible(false)}>
+            <TouchableOpacity onPress={() => {
+              setIsIcdModalVisible(false);
+              setPrimaryQuery('');
+              setIcdResults([]);
+            }}>
               <Text style={styles.icdModalCloseButton}>✕</Text>
             </TouchableOpacity>
             <Text style={styles.icdModalTitle}>ICD-10 Kodu Arama</Text>
@@ -408,7 +423,12 @@ export default function DiagnosisScreen() {
 
           {/* Search Results */}
           <View style={styles.icdResultsSection}>
-            {icdResults.length > 0 ? (
+            {searching ? (
+              <View style={styles.icdLoadingState}>
+                <ActivityIndicator size="large" color="#007AFF" />
+                <Text style={styles.icdLoadingText}>Aranıyor...</Text>
+              </View>
+            ) : icdResults.length > 0 ? (
               <ScrollView keyboardShouldPersistTaps="handled">
                 {icdResults.map((item, index) => (
                   <TouchableOpacity
@@ -626,5 +646,17 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginTop: 8
+  },
+  icdLoadingState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40
+  },
+  icdLoadingText: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 12,
+    textAlign: 'center'
   }
 });
