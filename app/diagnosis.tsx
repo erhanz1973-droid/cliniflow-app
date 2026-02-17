@@ -65,11 +65,9 @@ export default function DiagnosisScreen() {
   try {
     console.log("ICD search triggered:", query);
 
-    const response = await secureFetch(
+    const data = await secureFetch(
       `/api/icd/search?q=${encodeURIComponent(query)}` 
     );
-
-    const data = await response.json();
 
     console.log("ICD API RESPONSE:", data);
 
