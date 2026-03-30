@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export type Language = "tr" | "en" | "ka" | "ru";
 
-export const SUPPORTED_LANGUAGES: Language[] = ["tr", "en", "ka", "ru"];
+export const SUPPORTED_LANGUAGES: Language[] = ["tr", "en", "ru", "ka"];
 
 export const LANGUAGE_NAMES: Record<Language, string> = {
   tr: "Türkçe",
