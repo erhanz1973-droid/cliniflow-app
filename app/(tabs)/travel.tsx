@@ -368,7 +368,8 @@ export default function TravelScreen() {
           throw new Error("Patient ID not found");
         }
         
-        if (me?.status !== "APPROVED") {
+        const meStatus = String(me?.status || "").toUpperCase();
+        if (meStatus !== "APPROVED" && meStatus !== "ACTIVE") {
           router.replace("/waiting-approval");
           return;
         }
