@@ -60,7 +60,7 @@ export default function PatientLogin() {
       const pid = String(payload.patientId || payload.id || "").trim();
       const showOnboarding = pid ? await shouldShowPatientOnboarding(pid) : false;
       router.replace(
-        (showOnboarding ? "/patient/patient-onboarding" : "/(patient)/(tabs)") as any
+        (showOnboarding ? "/patient/patient-onboarding" : "/(patient)/(tabs)/index") as any
       );
     } catch (error: any) {
       Alert.alert(t('login.error'), error.message || t('login.loginFailed'));

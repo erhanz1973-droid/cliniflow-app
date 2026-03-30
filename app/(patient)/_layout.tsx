@@ -1,5 +1,5 @@
-import { Stack } from "expo-router";
+import { Slot } from "expo-router";
 
 export default function PatientGroupLayout() {
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return <Slot />;
 }
