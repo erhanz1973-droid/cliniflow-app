@@ -129,16 +129,20 @@ export default function TravelScreen() {
     (travel?.flights || []).forEach((f: any) => {
       const arv = isArrival(f);
       const dk  = f.date ? toDateKey(f.date) : null;
+      const pnrOrFlightNo = f.pnr || f.flightNo;
       events.push({
         type: arv ? "flight_arrival" : "flight_departure",
         dateKey: dk || "0000-00-00",
         sortTs: dk ? toSortTs(dk, f.time) : 0,
-        title: `${arv ? "Geliş" : "Dönüş"} Uçuşu${f.pnr ? " · " + f.pnr : ""}`,
+        title: `${arv ? "Geliş" : "Dönüş"} Uçuşu${pnrOrFlightNo ? " · " + pnrOrFlightNo : ""}`,
         rows: [
-          { label: "Nereden", value: f.from || "—" },
-          { label: "Nereye",  value: f.to   || "—" },
-          ...(f.time ? [{ label: "Saat", value: f.time }] : []),
-          ...(f.note ? [{ label: "Not",  value: f.note }] : []),
+          { label: "Nereden",  value: f.from    || "—" },
+          { label: "Nereye",   value: f.to      || "—" },
+          ...(f.airline   ? [{ label: "Havayolu",  value: f.airline  }] : []),
+          ...(f.flightNo  ? [{ label: "Uçuş No",   value: f.flightNo }] : []),
+          ...(f.pnr       ? [{ label: "PNR",        value: f.pnr      }] : []),
+          ...(f.time      ? [{ label: "Saat",        value: f.time     }] : []),
+          ...(f.note      ? [{ label: "Not",         value: f.note     }] : []),
         ],
       });
     });
