@@ -593,11 +593,13 @@ export default function TreatmentPlanScreen() {
 
       // Extract diagnoses from the same response
       const rawDiags: Diagnosis[] = Array.isArray(json.diagnoses) ? json.diagnoses : [];
-      // Dedupe: stable id first (legacy-*-diag-{tooth} çakışabiliyor), yoksa diş+kod
+      // Dedupe by icd10_code + tooth_number (same diagnosis may appear in multiple encounters)
       const diagSeen = new Set<string>();
       const dedupedDiags = rawDiags.filter((d) => {
-        const idK = String(d.id || "").trim();
-        const k = idK || `${d.tooth_number ?? ""}-${d.icd10_code ?? ""}`;
+        const code = String(d.icd10_code || "").trim().toUpperCase();
+        const tooth = String(d.tooth_number ?? "").trim();
+        const k = code ? `${tooth}-${code}` : String(d.id || "").trim();
+        if (!k) return true;
         if (diagSeen.has(k)) return false;
         diagSeen.add(k);
         return true;
@@ -712,14 +714,22 @@ export default function TreatmentPlanScreen() {
       }
       const deduped = [...byId.values()];
 
+      const ACTIVE_STATUSES   = ["IN_PROGRESS", "ACTIVE", "ONGOING"];
+      const PLANNED_STATUSES  = ["PLANNED", "SCHEDULED", "PENDING", "WAITING", ""];
+      const COMPLETED_STATUSES = ["COMPLETED", "DONE", "COMPLETE"];
+      const CANCELLED_STATUSES = ["CANCELLED", "CANCELED"];
+
       setActive(
-        deduped.filter(p => ["IN_PROGRESS", "ACTIVE"].includes(String(p.status).toUpperCase())).sort(sortAsc)
+        deduped.filter(p => ACTIVE_STATUSES.includes(String(p.status ?? "").toUpperCase())).sort(sortAsc)
       );
       setPlanned(
-        deduped.filter(p => ["PLANNED", "SCHEDULED"].includes(String(p.status).toUpperCase())).sort(sortAsc)
+        deduped.filter(p => {
+          const s = String(p.status ?? "").toUpperCase();
+          return PLANNED_STATUSES.includes(s) || (!ACTIVE_STATUSES.includes(s) && !COMPLETED_STATUSES.includes(s) && !CANCELLED_STATUSES.includes(s));
+        }).sort(sortAsc)
       );
       setCompleted(
-        deduped.filter(p => ["COMPLETED", "DONE"].includes(String(p.status).toUpperCase())).sort(sortDesc)
+        deduped.filter(p => COMPLETED_STATUSES.includes(String(p.status ?? "").toUpperCase())).sort(sortDesc)
       );
       const uniqueTeeth = [...new Set(deduped.map(p => p.toothId).filter(Boolean) as string[])].sort((a, b) => Number(a) - Number(b));
       setAffectedTeeth(uniqueTeeth);
