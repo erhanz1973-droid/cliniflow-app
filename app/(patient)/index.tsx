@@ -184,7 +184,7 @@ export default function PatientDashboard() {
       // ── Critical data: treatments + health form (show UI as soon as these arrive) ──
       const [treatRes, healthRes] = await Promise.all([
         fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/treatments`, { headers }),
-        fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/medical-form`, { headers }).catch(() => null),
+        fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/health`, { headers }).catch(() => null),
       ]);
 
       const healthJson = healthRes ? await healthRes.json().catch(() => ({})) : {};
