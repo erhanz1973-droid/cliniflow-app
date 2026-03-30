@@ -3,10 +3,10 @@ import {
   View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, TouchableOpacity,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuth } from "../../../lib/auth";
-import { API_BASE } from "../../../lib/api";
-import { useLanguage } from "../../../lib/language-context";
-import { useDateLocale } from "../../../lib/date-locale";
+import { useAuth } from "../../lib/auth";
+import { API_BASE } from "../../lib/api";
+import { useLanguage } from "../../lib/language-context";
+import { useDateLocale } from "../../lib/date-locale";
 
 function formatDate(v: string | null | undefined, locale: string) {
   if (!v) return "—";

@@ -30,7 +30,7 @@ export default function SettingsScreen() {
       Alert.alert(t("common.success"), t("settings.languageChanged"));
       // Force app refresh to apply language change
       setTimeout(() => {
-        router.replace((isDoctor ? "/(tabs)/home" : "/(patient)/(tabs)") as any);
+        router.replace((isDoctor ? "/(tabs)/home" : "/(patient)") as any);
       }, 500);
     } catch (error) {
       console.error("[SETTINGS] Language change error:", error);

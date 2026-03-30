@@ -164,7 +164,7 @@ export default function OtpScreen() {
             role: "PATIENT",
             otpVerified: true   // ✅ EKLE
           });
-          router.replace("/(patient)/(tabs)" as any);
+          router.replace("/(patient)" as any);
         } else if (json.type === "admin") {
           await signIn({
             token: json.token,

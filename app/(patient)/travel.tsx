@@ -4,10 +4,10 @@ import {
   ActivityIndicator, RefreshControl, TextInput, Alert,
   Modal, KeyboardAvoidingView, Platform, Linking,
 } from "react-native";
-import { useAuth } from "../../../lib/auth";
-import { API_BASE } from "../../../lib/api";
-import { useLanguage } from "../../../lib/language-context";
-import { useDateLocale } from "../../../lib/date-locale";
+import { useAuth } from "../../lib/auth";
+import { API_BASE } from "../../lib/api";
+import { useLanguage } from "../../lib/language-context";
+import { useDateLocale } from "../../lib/date-locale";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

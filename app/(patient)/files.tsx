@@ -5,10 +5,10 @@ import {
   Modal, StatusBar, useWindowDimensions, ScrollView, Platform,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
-import { useAuth } from "../../../lib/auth";
-import { API_BASE } from "../../../lib/api";
-import { useLanguage } from "../../../lib/language-context";
-import { useDateLocale } from "../../../lib/date-locale";
+import { useAuth } from "../../lib/auth";
+import { API_BASE } from "../../lib/api";
+import { useLanguage } from "../../lib/language-context";
+import { useDateLocale } from "../../lib/date-locale";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

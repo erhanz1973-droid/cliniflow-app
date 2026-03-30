@@ -4,11 +4,11 @@ import {
   Alert, Image, ActivityIndicator, Platform,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import { useAuth } from "../../../lib/auth";
+import { useAuth } from "../../lib/auth";
 import { useRouter } from "expo-router";
-import { API_BASE } from "../../../lib/api";
-import { useLanguage } from "../../../lib/language-context";
-import { LANGUAGE_NAMES, SUPPORTED_LANGUAGES, Language } from "../../../lib/i18n";
+import { API_BASE } from "../../lib/api";
+import { useLanguage } from "../../lib/language-context";
+import { LANGUAGE_NAMES, SUPPORTED_LANGUAGES, Language } from "../../lib/i18n";
 
 function Row({ label, value }: { label: string; value?: string | null }) {
   return (

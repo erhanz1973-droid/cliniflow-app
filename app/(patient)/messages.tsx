@@ -7,9 +7,9 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import { useAuth } from "../../../lib/auth";
-import { API_BASE } from "../../../lib/api";
-import { useDateLocale } from "../../../lib/date-locale";
+import { useAuth } from "../../lib/auth";
+import { API_BASE } from "../../lib/api";
+import { useDateLocale } from "../../lib/date-locale";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

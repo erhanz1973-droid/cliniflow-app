@@ -3,13 +3,13 @@ import { useFocusEffect } from "expo-router";
 import {
   View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, Image, useWindowDimensions,
 } from "react-native";
-import { useAuth } from "../../../lib/auth";
-import { API_BASE } from "../../../lib/api";
-import { useLanguage } from "../../../lib/language-context";
-import { useDateLocale } from "../../../lib/date-locale";
-import { getIcd10Tr } from "../../../lib/icd10-tr";
-import { getIcd10Ru } from "../../../lib/icd10-ru";
-import { getIcd10Ka } from "../../../lib/icd10-ka";
+import { useAuth } from "../../lib/auth";
+import { API_BASE } from "../../lib/api";
+import { useLanguage } from "../../lib/language-context";
+import { useDateLocale } from "../../lib/date-locale";
+import { getIcd10Tr } from "../../lib/icd10-tr";
+import { getIcd10Ru } from "../../lib/icd10-ru";
+import { getIcd10Ka } from "../../lib/icd10-ka";
 
 const TREATMENTS_POLL_INTERVAL_MS = 12000;
 

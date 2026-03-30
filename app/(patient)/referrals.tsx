@@ -12,10 +12,10 @@ import {
   Animated,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import { useAuth } from "../../../lib/auth";
-import { useLanguage } from "../../../lib/language-context";
-import { useDateLocale } from "../../../lib/date-locale";
-import { API_BASE } from "../../../lib/api";
+import { useAuth } from "../../lib/auth";
+import { useLanguage } from "../../lib/language-context";
+import { useDateLocale } from "../../lib/date-locale";
+import { API_BASE } from "../../lib/api";
 
 type ReferralItem = {
   id: string | number;

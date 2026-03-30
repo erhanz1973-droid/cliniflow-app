@@ -4,15 +4,15 @@ import {
   ActivityIndicator, RefreshControl,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuth } from "../../../lib/auth";
-import { API_BASE } from "../../../lib/api";
-import { useLanguage } from "../../../lib/language-context";
-import { useDateLocale } from "../../../lib/date-locale";
+import { useAuth } from "../../lib/auth";
+import { API_BASE } from "../../lib/api";
+import { useLanguage } from "../../lib/language-context";
+import { useDateLocale } from "../../lib/date-locale";
 import {
   shouldShowDentalScanReminder,
   clearDentalScanReminder,
-} from "../../../lib/patientOnboardingStorage";
-import { translateProcedureDisplay } from "../../../lib/procedureLabels";
+} from "../../lib/patientOnboardingStorage";
+import { translateProcedureDisplay } from "../../lib/procedureLabels";
 
 function formatShortDate(v: string | null | undefined, locale: string) {
   if (!v) return null;
@@ -368,7 +368,7 @@ export default function PatientDashboard() {
       {hasClinicMessage && (
         <TouchableOpacity
           style={styles.msgBanner}
-          onPress={() => router.push("/(patient)/(tabs)/messages" as any)}
+          onPress={() => router.push("/(patient)/messages" as any)}
           activeOpacity={0.85}
         >
           <Text style={styles.msgBannerIcon}>💬</Text>
@@ -382,15 +382,15 @@ export default function PatientDashboard() {
 
       {/* QUICK ACCESS CARDS */}
       <View style={styles.quickRow}>
-        <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/(patient)/(tabs)/treatment-plan" as any)} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/(patient)/treatment-plan" as any)} activeOpacity={0.8}>
           <Text style={styles.quickIcon}>🦷</Text>
           <Text style={styles.quickLabel}>{t("nav.treatment")}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/(patient)/(tabs)/messages" as any)} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/(patient)/messages" as any)} activeOpacity={0.8}>
           <Text style={styles.quickIcon}>💬</Text>
           <Text style={styles.quickLabel}>{t("nav.messages")}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/(patient)/(tabs)/timeline" as any)} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/(patient)/timeline" as any)} activeOpacity={0.8}>
           <Text style={styles.quickIcon}>✈️</Text>
           <Text style={styles.quickLabel}>{t("nav.journey")}</Text>
         </TouchableOpacity>
@@ -398,7 +398,7 @@ export default function PatientDashboard() {
           <Text style={styles.quickIcon}>📋</Text>
           <Text style={styles.quickLabel}>{t("nav.health")}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/(patient)/(tabs)/files" as any)} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/(patient)/files" as any)} activeOpacity={0.8}>
           <Text style={styles.quickIcon}>📁</Text>
           <Text style={styles.quickLabel}>{t("nav.files")}</Text>
         </TouchableOpacity>
@@ -408,7 +408,7 @@ export default function PatientDashboard() {
       {fileCounts.total > 0 && (
         <TouchableOpacity
           style={styles.section}
-          onPress={() => router.push("/(patient)/(tabs)/files" as any)}
+          onPress={() => router.push("/(patient)/files" as any)}
           activeOpacity={0.85}
         >
           <Text style={styles.sectionTitle}>{t("files.title")}</Text>
@@ -547,7 +547,7 @@ export default function PatientDashboard() {
               )}
               <TouchableOpacity
                 style={styles.travelDetailBtn}
-                onPress={() => router.push("/(patient)/(tabs)/timeline" as any)}
+                onPress={() => router.push("/(patient)/timeline" as any)}
                 activeOpacity={0.8}
               >
                 <Text style={styles.travelDetailBtnText}>{t("home.viewDetails")} →</Text>
