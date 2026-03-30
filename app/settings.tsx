@@ -19,7 +19,7 @@ import { useLanguage } from "../lib/language-context";
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { signOut } = useAuth();
+  const { signOut, isDoctor } = useAuth();
   const { currentLanguage, setLanguage, t, isLoading } = useLanguage();
   const [loading, setLoading] = useState(false);
 
@@ -30,7 +30,7 @@ export default function SettingsScreen() {
       Alert.alert(t("common.success"), t("settings.languageChanged"));
       // Force app refresh to apply language change
       setTimeout(() => {
-        router.replace('/home');
+        router.replace((isDoctor ? "/(tabs)/home" : "/(patient)/(tabs)") as any);
       }, 500);
     } catch (error) {
       console.error("[SETTINGS] Language change error:", error);
