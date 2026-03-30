@@ -493,7 +493,7 @@ function ToothDiagram({ affectedTeeth }: { affectedTeeth: string[] }) {
   return (
     <View style={diagramStyles.container}>
       <Image
-        source={require("../../../assets/images/teeth-fdi.jpeg")}
+        source={require("../../assets/images/teeth-fdi.jpeg")}
         style={{ width: imgWidth, height: imgHeight, borderRadius: 12 }}
         resizeMode="contain"
       />
