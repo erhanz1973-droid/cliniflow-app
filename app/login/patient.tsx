@@ -4,7 +4,6 @@ import { useAuth } from '../../lib/auth';
 import { API_BASE } from '../../lib/api';
 import { useRouter } from 'expo-router';
 import { useLanguage } from '../../lib/language-context';
-import { shouldShowPatientOnboarding } from '../../lib/patientOnboardingStorage';
 import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES, Language } from '../../lib/i18n';
 
 
@@ -57,11 +56,7 @@ export default function PatientLogin() {
         language: payload.language,
         referralCode: payload.referralCode || null,
       });
-      const pid = String(payload.patientId || payload.id || "").trim();
-      const showOnboarding = pid ? await shouldShowPatientOnboarding(pid) : false;
-      router.replace(
-        (showOnboarding ? "/patient/patient-onboarding" : "/(patient)/(tabs)/index") as any
-      );
+      router.replace("/(patient)/(tabs)/index" as any);
     } catch (error: any) {
       Alert.alert(t('login.error'), error.message || t('login.loginFailed'));
     } finally {
