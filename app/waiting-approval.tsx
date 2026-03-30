@@ -87,7 +87,7 @@ export default function WaitingApprovalScreen() {
           router.replace("/doctor/dashboard");
         } else {
           console.log("[WAITING-APPROVAL] Redirecting to patient home");
-          router.replace("/(patient)/(tabs)" as any);
+          router.replace("/(patient)/(tabs)/index" as any);
         }
         return;
       } else if (data.status === "REJECTED") {
