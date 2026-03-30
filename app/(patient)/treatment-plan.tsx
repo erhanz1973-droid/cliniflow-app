@@ -388,7 +388,7 @@ function DiagnosisSection({ diagnoses }: { diagnoses: Diagnosis[] }) {
           {tooth !== "__general__" ? (
             <View style={diagStyles.toothRow}>
               <View style={diagStyles.toothBadge}>
-                <Text style={diagStyles.toothBadgeText}>{t("treatment.toothLabel")} {tooth}</Text>
+                <Text style={diagStyles.toothBadgeText}>{t("treatment.toothLabel", { toothId: String(tooth) })}</Text>
               </View>
             </View>
           ) : (
