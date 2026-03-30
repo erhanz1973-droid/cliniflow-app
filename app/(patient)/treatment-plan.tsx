@@ -589,6 +589,10 @@ export default function TreatmentPlanScreen() {
       }
 
       const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.warn("[TREATMENT-PLAN] API error:", res.status, json?.error, json?.message);
+      }
+      console.log("[TREATMENT-PLAN] teeth count:", Array.isArray(json.teeth) ? json.teeth.length : 0, "diagnoses:", Array.isArray(json.diagnoses) ? json.diagnoses.length : 0);
       const teeth: any[] = Array.isArray(json.teeth) ? json.teeth : [];
 
       // Extract diagnoses from the same response
