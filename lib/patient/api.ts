@@ -15,7 +15,6 @@ export interface PatientRegisterRequest {
 export interface PatientLoginRequest {
   phone: string;
   otp: string;
-  email?: string;
 }
 
 export interface PatientResponse {
@@ -36,11 +35,12 @@ export async function registerPatient(data: PatientRegisterRequest): Promise<Pat
   });
 }
 
-// Patient login/OTP verification
-export async function verifyPatientOtp(data: { phone: string; otp: string; email?: string }): Promise<PatientResponse> {
+// Patient login/OTP verification — backend expects { phone, otp, type: "patient" }
+export async function verifyPatientOtp(data: { phone: string; otp: string }): Promise<PatientResponse> {
   return apiPost<PatientResponse>('/auth/verify-otp', {
-    ...data,
-    type: 'patient' // Explicit patient type
+    phone: data.phone,
+    otp: data.otp,
+    type: 'patient',
   });
 }
 

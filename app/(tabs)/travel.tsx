@@ -233,7 +233,7 @@ export default function TravelScreen() {
     
     // Doctors cannot access travel form
     if (isDoctor) {
-      router.replace("/doctor-dashboard");
+      router.replace("/doctor/dashboard");
       return;
     }
     

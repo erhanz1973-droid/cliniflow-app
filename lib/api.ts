@@ -5,10 +5,15 @@
  * Single source of truth for all API calls
  */
 
-// 🔥 ENVIRONMENT VARIABLE BASED - Test backend (Render)
-export const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "https://cliniflow-backend-dg8a.onrender.com";
+// Same hosts as public/patient-login.html; override with EXPO_PUBLIC_API_URL for dev devices.
+const DEFAULT_API =
+  typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_URL
+    ? String(process.env.EXPO_PUBLIC_API_URL).replace(/\/+$/, "")
+    : "http://localhost:10000";
+
+export const API_BASE = DEFAULT_API;
 export const AUTH_API_BASE = API_BASE;
-export const ADMIN_API_BASE = API_BASE; // Single backend for all operations
+export const ADMIN_API_BASE = API_BASE;
 
 if (!API_BASE) {
   throw new Error(

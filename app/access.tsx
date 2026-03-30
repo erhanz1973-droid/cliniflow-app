@@ -32,7 +32,7 @@ export default function AccessScreen() {
 
       // 🔒 Patient-only route
       router.replace({
-        pathname: "/treatments",
+        pathname: "/(tabs)/treatment-plans",
         params: { patientId: clean },
       });
     } catch (e: any) {

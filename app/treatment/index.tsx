@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, FlatList } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useAuth } from '../lib/auth';
-import { API_BASE } from '../lib/api';
-import { API_ROUTES } from '../lib/api-routes';
-import { securePost, secureGet } from '../lib/secure-fetch';
+import { useAuth } from '../../lib/auth';
+import { API_BASE } from '../../lib/api';
+import { API_ROUTES } from '../../lib/api-routes';
+import { securePost, secureGet } from '../../lib/secure-fetch';
 
 interface Encounter {
   id: string;
@@ -44,15 +44,9 @@ export default function TreatmentScreen() {
     try {
       setLoading(true);
       
-      const response = await fetch(`${API_BASE}/api/doctor/patients`, {
-        headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      const patientsData = await response.json();
-      setPatients(patientsData.patients || []);
+      const response = await secureGet('/api/patients');
+      const patientsData = response.patients;
+      setPatients(patientsData || []);
       
     } catch (error) {
       console.error('Load patients error:', error);
@@ -178,19 +172,17 @@ export default function TreatmentScreen() {
   };
 
   const handleTreatmentPlanPress = () => {
-    if (!encounter?.id) {
-      console.log("[Encounter] No encounter found, cannot navigate to treatment plan");
+    if (!patientIdStr) {
+      console.log("[Treatment Plan] No patientId found, cannot navigate to treatments");
       return;
     }
-    
-    if (!hasPrimaryDiagnosis) {
-      Alert.alert('Hata', 'Önce birincil tanı girilmelidir');
-      return;
-    }
-    
+
     router.push({
       pathname: '/treatment-plan',
-      params: { patientId, encounterId: encounter.id }
+      params: { 
+        patientId: patientIdStr,
+        encounterId: encounter?.id
+      }
     });
   };
 

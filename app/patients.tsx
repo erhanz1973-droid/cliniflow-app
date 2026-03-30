@@ -44,7 +44,7 @@ export default function PatientsScreen() {
     
     // Only doctors can access this screen
     if (user.role !== "DOCTOR") {
-      router.replace("/home");
+      router.replace("/(tabs)/home");
       return;
     }
 

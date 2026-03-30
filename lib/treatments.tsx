@@ -48,6 +48,8 @@ const TreatmentsContext = createContext<TreatmentsCtx | null>(null);
 const STORAGE_KEY = "cliniflow.treatments.v1";
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || "";
 const ENV_PATIENT_ID = process.env.EXPO_PUBLIC_PATIENT_ID || "p1";
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || "";
+const ENV_PATIENT_ID = process.env.EXPO_PUBLIC_PATIENT_ID || "p1";
 
 /* ---------------- helpers ---------------- */
 

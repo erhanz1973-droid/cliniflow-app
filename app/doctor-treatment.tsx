@@ -122,7 +122,7 @@ export default function DoctorTreatmentScreen() {
 
     if (!isDoctor || user?.status !== "ACTIVE") {
       if (isPatient) {
-        router.replace(`/treatments?patientId=${patientId}`);
+        router.replace(`/(tabs)/treatment-plans?patientId=${encodeURIComponent(patientId)}`);
       } else {
         router.replace("/waiting-approval");
       }

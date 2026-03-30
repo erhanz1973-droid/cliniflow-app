@@ -25,8 +25,7 @@ export async function sendOTP(params: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        phone: params.phone,
-        email: params.email,
+        phone: params.phone?.trim(),
       }),
     });
 

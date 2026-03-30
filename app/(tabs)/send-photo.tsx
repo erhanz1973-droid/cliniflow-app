@@ -32,7 +32,7 @@ export default function SendPhotoScreen() {
     
     // Doctors cannot access this screen
     if (isDoctor) {
-      router.replace("/doctor-dashboard");
+      router.replace("/doctor/dashboard");
       return;
     }
     

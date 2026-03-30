@@ -46,12 +46,12 @@ export default function PatientSearch() {
   const goTreatments = async (p: PatientLite) => {
     await selectPatient(p);
     // ✅ En kritik: seçilen patientId ile Treatments aç
-    router.replace({ pathname: "/treatments", params: { patientId: p.id } });
+    router.replace({ pathname: "/(tabs)/treatment-plans", params: { patientId: p.id } });
   };
 
   const goChat = async (p: PatientLite) => {
     await selectPatient(p);
-    router.replace({ pathname: "/chat", params: { patientId: p.id } });
+    router.replace({ pathname: "/(tabs)/chat", params: { patientId: p.id } });
   };
 
   return (

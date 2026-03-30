@@ -111,7 +111,7 @@ export default function Health() {
     
     // Doctors cannot access health form
     if (isDoctor) {
-      router.replace("/doctor-dashboard");
+      router.replace("/doctor/dashboard");
       return;
     }
     
@@ -516,7 +516,7 @@ export default function Health() {
         <Ionicons name="checkmark-circle" size={64} color="#10B981" />
         <Text style={styles.completeTitle}>{t("health.formCompleted")}</Text>
         <Text style={styles.completeText}>{t("health.formCompletedMessage")}</Text>
-        <Pressable style={styles.button} onPress={() => router.replace("/home")}>
+        <Pressable style={styles.button} onPress={() => router.replace("/(tabs)/chat")}>
           <Text style={styles.buttonText}>{t("health.returnToHome")}</Text>
         </Pressable>
       </View>

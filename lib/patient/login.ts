@@ -12,7 +12,6 @@ export async function handlePatientLogin(data: PatientLoginRequest) {
     const result = await verifyPatientOtp({
       phone: data.phone,
       otp: data.otp,
-      email: data.email
     });
     return result;
   } catch (error) {
