@@ -324,56 +324,25 @@ export default function TravelScreen() {
     setErr("");
 
     const token = user.token;
+    // Get patientId directly from auth context — no need for /api/patient/me round-trip
+    const currentPatientId = String(user?.patientId || user?.id || "").trim();
 
     // Fetch function - defined inside useEffect to avoid dependency issues
     const fetchTravelData = async (isInitial = false) => {
       if (cancelled) return;
 
-      console.log("[TRAVEL] Starting fetch, API_BASE:", API_BASE);
+      console.log("[TRAVEL] Starting fetch, API_BASE:", API_BASE, "patientId:", currentPatientId);
 
-      // Create AbortController for timeout - shorter timeout for better UX
-      let controller: AbortController | null = new AbortController();
-      let timeoutId: NodeJS.Timeout | null = setTimeout(() => {
-        console.error("[TRAVEL] Timeout: /api/patient/me request took too long");
-        controller?.abort();
-      }, 10000); // 10 second timeout
+      if (!currentPatientId) {
+        setErr("Patient ID not found");
+        setLoading(false);
+        return;
+      }
 
       let travelController: AbortController | null = null;
       let travelTimeoutId: NodeJS.Timeout | null = null;
 
       try {
-        // Get patient info first to get patientId
-        console.log("[TRAVEL] Fetching /api/patient/me from:", `${API_BASE}/api/patient/me`);
-        const meRes = await fetch(`${API_BASE}/api/patient/me`, {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        });
-
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          timeoutId = null;
-        }
-
-        if (!meRes.ok) {
-          if (meRes.status === 403) throw new Error("patient_not_approved");
-          throw new Error(`Status check failed: ${meRes.status}`);
-        }
-
-        const me = await meRes.json();
-        const currentPatientId = me?.patientId || "";
-        
-        if (cancelled) return;
-        
-        if (!currentPatientId) {
-          throw new Error("Patient ID not found");
-        }
-        
-        const meStatus = String(me?.status || "").toUpperCase();
-        if (meStatus !== "APPROVED" && meStatus !== "ACTIVE") {
-          router.replace("/waiting-approval");
-          return;
-        }
-
         // If patient changes, clear stale data before loading
         if (lastPatientIdRef.current && lastPatientIdRef.current !== currentPatientId) {
           setData(null);
@@ -456,19 +425,12 @@ export default function TravelScreen() {
         } catch {}
       } catch (e: any) {
         // Clean up timeouts
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          timeoutId = null;
-        }
         if (travelTimeoutId) {
           clearTimeout(travelTimeoutId);
           travelTimeoutId = null;
         }
         
         // Abort pending requests
-        if (controller && !controller.signal.aborted) {
-          controller.abort();
-        }
         if (travelController && !travelController.signal.aborted) {
           travelController.abort();
         }
