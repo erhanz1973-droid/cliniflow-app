@@ -488,6 +488,10 @@ export const translations: Record<Language, Record<string, string>> = {
     "settings.languagePickerFailed": "Dil seçimi açılamadı / Language picker failed",
     
     // Login
+    "login.patientTitle": "Hasta Girişi",
+    "login.clinicCode": "Klinik Kodu",
+    "login.clinicCodePlaceholder": "Klinik kodunu girin",
+    "login.back": "Geri",
     "login.phone": "Telefon",
     "login.phonePlaceholder": "Telefon numaranızı girin",
     "login.login": "Giriş Yap",
@@ -992,6 +996,10 @@ export const translations: Record<Language, Record<string, string>> = {
     "settings.languagePickerFailed": "Language picker failed",
     
     // Login
+    "login.patientTitle": "Patient Login",
+    "login.clinicCode": "Clinic Code",
+    "login.clinicCodePlaceholder": "Enter clinic code",
+    "login.back": "Back",
     "login.phone": "Phone",
     "login.phonePlaceholder": "Enter your phone number",
     "login.login": "Login",
@@ -1319,6 +1327,10 @@ export const translations: Record<Language, Record<string, string>> = {
     "travel.title": "მოგზაურობა",
     
     // Navigation
+    "login.patientTitle": "პაციენტის შესვლა",
+    "login.clinicCode": "კლინიკის კოდი",
+    "login.clinicCodePlaceholder": "შეიყვანეთ კლინიკის კოდი",
+    "login.back": "უკან",
     "login.title": "შესვლა",
     "login.subtitle": "გთხოვთ, შეიყვანოთ თქვენი ტელეფონის ნომერი",
     "login.phone": "ტელეფონის ნომერი",
@@ -1551,6 +1563,16 @@ export const translations: Record<Language, Record<string, string>> = {
     "home.welcome": "Добро пожаловать",
     "home.subtitle": "Ваше здоровье - наш приоритет",
     
+    // Login
+    "login.patientTitle": "Вход для пациента",
+    "login.clinicCode": "Код клиники",
+    "login.clinicCodePlaceholder": "Введите код клиники",
+    "login.back": "Назад",
+    "login.error": "Ошибка",
+    "login.phoneRequired": "Пожалуйста, введите номер телефона.",
+    "login.loginFailed": "Вход не выполнен",
+    "login.phonePlaceholder": "Введите номер телефона",
+
     // Settings
     "settings.title": "Настройки",
     "settings.language": "Язык",
