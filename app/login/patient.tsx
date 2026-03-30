@@ -56,7 +56,7 @@ export default function PatientLogin() {
         language: payload.language,
         referralCode: payload.referralCode || null,
       });
-      router.replace("/(patient)/(tabs)/index" as any);
+      router.replace("/(patient)/(tabs)" as any);
     } catch (error: any) {
       Alert.alert(t('login.error'), error.message || t('login.loginFailed'));
     } finally {
