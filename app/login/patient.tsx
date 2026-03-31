@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { useAuth } from '../../lib/auth';
 import { API_BASE } from '../../lib/api';
@@ -6,14 +6,24 @@ import { useRouter } from 'expo-router';
 import { useLanguage } from '../../lib/language-context';
 import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES, Language } from '../../lib/i18n';
 
+const WARMUP_TIMEOUT_MS = 75_000;
+const LOGIN_TIMEOUT_MS  = 15_000;
+
+function fetchWithTimeout(url: string, options: RequestInit, ms: number): Promise<Response> {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...options, signal: ctrl.signal }).finally(() => clearTimeout(id));
+}
 
 export default function PatientLogin() {
   const { signIn } = useAuth();
   const router = useRouter();
   const { t, currentLanguage, setLanguage } = useLanguage();
   const [loading, setLoading] = useState(false);
+  const [statusMsg, setStatusMsg] = useState('');
   const [phone, setPhone] = useState("");
   const [clinicCode, setClinicCode] = useState("");
+  const warmupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handlePatientLogin = async () => {
     if (!phone.trim()) {
@@ -25,21 +35,40 @@ export default function PatientLogin() {
       return;
     }
     setLoading(true);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 25000);
-    try {
-      const res = await fetch(`${API_BASE}/api/patient/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phone.trim(), clinicCode: clinicCode.trim() }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      const json = await res.json();
+    setStatusMsg(t('login.connecting'));
 
-      // Backend currently returns { ok, user: { ... } } for patient login.
-      // To stay backwards-compatible with any older flat responses,
-      // prefer json.user if it exists, otherwise fall back to json itself.
+    // After 4 s with no response, tell user the server is warming up
+    warmupTimerRef.current = setTimeout(() => {
+      setStatusMsg(t('login.warmingUp'));
+    }, 4000);
+
+    try {
+      // Step 1: wake the server up (cheap GET, up to 75 s)
+      try {
+        await fetchWithTimeout(`${API_BASE}/api/health`, {}, WARMUP_TIMEOUT_MS);
+      } catch {
+        // If health check itself times out, throw a friendly error
+        throw new Error(t('login.timeout'));
+      }
+
+      if (warmupTimerRef.current) {
+        clearTimeout(warmupTimerRef.current);
+        warmupTimerRef.current = null;
+      }
+      setStatusMsg(t('login.loggingIn'));
+
+      // Step 2: actual login (server is awake now, 15 s is plenty)
+      const res = await fetchWithTimeout(
+        `${API_BASE}/api/patient/login`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: phone.trim(), clinicCode: clinicCode.trim() }),
+        },
+        LOGIN_TIMEOUT_MS,
+      );
+
+      const json = await res.json();
       const payload = json?.user ?? json;
 
       if (!res.ok || !payload?.token) {
@@ -62,13 +91,17 @@ export default function PatientLogin() {
       });
       router.replace("/(patient)" as any);
     } catch (error: any) {
-      clearTimeout(timeout);
+      if (warmupTimerRef.current) {
+        clearTimeout(warmupTimerRef.current);
+        warmupTimerRef.current = null;
+      }
       const msg = error?.name === 'AbortError'
         ? t('login.timeout')
         : (error.message || t('login.loginFailed'));
       Alert.alert(t('login.error'), msg);
     } finally {
       setLoading(false);
+      setStatusMsg('');
     }
   };
 
@@ -117,7 +150,12 @@ export default function PatientLogin() {
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator size="small" color="#ffffff" />
+            <View style={styles.loadingRow}>
+              <ActivityIndicator size="small" color="#ffffff" />
+              {!!statusMsg && (
+                <Text style={styles.statusText}>{statusMsg}</Text>
+              )}
+            </View>
           ) : (
             <Text style={styles.buttonText}>{t('login.patientTitle')}</Text>
           )}
@@ -210,5 +248,15 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: "#2563EB",
     fontSize: 16,
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  statusText: {
+    color: '#ffffff',
+    fontSize: 13,
+    flexShrink: 1,
   },
 });
