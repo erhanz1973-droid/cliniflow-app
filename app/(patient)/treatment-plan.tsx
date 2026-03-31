@@ -593,6 +593,12 @@ export default function TreatmentPlanScreen() {
         console.warn("[TREATMENT-PLAN] API error:", res.status, json?.error, json?.message);
       }
       console.log("[TREATMENT-PLAN] teeth count:", Array.isArray(json.teeth) ? json.teeth.length : 0, "diagnoses:", Array.isArray(json.diagnoses) ? json.diagnoses.length : 0);
+      if (Array.isArray(json.teeth)) {
+        json.teeth.forEach((t: any) => {
+          const procs = Array.isArray(t.procedures) ? t.procedures : [];
+          console.log(`[TREATMENT-PLAN] tooth=${t.toothId} procs=${procs.length}`, procs.map((p: any) => ({ id: p.id, procId: p.procedureId, type: p.type, status: p.status })));
+        });
+      }
       const teeth: any[] = Array.isArray(json.teeth) ? json.teeth : [];
 
       // Extract diagnoses from the same response
@@ -717,6 +723,8 @@ export default function TreatmentPlanScreen() {
         });
       }
       const deduped = [...byId.values()];
+      console.log("[TREATMENT-PLAN] all procs:", all.length, "deduped:", deduped.length, "byId skipped (no id):", all.length - deduped.length);
+      deduped.forEach(p => console.log(`[TREATMENT-PLAN] deduped proc id=${p.id} status=${p.status} toothId=${p.toothId} title=${p.title}`));
 
       const ACTIVE_STATUSES   = ["IN_PROGRESS", "ACTIVE", "ONGOING"];
       const PLANNED_STATUSES  = ["PLANNED", "SCHEDULED", "PENDING", "WAITING", ""];
