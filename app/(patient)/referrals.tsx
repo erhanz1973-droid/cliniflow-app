@@ -8,9 +8,9 @@ import {
   Share,
   ActivityIndicator,
   RefreshControl,
-  SafeAreaView,
   Animated,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import { useAuth } from "../../lib/auth";
 import { useLanguage } from "../../lib/language-context";
@@ -50,16 +50,34 @@ export default function ReferralsScreen() {
 
   const load = useCallback(async () => {
     if (!user?.token) return;
+    const patientId = String((user as any)?.patientId || (user as any)?.id || "").trim();
+    if (!patientId) return;
     try {
-      const res = await fetch(`${API_BASE}/api/patient/referral`, {
-        headers: { Authorization: `Bearer ${user.token}` },
-      });
+      const res = await fetch(
+        `${API_BASE}/api/patient/${encodeURIComponent(patientId)}/referrals`,
+        { headers: { Authorization: `Bearer ${user.token}` } },
+      );
+      if (!res.ok) { console.error("[Referrals] HTTP", res.status); return; }
       const json = await res.json();
-      if (json.ok) setData(json);
+      if (json.ok) {
+        // Backend returns { ok, items: [...] } — map to the shape the UI expects
+        const items = json.items || json.referrals || [];
+        setData({
+          referralCode:    json.referralCode   || "",
+          discountPercent: json.discountPercent ?? null,
+          referrals: items.map((item: any) => ({
+            id:        item.id,
+            // Show the friend's name: if I'm the inviter → show invited name, else inviter name
+            name:      item.invitedPatientName || item.inviterPatientName || "—",
+            status:    item.status || "pending",
+            createdAt: item.createdAt ?? null,
+          })),
+        });
+      }
     } catch (e) {
       console.error("[Referrals] fetch error", e);
     }
-  }, [user?.token]);
+  }, [user?.token, (user as any)?.patientId, (user as any)?.id]);
 
   useEffect(() => {
     setLoading(true);
