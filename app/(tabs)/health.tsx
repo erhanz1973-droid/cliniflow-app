@@ -194,51 +194,29 @@ export default function Health() {
       }
 
       if (res.ok) {
-        const contentType = res.headers.get("content-type");
-        if (contentType && contentType.includes("application/json")) {
-          const data = await res.json();
-          const existingFormData = data.formData || {};
-          
-          // Auto-fill name and phone from patient registration (read-only)
-          if (patientName || patientPhone) {
-            setFormData({
-              ...existingFormData,
-              personalInfo: {
-                ...existingFormData.personalInfo,
-                name: patientName || existingFormData.personalInfo?.name, // Always use registered name
-                phone: patientPhone || existingFormData.personalInfo?.phone, // Always use registered phone
-              },
-            });
-          } else if (data.formData) {
-            setFormData(data.formData);
-          }
-          
-          setIsComplete(data.isComplete || false);
-        } else {
-          const text = await res.text();
-          console.warn("[HEALTH] Load response is not JSON:", text.substring(0, 200));
-          
-          // Even if health form doesn't exist, set patient name and phone
-          if (patientName || patientPhone) {
-            setFormData({
-              personalInfo: {
-                name: patientName,
-                phone: patientPhone,
-              },
-            });
-          }
-        }
+        const json = await res.json();
+        console.log("HEALTH RESPONSE", json);
+
+        // Bind form state from json.formData
+        const existingFormData: HealthFormData = json.formData || {};
+        setFormData({
+          ...existingFormData,
+          personalInfo: {
+            ...existingFormData.personalInfo,
+            // Overlay registered name/phone so they stay current
+            ...(patientName ? { name: patientName } : {}),
+            ...(patientPhone ? { phone: patientPhone } : {}),
+          },
+        });
+
+        setIsComplete(json.isComplete || false);
       } else {
         const text = await res.text();
         console.warn("[HEALTH] Load failed:", res.status, text.substring(0, 200));
-        
-        // Even if health form doesn't exist, set patient name and phone
+        // Pre-fill name/phone even when no form exists yet
         if (patientName || patientPhone) {
           setFormData({
-            personalInfo: {
-              name: patientName,
-              phone: patientPhone,
-            },
+            personalInfo: { name: patientName, phone: patientPhone },
           });
         }
       }
