@@ -372,7 +372,7 @@ export default function IntraoralCameraScreen() {
       {/* CameraView must have NO children — overlay is a sibling with absolute fill */}
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFillObject} facing={'front' as CameraType} mode="picture" />
 
-      <View style={s.overlay}>
+      <View style={s.overlay} pointerEvents="box-none">
 
         {/* Header */}
         <View style={s.header}>
@@ -468,7 +468,11 @@ const s = StyleSheet.create({
 
   // ── Camera overlay ────────────────────────────────────────────────────────────
   camera:  { flex: 1 },
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'transparent' },
+  overlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'transparent',
+  },
   header:  {
     flexDirection: 'row',
     justifyContent: 'space-between',
