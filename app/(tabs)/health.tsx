@@ -140,27 +140,35 @@ export default function Health() {
 
   const loadHealthForm = async () => {
     try {
-      // Get patientId
-      let pid = user?.id || "";
+      // Get patientId — try multiple sources before hitting /me
+      let pid = String(user?.patientId || user?.id || "").trim();
+      console.log("[HEALTH] loadHealthForm pid from user:", pid, "token:", !!user?.token);
+
       if (!pid) {
-        const meRes = await fetch(`${API_BASE}/api/patient/me`, {
-          headers: { Authorization: `Bearer ${user?.token}` },
-        });
-        if (meRes.ok) {
-          const meData = await meRes.json();
-          pid = meData.patientId || "";
+        try {
+          const meRes = await fetch(`${API_BASE}/api/patient/me`, {
+            headers: { Authorization: `Bearer ${user?.token}` },
+          });
+          if (meRes.ok) {
+            const meData = await meRes.json();
+            pid = String(meData.patientId || meData.id || "").trim();
+          }
+        } catch (meErr) {
+          console.warn("[HEALTH] /me fetch failed:", meErr);
         }
       }
 
       if (!pid) {
+        console.warn("[HEALTH] Cannot load — no patientId resolved");
         setLoading(false);
         return;
       }
 
       setPatientId(pid);
+      console.log("[HEALTH] patientId set to:", pid);
 
       // Load existing form
-      const url = `${API_BASE}/api/patient/${pid}/health`;
+      const url = `${API_BASE}/api/patient/${encodeURIComponent(pid)}/health`;
       console.log("[HEALTH] Loading form from:", url);
       
       const res = await fetch(url, {
@@ -244,17 +252,23 @@ export default function Health() {
   };
 
   const saveForm = async (complete = false) => {
-    if (!user?.token || !patientId) {
+    // Prefer state, fall back to user object directly
+    const effectivePid = patientId || String(user?.patientId || user?.id || "").trim();
+    if (!user?.token || !effectivePid) {
       console.warn("[HEALTH] Cannot save - missing token or patientId", {
         hasToken: !!user?.token,
-        patientId,
+        statePid: patientId,
+        effectivePid,
       });
+      Alert.alert(t("health.error"), t("health.formCouldNotBeSaved"));
       return false;
     }
+    // Sync state in case it was empty
+    if (!patientId) setPatientId(effectivePid);
 
     setSaving(true);
     try {
-      const url = `${API_BASE}/api/patient/${patientId}/health`;
+      const url = `${API_BASE}/api/patient/${encodeURIComponent(effectivePid)}/health`;
       console.log("[HEALTH] Saving form to:", url);
       
       const res = await fetch(url, {
