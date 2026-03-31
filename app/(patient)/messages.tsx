@@ -184,24 +184,16 @@ export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
   };
 
   const showAttachMenu = () => {
-    const openIntraoral = () => {
-      // Yeni AI Guided ekranına yönlendir
-      router.push("/patient/AIGuidedPhotoCapture");
-      // Eski modalı fallback olarak kullanmak istersen aşağıdaki satırları başka bir butona bağlayabilirsin:
-      // setIntraoralStep(0);
-      // setIntraoralPhotos({});
-      // setIntraoralVisible(true);
-    };
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
         { options: ["İptal", "Fotoğraf Seç", "Dosya Seç (PDF)", "Ağız İçi Fotoğraf Çek"], cancelButtonIndex: 0 },
-        (i) => { if (i === 1) pickImage(); else if (i === 2) pickDocument(); else if (i === 3) openIntraoral(); }
+        (i) => { if (i === 1) pickImage(); else if (i === 2) pickDocument(); else if (i === 3) pickImage(); }
       );
     } else {
       Alert.alert("Dosya Ekle", "Kaynak seçin", [
         { text: "Fotoğraf Seç",         onPress: pickImage },
         { text: "Dosya Seç (PDF)",       onPress: pickDocument },
-        { text: "Ağız İçi Fotoğraf",    onPress: openIntraoral },
+        { text: "Ağız İçi Fotoğraf",    onPress: pickImage },
         { text: "İptal",                 style: "cancel" },
       ]);
     }

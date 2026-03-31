@@ -352,7 +352,7 @@ export default function PatientDashboard() {
       {showDentalReminder && fileCounts.image === 0 && (
         <TouchableOpacity
           style={styles.dentalBanner}
-          onPress={() => router.push("/patient/AIGuidedPhotoCapture" as any)}
+          onPress={() => router.push("/(patient)/files" as any)}
           activeOpacity={0.85}
         >
           <Text style={styles.dentalBannerIcon}>📸</Text>
