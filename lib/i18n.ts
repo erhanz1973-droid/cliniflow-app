@@ -596,6 +596,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "login.error": "Hata",
     "login.invalidResponse": "Sunucu yanıtı geçersiz (HTTP {{status}}). Lütfen tekrar deneyin.",
     "login.loginFailed": "Giriş işlemi başarısız",
+    "login.timeout": "Sunucu yanıt vermiyor. Lütfen tekrar deneyin.",
     "login.patientNotFound": "Bu telefon numarası ile kayıtlı hasta bulunamadı. Lütfen kayıt olun.",
     "login.phoneRequired": "Lütfen telefon numaranızı giriniz.",
     "login.loginError": "Giriş Hatası",
@@ -1197,6 +1198,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "login.error": "Error",
     "login.invalidResponse": "Invalid server response (HTTP {{status}}). Please try again.",
     "login.loginFailed": "Login failed",
+    "login.timeout": "Server is not responding. Please try again.",
     "login.patientNotFound": "No patient found with this phone number. Please register.",
     "login.phoneRequired": "Please enter your phone number.",
     "login.loginError": "Login Error",
@@ -1618,6 +1620,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "login.error": "შეცდომა",
     "login.invalidResponse": "არასწორი სერვერის პასუხი (HTTP {{status}}). გთხოვთ, სცადოთ ხელახლა.",
     "login.loginFailed": "შესვლა ვერ მოხერხდა",
+    "login.timeout": "სერვერი არ პასუხობს. გთხოვთ სცადოთ ხელახლა.",
     "login.patientNotFound": "ამ ტელეფონის ნომრით პაციენტი არ მოიძებნა. გთხოვთ, დარეგისტრირდით.",
     "login.phoneRequired": "გთხოვთ, შეიყვანოთ თქვენი ტელეფონის ნომერი.",
     "login.loginError": "შესვლის შეცდომა",
@@ -1922,6 +1925,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "login.error": "Ошибка",
     "login.phoneRequired": "Пожалуйста, введите номер телефона.",
     "login.loginFailed": "Вход не выполнен",
+    "login.timeout": "Сервер не отвечает. Пожалуйста, попробуйте снова.",
     "login.phonePlaceholder": "Введите номер телефона",
 
     // Settings

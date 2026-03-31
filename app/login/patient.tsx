@@ -25,12 +25,16 @@ export default function PatientLogin() {
       return;
     }
     setLoading(true);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
     try {
       const res = await fetch(`${API_BASE}/api/patient/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phone.trim(), clinicCode: clinicCode.trim() })
+        body: JSON.stringify({ phone: phone.trim(), clinicCode: clinicCode.trim() }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       const json = await res.json();
 
       // Backend currently returns { ok, user: { ... } } for patient login.
@@ -58,7 +62,11 @@ export default function PatientLogin() {
       });
       router.replace("/(patient)" as any);
     } catch (error: any) {
-      Alert.alert(t('login.error'), error.message || t('login.loginFailed'));
+      clearTimeout(timeout);
+      const msg = error?.name === 'AbortError'
+        ? t('login.timeout')
+        : (error.message || t('login.loginFailed'));
+      Alert.alert(t('login.error'), msg);
     } finally {
       setLoading(false);
     }

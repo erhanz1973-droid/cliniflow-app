@@ -43,7 +43,8 @@ type AuthContextValue = {
   signIn: (input: any) => Promise<void>;
   signOut: () => Promise<void>;
   refreshAuth: () => Promise<void>;
-  setOtpVerified: (verified: boolean) => void; // 🔥 CRITICAL: Set OTP verification flag
+  patchUser: (patch: Partial<User>) => Promise<void>;
+  setOtpVerified: (verified: boolean) => void;
   updateRole: (newRole: UserRole) => Promise<any>;
 };
 
@@ -285,9 +286,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     setUser(null);
-    setAuthToken(null); // 🔥 CRITICAL: Clear token from API layer
+    setAuthToken(null);
     await storageSet(AUTH_KEY, null);
     console.log('[AUTH] User signed out');
+  };
+
+  const patchUser = async (patch: Partial<User>) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...patch };
+      storageSet(AUTH_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -319,7 +329,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn,
       signOut,
       refreshAuth,
-      setOtpVerified: handleSetOtpVerified, // 🔥 CRITICAL: Use stable callback
+      patchUser,
+      setOtpVerified: handleSetOtpVerified,
       updateRole: async (newRole: UserRole) => {
         if (!user?.token) {
           throw new Error("No token found");
@@ -358,7 +369,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       },
     }),
-    [user, isAuthLoading, isOtpVerified, isInitialized, signIn, signOut, refreshAuth, handleSetOtpVerified]
+    [user, isAuthLoading, isOtpVerified, isInitialized, signIn, signOut, refreshAuth, patchUser, handleSetOtpVerified]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
