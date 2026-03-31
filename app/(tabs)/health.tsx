@@ -232,11 +232,15 @@ export default function Health() {
   const saveForm = async (complete = false) => {
     // Prefer state, fall back to user object directly
     const effectivePid = patientId || String(user?.patientId || user?.id || "").trim();
+    console.log("[HEALTH SAVE] called — effectivePid:", effectivePid, "hasToken:", !!user?.token, "complete:", complete);
+
     if (!user?.token || !effectivePid) {
-      console.warn("[HEALTH] Cannot save - missing token or patientId", {
+      console.warn("[HEALTH SAVE] blocked — missing token or patientId", {
         hasToken: !!user?.token,
         statePid: patientId,
         effectivePid,
+        userId: user?.id,
+        userPatientId: user?.patientId,
       });
       Alert.alert(t("health.error"), t("health.formCouldNotBeSaved"));
       return false;
@@ -247,7 +251,7 @@ export default function Health() {
     setSaving(true);
     try {
       const url = `${API_BASE}/api/patient/${encodeURIComponent(effectivePid)}/health`;
-      console.log("[HEALTH] Saving form to:", url);
+      console.log("[HEALTH SAVE] fetching:", url);
       
       const res = await fetch(url, {
         method: "POST",
