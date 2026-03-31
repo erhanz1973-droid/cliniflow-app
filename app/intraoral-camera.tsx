@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -17,12 +17,13 @@ import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/language-context';
+
 const API_BASE: string =
-  (typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_BASE)
-    ? String(process.env.EXPO_PUBLIC_API_BASE).replace(/\/+$/, "")
-    : (typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_URL)
-      ? String(process.env.EXPO_PUBLIC_API_URL).replace(/\/+$/, "")
-      : "https://cliniflow-backend-dg8a.onrender.com";
+  (typeof process !== 'undefined' && process.env.EXPO_PUBLIC_API_BASE)
+    ? String(process.env.EXPO_PUBLIC_API_BASE).replace(/\/+$/, '')
+    : (typeof process !== 'undefined' && process.env.EXPO_PUBLIC_API_URL)
+      ? String(process.env.EXPO_PUBLIC_API_URL).replace(/\/+$/, '')
+      : 'https://cliniflow-backend-dg8a.onrender.com';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -34,36 +35,11 @@ type PhotoStep = {
 };
 
 const PHOTO_SEQUENCE: PhotoStep[] = [
-  {
-    id: 0,
-    instruction: 'chat.intraoralCameraInstruction1',
-    countdown: 3,
-    guide: 'front',
-  },
-  {
-    id: 1,
-    instruction: 'chat.intraoralCameraInstruction2',
-    countdown: 4,
-    guide: 'right',
-  },
-  {
-    id: 2,
-    instruction: 'chat.intraoralCameraInstruction3',
-    countdown: 4,
-    guide: 'left',
-  },
-  {
-    id: 3,
-    instruction: 'chat.intraoralCameraInstruction4',
-    countdown: 5,
-    guide: 'upper',
-  },
-  {
-    id: 4,
-    instruction: 'chat.intraoralCameraInstruction5',
-    countdown: 5,
-    guide: 'lower',
-  },
+  { id: 0, instruction: 'chat.intraoralCameraInstruction1', countdown: 3, guide: 'front' },
+  { id: 1, instruction: 'chat.intraoralCameraInstruction2', countdown: 4, guide: 'right' },
+  { id: 2, instruction: 'chat.intraoralCameraInstruction3', countdown: 4, guide: 'left' },
+  { id: 3, instruction: 'chat.intraoralCameraInstruction4', countdown: 5, guide: 'upper' },
+  { id: 4, instruction: 'chat.intraoralCameraInstruction5', countdown: 5, guide: 'lower' },
 ];
 
 export default function IntraoralCameraScreen() {
@@ -71,18 +47,14 @@ export default function IntraoralCameraScreen() {
   const params = useLocalSearchParams();
   const { user } = useAuth();
   const { t } = useLanguage();
+
   const patientId =
     (user as any)?.patientId ||
     (user as any)?.id ||
     (params.patientId as string) ||
     (params.patient_id as string);
-  const chatId = (params.chatId as string) || (params.chat_id as string) || patientId;
-  
-  console.log('[CAMERA] Params:', { patientId, chatId, allParams: params });
-  console.log('[CAMERA] User:', user ? { id: user.id, hasToken: !!user.token } : 'null');
 
   const [permission, requestPermission] = useCameraPermissions();
-  const [facing, setFacing] = useState<CameraType>('front');
   const [currentStep, setCurrentStep] = useState(0);
   const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -90,193 +62,53 @@ export default function IntraoralCameraScreen() {
   const [previewUri, setPreviewUri] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
-  const [clinicName, setClinicName] = useState<string>('');
+  const [done, setDone] = useState(false);
 
   const cameraRef = useRef<CameraView>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const stabilizeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const patientIdRef = useRef<string | null>(patientId);
-  const chatIdRef = useRef<string | null>(chatId);
 
-  // Update refs when params change
   useEffect(() => {
     patientIdRef.current = patientId;
-    chatIdRef.current = chatId;
-    console.log('[CAMERA] Screen mounted with params:', { patientId, chatId, allParams: params });
-    if (!patientId) {
-      console.warn('[CAMERA] WARNING: No patientId found in params!');
-    }
-  }, [patientId, chatId, params]);
+  }, [patientId]);
 
+  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
-      if (countdownIntervalRef.current) {
-        clearInterval(countdownIntervalRef.current);
-      }
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+      if (stabilizeTimerRef.current) clearTimeout(stabilizeTimerRef.current);
     };
   }, []);
 
+  // ── Auto-start countdown whenever a new step becomes active ─────────────────
+  // Triggers on: welcome dismissed, step advance, retake (previewUri → null)
   useEffect(() => {
-    if (countdown === 0 && !isCapturing && !previewUri) {
-      capturePhoto();
-    }
-  }, [countdown, isCapturing, previewUri]);
+    if (
+      showWelcome ||
+      previewUri !== null ||
+      uploading ||
+      done ||
+      !permission?.granted
+    ) return;
 
-  if (!permission) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2563EB" />
-        </View>
-      </View>
-    );
-  }
-  
-  if (!patientId) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.permissionContainer}>
-          <Text style={styles.permissionIcon}>⚠️</Text>
-          <Text style={styles.permissionTitle}>Hasta Bilgisi Bulunamadı</Text>
-          <Text style={styles.permissionText}>
-            Hasta bilgisi eksik. Lütfen chat sayfasından tekrar deneyin.
-            {'\n\n'}
-            Parametreler: {JSON.stringify(params)}
-          </Text>
-          <Pressable style={styles.permissionBtn} onPress={() => router.back()}>
-            <Text style={styles.permissionBtnText}>Geri Dön</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
+    // Small delay so camera sensor can stabilise after step change
+    if (stabilizeTimerRef.current) clearTimeout(stabilizeTimerRef.current);
+    stabilizeTimerRef.current = setTimeout(() => {
+      beginCountdown(PHOTO_SEQUENCE[currentStep].countdown);
+    }, 800);
 
-  if (!permission.granted) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.permissionContainer}>
-          <Text style={styles.permissionIcon}>📷</Text>
-          <Text style={styles.permissionTitle}>Kamera İzni Gerekli</Text>
-          <Text style={styles.permissionText}>
-            İntraoral fotoğraf çekmek için kamera erişimine ihtiyacımız var.
-            {'\n'}
-            Lütfen kamera iznini verin.
-          </Text>
-          <Pressable style={styles.permissionBtn} onPress={requestPermission}>
-            <Text style={styles.permissionBtnText}>İzin Ver</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
+    return () => {
+      if (stabilizeTimerRef.current) clearTimeout(stabilizeTimerRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showWelcome, currentStep, previewUri, uploading, done, permission?.granted]);
 
-  // Welcome screen with pre-capture guidance
-  if (showWelcome) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.welcomeContainer}>
-          <Text style={styles.welcomeIcon}>📸</Text>
-          <Text style={styles.welcomeTitle}>{t('chat.intraoralPhotoGuideTitle')}</Text>
-          
-          <View style={styles.guidanceList}>
-            <View style={styles.guidanceItem}>
-              <Text style={styles.guidanceBullet}>💧</Text>
-              <Text style={styles.guidanceText}>
-                {t('chat.intraoralPhotoGuide1')}
-              </Text>
-            </View>
-            
-            <View style={styles.guidanceItem}>
-              <Text style={styles.guidanceBullet}>💡</Text>
-              <Text style={styles.guidanceText}>
-                {t('chat.intraoralPhotoGuide2')}
-              </Text>
-            </View>
-            
-            <View style={styles.guidanceItem}>
-              <Text style={styles.guidanceBullet}>📋</Text>
-              <Text style={styles.guidanceText}>
-                {t('chat.intraoralPhotoGuide3')}
-              </Text>
-            </View>
-          </View>
-          
-          <Pressable 
-            style={styles.welcomeBtn} 
-            onPress={() => setShowWelcome(false)}
-          >
-            <Text style={styles.welcomeBtnText}>{t('common.understood')}</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
+  function beginCountdown(seconds: number) {
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
 
-  if (previewUri) {
-    const currentPhoto = PHOTO_SEQUENCE[currentStep];
-    const currentDate = new Date().toLocaleDateString('tr-TR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    });
-    const watermarkText = clinicName ? `Clinifly • ${clinicName}` : 'Clinifly';
-    
-    return (
-      <View style={styles.container}>
-        <View style={styles.previewImageContainer}>
-          <Image source={{ uri: previewUri }} style={styles.previewImage} />
-          {/* Watermark overlay - bottom left corner */}
-          <View style={styles.watermarkContainer}>
-            <Text style={styles.watermarkText}>{watermarkText}</Text>
-            <Text style={styles.watermarkDate}>{currentDate}</Text>
-          </View>
-        </View>
-        <View style={styles.previewOverlay}>
-          <Text style={styles.previewStepText}>
-            {currentStep + 1} / {PHOTO_SEQUENCE.length}
-          </Text>
-          <View style={styles.previewButtons}>
-            <Pressable
-              style={[styles.previewBtn, styles.retakeBtn]}
-              onPress={() => {
-                setPreviewUri(null);
-                setCountdown(null);
-              }}
-            >
-              <Text style={styles.previewBtnText}>Tekrar Çek</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.previewBtn, styles.continueBtn]}
-              onPress={() => {
-                const newPhotos = [...capturedPhotos, previewUri];
-                setCapturedPhotos(newPhotos);
-                setPreviewUri(null);
-                setCountdown(null);
-
-                if (currentStep < PHOTO_SEQUENCE.length - 1) {
-                  setCurrentStep(currentStep + 1);
-                } else {
-                  // All photos captured, upload
-                  uploadPhotos(newPhotos);
-                }
-              }}
-            >
-              <Text style={styles.previewBtnText}>Devam Et</Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    );
-  }
-
-  const currentPhoto = PHOTO_SEQUENCE[currentStep];
-
-  async function startCountdown() {
-    if (countdownIntervalRef.current) {
-      clearInterval(countdownIntervalRef.current);
-    }
-
-    setCountdown(currentPhoto.countdown);
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setCountdown(seconds);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
     countdownIntervalRef.current = setInterval(() => {
       setCountdown((prev) => {
@@ -287,51 +119,69 @@ export default function IntraoralCameraScreen() {
           }
           return 0;
         }
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
         return prev - 1;
       });
     }, 1000);
   }
 
+  // Auto-capture when countdown hits 0
+  useEffect(() => {
+    if (countdown === 0 && !isCapturing && !previewUri) {
+      capturePhoto();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countdown]);
+
   async function capturePhoto() {
     if (!cameraRef.current || isCapturing) return;
-
     setIsCapturing(true);
     try {
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.95, // High quality for clinical use, minimal compression
-        base64: false,
-      });
-
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.95, base64: false });
       if (photo?.uri) {
-        // Use original photo - NO color changes, NO filters, NO manipulation
-        // We keep original colors completely intact for clinical accuracy
-        // Only compression is applied by camera (quality: 0.95)
         setPreviewUri(photo.uri);
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
-    } catch (error: any) {
-      console.error('[CAMERA] Capture error:', error);
-      Alert.alert('Hata', 'Fotoğraf çekilemedi: ' + (error.message || 'Bilinmeyen hata'));
+    } catch (err: any) {
+      console.error('[CAMERA] Capture error:', err);
+      Alert.alert('Hata', 'Fotoğraf çekilemedi: ' + (err.message || 'Bilinmeyen hata'));
     } finally {
       setIsCapturing(false);
     }
   }
 
+  const handleRetake = useCallback(() => {
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    setPreviewUri(null);
+    setCountdown(null);
+    // Auto-countdown will restart via the effect above
+  }, []);
+
+  const handleConfirm = useCallback(() => {
+    const newPhotos = [...capturedPhotos, previewUri!];
+    setCapturedPhotos(newPhotos);
+    setPreviewUri(null);
+    setCountdown(null);
+
+    if (currentStep < PHOTO_SEQUENCE.length - 1) {
+      setCurrentStep(currentStep + 1);
+      // Auto-countdown fires via effect when previewUri becomes null + step changes
+    } else {
+      uploadPhotos(newPhotos);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capturedPhotos, previewUri, currentStep]);
+
   async function uploadPhotos(photos: string[]) {
-    const currentPatientId = patientIdRef.current || patientId;
-
-    console.log('[CAMERA] uploadPhotos:', { patientId: currentPatientId, photoCount: photos.length });
-
-    if (!currentPatientId || photos.length === 0) {
-      Alert.alert('Hata', `Hasta bilgisi veya fotoğraf bulunamadı. PatientId: ${currentPatientId || 'yok'}`);
+    const pid = patientIdRef.current || patientId;
+    if (!pid || photos.length === 0) {
+      Alert.alert('Hata', 'Hasta bilgisi veya fotoğraf bulunamadı.');
       return;
     }
 
     setUploading(true);
 
     try {
-      // Resolve auth token: useAuth hook first, then AsyncStorage fallbacks
       let token: string | null = null;
 
       if ((user as any)?.token) {
@@ -339,439 +189,421 @@ export default function IntraoralCameraScreen() {
       } else {
         const authData = await AsyncStorage.getItem('cliniflow.auth.v1');
         if (authData) {
-          try {
-            const parsed = JSON.parse(authData);
-            token = parsed.token || parsed.accessToken || parsed.user?.token || null;
-          } catch { /* ignore */ }
+          try { const p = JSON.parse(authData); token = p.token || p.accessToken || p.user?.token || null; }
+          catch { /* ignore */ }
         }
         if (!token) {
           const alt = await AsyncStorage.getItem('auth_data');
           if (alt) {
-            try {
-              const parsed = JSON.parse(alt);
-              token = parsed.token || parsed.accessToken || null;
-            } catch { /* ignore */ }
+            try { const p = JSON.parse(alt); token = p.token || p.accessToken || null; }
+            catch { /* ignore */ }
           }
         }
-        if (!token) {
-          token = await AsyncStorage.getItem('auth_token');
-        }
+        if (!token) token = await AsyncStorage.getItem('auth_token');
       }
 
-      if (!token) {
-        throw new Error('Authentication token not found');
-      }
+      if (!token) throw new Error('Authentication token not found');
 
-      // Upload each photo individually with its shotType
       for (let i = 0; i < photos.length; i++) {
         const uri = photos[i];
-        const step = PHOTO_SEQUENCE[i];
-        const shotType = step?.guide ?? `shot_${i}`;
+        const shotType = PHOTO_SEQUENCE[i]?.guide ?? `shot_${i}`;
         const fileName = `intraoral_${shotType}_${Date.now()}.jpg`;
 
-        const fileInfo = await FileSystem.getInfoAsync(uri);
-        if (!fileInfo.exists) {
-          throw new Error(`File not found: ${uri}`);
-        }
+        const info = await FileSystem.getInfoAsync(uri);
+        if (!info.exists) throw new Error(`File not found: ${uri}`);
 
         const formData = new FormData();
-        formData.append('file', {
-          uri,
-          type: 'image/jpeg',
-          name: fileName,
-        } as any);
-        formData.append('patientId', currentPatientId);
+        formData.append('file', { uri, type: 'image/jpeg', name: fileName } as any);
+        formData.append('patientId', pid);
         formData.append('shotType', shotType);
 
-        console.log(`[CAMERA] Uploading ${i + 1}/${photos.length}: shotType=${shotType}`);
+        console.log(`[CAMERA] Uploading ${i + 1}/${photos.length} shotType=${shotType}`);
 
-        const res = await fetch(`${API_BASE}/api/patient/${currentPatientId}/upload`, {
+        const res = await fetch(`${API_BASE}/api/patient/${pid}/upload`, {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { Authorization: `Bearer ${token}` },
           body: formData,
         });
 
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || errData.message || `Upload failed: ${res.status}`);
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || err.message || `Upload failed: ${res.status}`);
         }
-
-        console.log(`[CAMERA] Uploaded ${i + 1}/${photos.length} OK`);
       }
 
-      Alert.alert(
-        'Başarılı',
-        'Fotoğraflar başarıyla gönderildi.\n\nBu fotoğraflar yalnızca ön değerlendirme içindir. Nihai değerlendirme klinik tarafından yapılır.',
-        [{ text: 'Tamam', onPress: () => router.back() }]
-      );
-    } catch (error: any) {
-      console.error('[CAMERA] Upload error:', error);
-      Alert.alert('Hata', 'Fotoğraflar yüklenemedi: ' + (error.message || 'Bilinmeyen hata'));
+      setDone(true);
+    } catch (err: any) {
+      console.error('[CAMERA] Upload error:', err);
+      Alert.alert('Hata', 'Fotoğraflar yüklenemedi: ' + (err.message || 'Bilinmeyen hata'));
     } finally {
       setUploading(false);
     }
   }
 
+  // ── Gate renders ─────────────────────────────────────────────────────────────
+
+  if (!permission) {
+    return (
+      <View style={s.container}>
+        <View style={s.center}><ActivityIndicator size="large" color="#2563EB" /></View>
+      </View>
+    );
+  }
+
+  if (!patientId) {
+    return (
+      <View style={s.container}>
+        <View style={s.card}>
+          <Text style={s.icon}>⚠️</Text>
+          <Text style={s.title}>Hasta Bilgisi Bulunamadı</Text>
+          <Text style={s.body}>Lütfen mesajlar sayfasından tekrar deneyin.</Text>
+          <Pressable style={s.btn} onPress={() => router.back()}>
+            <Text style={s.btnTxt}>Geri Dön</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  if (!permission.granted) {
+    return (
+      <View style={s.container}>
+        <View style={s.card}>
+          <Text style={s.icon}>📷</Text>
+          <Text style={s.title}>Kamera İzni Gerekli</Text>
+          <Text style={s.body}>İntraoral fotoğraf çekmek için kamera erişimine ihtiyacımız var.</Text>
+          <Pressable style={s.btn} onPress={requestPermission}>
+            <Text style={s.btnTxt}>İzin Ver</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Done screen ───────────────────────────────────────────────────────────────
+  if (done) {
+    return (
+      <View style={s.container}>
+        <View style={s.card}>
+          <Text style={s.icon}>✅</Text>
+          <Text style={s.title}>Analiz Tamamlandı</Text>
+          <Text style={s.body}>
+            {PHOTO_SEQUENCE.length} fotoğrafınız başarıyla gönderildi.{'\n\n'}
+            Klinik ekibimiz görüntüleri inceleyecek ve sizinle iletişime geçecektir.{'\n\n'}
+            Bu fotoğraflar yalnızca ön değerlendirme amaçlıdır. Nihai tanı klinik muayenesiyle yapılır.
+          </Text>
+          <Pressable style={s.btn} onPress={() => router.back()}>
+            <Text style={s.btnTxt}>Mesajlara Dön</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Welcome screen ────────────────────────────────────────────────────────────
+  if (showWelcome) {
+    return (
+      <View style={s.container}>
+        <View style={s.card}>
+          <Text style={s.icon}>📸</Text>
+          <Text style={s.title}>{t('chat.intraoralPhotoGuideTitle')}</Text>
+          <View style={s.guideList}>
+            {[
+              { bullet: '💧', key: 'chat.intraoralPhotoGuide1' },
+              { bullet: '💡', key: 'chat.intraoralPhotoGuide2' },
+              { bullet: '📋', key: 'chat.intraoralPhotoGuide3' },
+            ].map((g) => (
+              <View key={g.key} style={s.guideItem}>
+                <Text style={s.bullet}>{g.bullet}</Text>
+                <Text style={s.guideText}>{t(g.key)}</Text>
+              </View>
+            ))}
+          </View>
+          <Text style={s.autoNote}>Fotoğraflar otomatik çekilecektir — sadece hazır olun.</Text>
+          <Pressable style={s.btn} onPress={() => setShowWelcome(false)}>
+            <Text style={s.btnTxt}>{t('common.understood')}</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Preview screen ────────────────────────────────────────────────────────────
+  if (previewUri) {
+    const currentDate = new Date().toLocaleDateString('tr-TR', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+    });
+    return (
+      <View style={s.container}>
+        <View style={{ flex: 1 }}>
+          <Image source={{ uri: previewUri }} style={s.previewImage} />
+          <View style={s.watermark}>
+            <Text style={s.watermarkTxt}>Clinifly</Text>
+            <Text style={s.watermarkDate}>{currentDate}</Text>
+          </View>
+        </View>
+        <View style={s.previewBar}>
+          <Text style={s.stepLabel}>{currentStep + 1} / {PHOTO_SEQUENCE.length}</Text>
+          <View style={s.previewBtns}>
+            <Pressable style={[s.previewBtn, s.retakeBtn]} onPress={handleRetake}>
+              <Text style={s.previewBtnTxt}>Tekrar Çek</Text>
+            </Pressable>
+            <Pressable style={[s.previewBtn, s.confirmBtn]} onPress={handleConfirm}>
+              <Text style={s.previewBtnTxt}>Devam Et</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Camera screen ─────────────────────────────────────────────────────────────
+  const step = PHOTO_SEQUENCE[currentStep];
+  const guideLabel = {
+    front: t('chat.intraoralCameraGuideFront'),
+    right: t('chat.intraoralCameraGuideRight'),
+    left:  t('chat.intraoralCameraGuideLeft'),
+    upper: t('chat.intraoralCameraGuideUpper'),
+    lower: t('chat.intraoralCameraGuideLower'),
+  }[step.guide];
+
   return (
-    <View style={styles.container}>
-      <CameraView
-        ref={cameraRef}
-        style={styles.camera}
-        facing={facing}
-        mode="picture"
-      >
-        <View style={styles.overlay}>
+    <View style={s.container}>
+      <CameraView ref={cameraRef} style={s.camera} facing={'front' as CameraType} mode="picture">
+        <View style={s.overlay}>
+
           {/* Header */}
-          <View style={styles.header}>
+          <View style={s.header}>
             <Pressable
-              style={styles.closeBtn}
+              style={s.closeBtn}
               onPress={() => {
-                if (countdownIntervalRef.current) {
-                  clearInterval(countdownIntervalRef.current);
-                }
+                if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+                if (stabilizeTimerRef.current) clearTimeout(stabilizeTimerRef.current);
                 router.back();
               }}
             >
-              <Text style={styles.closeBtnText}>✕</Text>
+              <Text style={s.closeTxt}>✕</Text>
             </Pressable>
-            <Text style={styles.headerTitle}>
-              {currentStep + 1} / {PHOTO_SEQUENCE.length}
-            </Text>
+            <Text style={s.headerTitle}>{currentStep + 1} / {PHOTO_SEQUENCE.length}</Text>
             <View style={{ width: 44 }} />
           </View>
 
           {/* Instruction */}
-          <View style={styles.instructionContainer}>
-            <Text style={styles.instruction}>{t(currentPhoto.instruction)}</Text>
+          <View style={s.instructionWrap}>
+            <Text style={s.instruction}>{t(step.instruction)}</Text>
           </View>
 
           {/* Countdown */}
           {countdown !== null && (
-            <View style={styles.countdownContainer}>
-              {countdown > 0 ? (
-                <Text style={styles.countdown}>{countdown}</Text>
-              ) : (
-                <Text style={styles.captureText}>📸</Text>
-              )}
+            <View style={s.countdownWrap}>
+              {countdown > 0
+                ? <Text style={s.countdown}>{countdown}</Text>
+                : <Text style={s.snapIcon}>📸</Text>
+              }
             </View>
           )}
 
-          {/* Guide overlay - mouth/teeth alignment guide */}
-          <View style={styles.guideOverlay}>
-            <View style={styles.guideFrame}>
-              <Text style={styles.guideText}>
-                {currentPhoto.guide === 'front' && t('chat.intraoralCameraGuideFront')}
-                {currentPhoto.guide === 'right' && t('chat.intraoralCameraGuideRight')}
-                {currentPhoto.guide === 'left' && t('chat.intraoralCameraGuideLeft')}
-                {currentPhoto.guide === 'upper' && t('chat.intraoralCameraGuideUpper')}
-                {currentPhoto.guide === 'lower' && t('chat.intraoralCameraGuideLower')}
-              </Text>
+          {/* Alignment guide frame */}
+          <View style={s.guideOverlay} pointerEvents="none">
+            <View style={s.guideFrame}>
+              <Text style={s.guideFrameTxt}>{guideLabel}</Text>
             </View>
           </View>
 
-          {/* Bottom controls */}
-          <View style={styles.controls}>
-            {!countdown && !isCapturing && (
-              <Pressable style={styles.captureBtn} onPress={startCountdown}>
-                <Text style={styles.captureBtnText}>{t('chat.intraoralCameraCapture')}</Text>
-              </Pressable>
-            )}
+          {/* Status bar — no capture button */}
+          <View style={s.statusBar}>
+            {isCapturing
+              ? <ActivityIndicator color="#fff" />
+              : countdown !== null && countdown > 0
+                ? <Text style={s.statusTxt}>Hazırlanın…</Text>
+                : null
+            }
           </View>
+
         </View>
       </CameraView>
 
       {uploading && (
-        <View style={styles.uploadingOverlay}>
+        <View style={s.uploadOverlay}>
           <ActivityIndicator size="large" color="#fff" />
-          <Text style={styles.uploadingText}>Fotoğraflar yükleniyor...</Text>
+          <Text style={s.uploadTxt}>Fotoğraflar yükleniyor… ({capturedPhotos.length}/{PHOTO_SEQUENCE.length})</Text>
         </View>
       )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  permissionContainer: {
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#000' },
+  center:    { flex: 1, justifyContent: 'center', alignItems: 'center' },
+
+  // ── Card (welcome / done / error) ────────────────────────────────────────────
+  card: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 32,
+    backgroundColor: '#000',
   },
-  permissionIcon: {
-    fontSize: 64,
-    marginBottom: 24,
-  },
-  permissionTitle: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  permissionText: {
-    fontSize: 16,
-    color: '#ccc',
-    textAlign: 'center',
-    marginBottom: 32,
-    lineHeight: 24,
-  },
-  permissionBtn: {
+  icon:  { fontSize: 64, marginBottom: 24 },
+  title: { fontSize: 22, fontWeight: '700', color: '#fff', marginBottom: 12, textAlign: 'center' },
+  body:  { fontSize: 15, color: '#ccc', textAlign: 'center', lineHeight: 22, marginBottom: 32 },
+  btn: {
     backgroundColor: '#2563EB',
-    paddingHorizontal: 32,
+    paddingHorizontal: 40,
     paddingVertical: 16,
     borderRadius: 12,
-    minWidth: 150,
+    minWidth: 200,
+    alignItems: 'center',
   },
-  permissionBtnText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  camera: {
-    flex: 1,
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
-  header: {
+  btnTxt: { color: '#fff', fontSize: 17, fontWeight: '600' },
+
+  // ── Welcome extras ────────────────────────────────────────────────────────────
+  guideList:  { width: '100%', maxWidth: 400, marginBottom: 28 },
+  guideItem:  { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 18, paddingHorizontal: 8 },
+  bullet:     { fontSize: 22, marginRight: 12, marginTop: 2 },
+  guideText:  { flex: 1, fontSize: 14, color: '#ccc', lineHeight: 20 },
+  autoNote:   { fontSize: 13, color: '#60a5fa', textAlign: 'center', marginBottom: 24, fontStyle: 'italic' },
+
+  // ── Camera overlay ────────────────────────────────────────────────────────────
+  camera:  { flex: 1 },
+  overlay: { flex: 1, backgroundColor: 'transparent' },
+  header:  {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
     paddingTop: Platform.OS === 'ios' ? 50 : 16,
   },
-  closeBtn: {
-    padding: 8,
-    minWidth: 44,
-    minHeight: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  closeBtnText: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: '700',
-  },
-  headerTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  instructionContainer: {
+  closeBtn:    { padding: 8, minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
+  closeTxt:    { color: '#fff', fontSize: 22, fontWeight: '700' },
+  headerTitle: { color: '#fff', fontSize: 18, fontWeight: '600' },
+
+  instructionWrap: {
     position: 'absolute',
-    top: '20%',
+    top: '18%',
     left: 0,
     right: 0,
-    paddingHorizontal: 32,
+    paddingHorizontal: 28,
   },
   instruction: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '600',
     textAlign: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    padding: 16,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    padding: 14,
     borderRadius: 12,
   },
-  countdownContainer: {
+
+  countdownWrap: {
     position: 'absolute',
-    top: '50%',
+    top: '45%',
     left: 0,
     right: 0,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   countdown: {
     fontSize: 120,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#fff',
-    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowColor: 'rgba(0,0,0,0.85)',
     textShadowOffset: { width: 2, height: 2 },
     textShadowRadius: 10,
   },
-  captureText: {
-    fontSize: 80,
-  },
+  snapIcon: { fontSize: 80 },
+
   guideOverlay: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    top: 0, left: 0, right: 0, bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    pointerEvents: 'none',
   },
   guideFrame: {
     width: SCREEN_WIDTH * 0.75,
-    height: SCREEN_HEIGHT * 0.35,
+    height: SCREEN_HEIGHT * 0.33,
     borderWidth: 3,
-    borderColor: 'rgba(255,255,255,0.7)',
+    borderColor: 'rgba(255,255,255,0.65)',
     borderRadius: 24,
     borderStyle: 'dashed',
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    paddingBottom: 12,
+    backgroundColor: 'rgba(0,0,0,0.15)',
   },
-  guideText: {
+  guideFrameTxt: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     textAlign: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 12,
-    marginTop: 12,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 10,
   },
-  welcomeContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-    backgroundColor: '#000',
-  },
-  welcomeIcon: {
-    fontSize: 64,
-    marginBottom: 24,
-  },
-  welcomeTitle: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  guidanceList: {
-    width: '100%',
-    maxWidth: 400,
-    marginBottom: 40,
-  },
-  guidanceItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 20,
-    paddingHorizontal: 8,
-  },
-  guidanceBullet: {
-    fontSize: 24,
-    marginRight: 12,
-    marginTop: 2,
-  },
-  guidanceText: {
-    flex: 1,
-    fontSize: 15,
-    color: '#ccc',
-    lineHeight: 22,
-    textAlign: 'left',
-  },
-  welcomeBtn: {
-    backgroundColor: '#2563EB',
-    paddingHorizontal: 48,
-    paddingVertical: 16,
-    borderRadius: 12,
-    minWidth: 200,
-  },
-  welcomeBtnText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  controls: {
+
+  statusBar: {
     position: 'absolute',
-    bottom: 40,
+    bottom: 50,
     left: 0,
     right: 0,
     alignItems: 'center',
   },
-  captureBtn: {
-    backgroundColor: '#2563EB',
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 12,
-    minWidth: 200,
+  statusTxt: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 15,
+    fontWeight: '500',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
   },
-  captureBtnText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
+
+  // ── Preview ───────────────────────────────────────────────────────────────────
+  previewImage: { flex: 1, width: '100%' },
+  watermark: {
+    position: 'absolute',
+    bottom: 90,
+    left: 16,
   },
-  previewImage: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
-  },
-  previewOverlay: {
+  watermarkTxt:  { color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: '600' },
+  watermarkDate: { color: 'rgba(255,255,255,0.65)', fontSize: 11 },
+
+  previewBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    padding: 24,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    padding: 20,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 20,
   },
-  previewStepText: {
+  stepLabel: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
-  previewButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+  previewBtns: { flexDirection: 'row', gap: 12 },
+  previewBtn:  { flex: 1, padding: 15, borderRadius: 12, alignItems: 'center' },
+  retakeBtn:   { backgroundColor: '#ef4444' },
+  confirmBtn:  { backgroundColor: '#16a34a' },
+  previewBtnTxt: { color: '#fff', fontSize: 16, fontWeight: '600' },
+
+  // ── Upload overlay ────────────────────────────────────────────────────────────
+  uploadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    justifyContent: 'center',
+    alignItems: 'center',
     gap: 16,
   },
-  previewBtn: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    minHeight: 50,
-    justifyContent: 'center',
-  },
-  retakeBtn: {
-    backgroundColor: '#ef4444',
-  },
-  continueBtn: {
-    backgroundColor: '#16a34a',
-  },
-  previewBtnText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  uploadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  uploadingText: {
-    color: '#fff',
-    fontSize: 18,
-    marginTop: 16,
-  },
+  uploadTxt: { color: '#fff', fontSize: 16, textAlign: 'center' },
+
+  // Legacy — kept so TS doesn't complain if referenced elsewhere
+  previewImageContainer: { flex: 1 },
+  watermarkContainer:    { position: 'absolute', bottom: 90, left: 16 },
+  watermarkText:         { color: 'rgba(255,255,255,0.85)', fontSize: 13 },
+  watermarkDate:         { color: 'rgba(255,255,255,0.65)', fontSize: 11 },
 });
