@@ -60,10 +60,9 @@ export default function ReferralsScreen() {
       if (!res.ok) { console.error("[Referrals] HTTP", res.status); return; }
       const json = await res.json();
       if (json.ok) {
-        // Backend returns { ok, items: [...] } — map to the shape the UI expects
         const items = json.items || json.referrals || [];
         setData({
-          referralCode:    json.referralCode   || "",
+          referralCode:    json.referralCode || "",
           discountPercent: json.discountPercent ?? null,
           referrals: items.map((item: any) => ({
             id:        item.id,
@@ -98,13 +97,13 @@ export default function ReferralsScreen() {
     ]).start();
   };
 
-  // Referral code = patient's own patient_id (e.g. "p_abc123")
-  const myCode = String(
-    data?.referralCode ||
-    (user as any)?.patientId ||
-    (user as any)?.id ||
-    ""
-  ).trim();
+  // Prefer API-returned referral_code (short DB code).
+  // Fall back to the patient_id but show only the first 8 chars after "p_" prefix.
+  const rawId = String((user as any)?.patientId || (user as any)?.id || "");
+  const shortFallback = rawId.startsWith("p_")
+    ? rawId.slice(2, 10).toUpperCase()
+    : rawId.slice(0, 8).toUpperCase();
+  const myCode = String(data?.referralCode || shortFallback || "").trim();
 
   const handleCopyCode = async () => {
     if (!myCode) return;
