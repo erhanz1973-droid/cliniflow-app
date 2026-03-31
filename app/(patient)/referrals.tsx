@@ -22,6 +22,7 @@ type ReferralItem = {
   name: string;
   status: string;
   createdAt: number | null;
+  isInviter?: boolean;
 };
 
 type ReferralData = {
@@ -66,10 +67,11 @@ export default function ReferralsScreen() {
           discountPercent: json.discountPercent ?? null,
           referrals: items.map((item: any) => ({
             id:        item.id,
-            // Show the friend's name: if I'm the inviter → show invited name, else inviter name
-            name:      item.invitedPatientName || item.inviterPatientName || "—",
+            // partnerName = the other person in the referral pair (not the current user)
+            name:      item.partnerName || item.invitedPatientName || item.inviterPatientName || "—",
             status:    item.status || "pending",
             createdAt: item.createdAt ?? null,
+            isInviter: !!item.isInviter,
           })),
         });
       }
@@ -212,6 +214,9 @@ export default function ReferralsScreen() {
                 </View>
                 <View style={styles.friendInfo}>
                   <Text style={styles.friendName}>{ref.name}</Text>
+                  <Text style={styles.friendRole}>
+                    {ref.isInviter ? t("referrals.roleInviter") : t("referrals.roleInvited")}
+                  </Text>
                   {ref.createdAt ? (
                     <Text style={styles.friendDate}>
                       {new Date(ref.createdAt).toLocaleDateString(locale)}
@@ -334,6 +339,7 @@ const styles = StyleSheet.create({
   friendInfo:       { flex: 1 },
   friendName:       { fontSize: 15, fontWeight: "600", color: "#111827" },
   friendDate:       { fontSize: 12, color: "#9ca3af", marginTop: 2 },
+  friendRole:       { fontSize: 11, color: "#6366f1", fontWeight: "600", marginTop: 1 },
   statusBadge: {
     paddingHorizontal: 10,
     paddingVertical: 4,

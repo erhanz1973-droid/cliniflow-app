@@ -540,7 +540,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "referrals.howItWorksStep3": "Arkadaşın kliniğe geldiğinde davet onaylanır.",
     "referrals.bothReceive": "İkiniz de alırsınız",
     "referrals.discountBadge": "indirim",
-    "referrals.friendsList": "Davet ettiklerim",
+    "referrals.friendsList": "Davet Bağlantıları",
+    "referrals.roleInviter": "Davet eden",
+    "referrals.roleInvited": "Davet edilen",
     
     // Settings
     "settings.title": "Ayarlar",
@@ -1117,7 +1119,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "referrals.howItWorksStep3": "The invitation is approved when your friend visits the clinic.",
     "referrals.bothReceive": "Both of you receive",
     "referrals.discountBadge": "discount",
-    "referrals.friendsList": "My Invitations",
+    "referrals.friendsList": "Referral Contacts",
+    "referrals.roleInviter": "Inviter",
+    "referrals.roleInvited": "Invited",
     
     // Settings
     "settings.title": "Settings",
@@ -1683,7 +1687,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "referrals.howItWorksStep3": "მოწვევა დამტკიცდება კლინიკის ვიზიტზე.",
     "referrals.bothReceive": "ორივე მიიღებთ",
     "referrals.discountBadge": "ფასდაკლება",
-    "referrals.friendsList": "ჩემი მოწვევები",
+    "referrals.friendsList": "რეფერალის კონტაქტები",
+    "referrals.roleInviter": "მომწვევი",
+    "referrals.roleInvited": "მოწვეული",
     "referral.title": "მეგობრების მოწვევა",
     "referral.subtitle": "მიიღეთ ფასდაკლებები მეგობრების მოწვევით",
     "referral.myCode": "ჩემი კოდი",
@@ -1925,7 +1931,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "referrals.howItWorksStep3": "Приглашение подтверждается при посещении клиники.",
     "referrals.bothReceive": "Оба получат",
     "referrals.discountBadge": "скидку",
-    "referrals.friendsList": "Мои приглашения",
+    "referrals.friendsList": "Реферальные контакты",
+    "referrals.roleInviter": "Пригласивший",
+    "referrals.roleInvited": "Приглашённый",
     "referral.title": "Приглашение друзей",
     "referral.subtitle": "Получите скидки, приглашая друзей",
     "referral.myCode": "Мой код",
