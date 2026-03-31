@@ -98,16 +98,22 @@ export default function ReferralsScreen() {
     ]).start();
   };
 
+  // Referral code = patient's own patient_id (e.g. "p_abc123")
+  const myCode = String(
+    data?.referralCode ||
+    (user as any)?.patientId ||
+    (user as any)?.id ||
+    ""
+  ).trim();
+
   const handleCopyCode = async () => {
-    const code = data?.referralCode || (user as any)?.referralCode;
-    if (!code) return;
-    await Clipboard.setStringAsync(code);
+    if (!myCode) return;
+    await Clipboard.setStringAsync(myCode);
     showToast();
   };
 
   const handleShare = async () => {
-    const code = data?.referralCode || (user as any)?.referralCode || "";
-    const message = t("referrals.shareMessage").replace("{referralCode}", code);
+    const message = t("referrals.shareMessage").replace("{{patientId}}", myCode);
     try {
       await Share.share({ message, title: t("referrals.shareLink") });
     } catch (_) {}
@@ -130,7 +136,6 @@ export default function ReferralsScreen() {
     );
   }
 
-  const referralCode    = data?.referralCode || (user as any)?.referralCode || "—";
   const discountPercent = data?.discountPercent ?? null;
   const referrals       = data?.referrals || [];
 
@@ -150,10 +155,10 @@ export default function ReferralsScreen() {
 
         {/* Referral Code Card */}
         <View style={styles.card}>
-          <Text style={styles.cardLabel}>{t("referrals.yourCode")}</Text>
+          <Text style={styles.cardLabel}>{t("referrals.inviteCode")}</Text>
 
           <TouchableOpacity onPress={handleCopyCode} activeOpacity={0.7}>
-            <Text style={styles.codeText}>{referralCode}</Text>
+            <Text style={styles.codeText}>{myCode || "—"}</Text>
           </TouchableOpacity>
           <Text style={styles.tapHint}>{t("referrals.tapToCopy")}</Text>
 
@@ -227,7 +232,7 @@ export default function ReferralsScreen() {
 
       {/* Copy toast */}
       <Animated.View style={[styles.toast, { opacity: toastOpacity }]} pointerEvents="none">
-        <Text style={styles.toastText}>{t("referrals.codeCopied")}</Text>
+        <Text style={styles.toastText}>{t("referrals.copySuccess")}</Text>
       </Animated.View>
     </SafeAreaView>
   );
