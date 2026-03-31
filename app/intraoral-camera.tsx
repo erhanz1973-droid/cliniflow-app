@@ -369,59 +369,60 @@ export default function IntraoralCameraScreen() {
 
   return (
     <View style={s.container}>
-      <CameraView ref={cameraRef} style={s.camera} facing={'front' as CameraType} mode="picture">
-        <View style={s.overlay}>
+      {/* CameraView must have NO children — overlay is a sibling with absolute fill */}
+      <CameraView ref={cameraRef} style={StyleSheet.absoluteFillObject} facing={'front' as CameraType} mode="picture" />
 
-          {/* Header */}
-          <View style={s.header}>
-            <Pressable
-              style={s.closeBtn}
-              onPress={() => {
-                if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-                if (stabilizeTimerRef.current) clearTimeout(stabilizeTimerRef.current);
-                router.back();
-              }}
-            >
-              <Text style={s.closeTxt}>✕</Text>
-            </Pressable>
-            <Text style={s.headerTitle}>{currentStep + 1} / {PHOTO_SEQUENCE.length}</Text>
-            <View style={{ width: 44 }} />
-          </View>
+      <View style={s.overlay}>
 
-          {/* Instruction */}
-          <View style={s.instructionWrap}>
-            <Text style={s.instruction}>{t(step.instruction)}</Text>
-          </View>
+        {/* Header */}
+        <View style={s.header}>
+          <Pressable
+            style={s.closeBtn}
+            onPress={() => {
+              if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+              if (stabilizeTimerRef.current) clearTimeout(stabilizeTimerRef.current);
+              router.back();
+            }}
+          >
+            <Text style={s.closeTxt}>✕</Text>
+          </Pressable>
+          <Text style={s.headerTitle}>{currentStep + 1} / {PHOTO_SEQUENCE.length}</Text>
+          <View style={{ width: 44 }} />
+        </View>
 
-          {/* Countdown */}
-          {countdown !== null && (
-            <View style={s.countdownWrap}>
-              {countdown > 0
-                ? <Text style={s.countdown}>{countdown}</Text>
-                : <Text style={s.snapIcon}>📸</Text>
-              }
-            </View>
-          )}
+        {/* Instruction */}
+        <View style={s.instructionWrap}>
+          <Text style={s.instruction}>{t(step.instruction)}</Text>
+        </View>
 
-          {/* Alignment guide frame */}
-          <View style={s.guideOverlay} pointerEvents="none">
-            <View style={s.guideFrame}>
-              <Text style={s.guideFrameTxt}>{guideLabel}</Text>
-            </View>
-          </View>
-
-          {/* Status bar — no capture button */}
-          <View style={s.statusBar}>
-            {isCapturing
-              ? <ActivityIndicator color="#fff" />
-              : countdown !== null && countdown > 0
-                ? <Text style={s.statusTxt}>Hazırlanın…</Text>
-                : null
+        {/* Countdown */}
+        {countdown !== null && (
+          <View style={s.countdownWrap}>
+            {countdown > 0
+              ? <Text style={s.countdown}>{countdown}</Text>
+              : <Text style={s.snapIcon}>📸</Text>
             }
           </View>
+        )}
 
+        {/* Alignment guide frame */}
+        <View style={s.guideOverlay} pointerEvents="none">
+          <View style={s.guideFrame}>
+            <Text style={s.guideFrameTxt}>{guideLabel}</Text>
+          </View>
         </View>
-      </CameraView>
+
+        {/* Status bar — no capture button */}
+        <View style={s.statusBar}>
+          {isCapturing
+            ? <ActivityIndicator color="#fff" />
+            : countdown !== null && countdown > 0
+              ? <Text style={s.statusTxt}>Hazırlanın…</Text>
+              : null
+          }
+        </View>
+
+      </View>
 
       {uploading && (
         <View style={s.uploadOverlay}>
@@ -467,7 +468,7 @@ const s = StyleSheet.create({
 
   // ── Camera overlay ────────────────────────────────────────────────────────────
   camera:  { flex: 1 },
-  overlay: { flex: 1, backgroundColor: 'transparent' },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'transparent' },
   header:  {
     flexDirection: 'row',
     justifyContent: 'space-between',
