@@ -183,17 +183,21 @@ export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
     }
   };
 
+  const openGuidedCamera = () => {
+    router.push({ pathname: "/intraoral-camera" as any, params: { patientId } });
+  };
+
   const showAttachMenu = () => {
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
         { options: ["İptal", "Fotoğraf Seç", "Dosya Seç (PDF)", "Ağız İçi Fotoğraf Çek"], cancelButtonIndex: 0 },
-        (i) => { if (i === 1) pickImage(); else if (i === 2) pickDocument(); else if (i === 3) pickImage(); }
+        (i) => { if (i === 1) pickImage(); else if (i === 2) pickDocument(); else if (i === 3) openGuidedCamera(); }
       );
     } else {
       Alert.alert("Dosya Ekle", "Kaynak seçin", [
         { text: "Fotoğraf Seç",         onPress: pickImage },
         { text: "Dosya Seç (PDF)",       onPress: pickDocument },
-        { text: "Ağız İçi Fotoğraf",    onPress: pickImage },
+        { text: "Ağız İçi Fotoğraf",    onPress: openGuidedCamera },
         { text: "İptal",                 style: "cancel" },
       ]);
     }
