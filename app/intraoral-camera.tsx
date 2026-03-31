@@ -17,7 +17,12 @@ import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/language-context';
-import { API_BASE } from '../lib/api';
+const API_BASE: string =
+  (typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_BASE)
+    ? String(process.env.EXPO_PUBLIC_API_BASE).replace(/\/+$/, "")
+    : (typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_URL)
+      ? String(process.env.EXPO_PUBLIC_API_URL).replace(/\/+$/, "")
+      : "https://cliniflow-backend-dg8a.onrender.com";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -66,7 +71,11 @@ export default function IntraoralCameraScreen() {
   const params = useLocalSearchParams();
   const { user } = useAuth();
   const { t } = useLanguage();
-  const patientId = (params.patientId as string) || (params.patient_id as string);
+  const patientId =
+    (user as any)?.patientId ||
+    (user as any)?.id ||
+    (params.patientId as string) ||
+    (params.patient_id as string);
   const chatId = (params.chatId as string) || (params.chat_id as string) || patientId;
   
   console.log('[CAMERA] Params:', { patientId, chatId, allParams: params });
@@ -310,129 +319,92 @@ export default function IntraoralCameraScreen() {
   }
 
   async function uploadPhotos(photos: string[]) {
-    // Use ref values to ensure we have the latest patientId
     const currentPatientId = patientIdRef.current || patientId;
-    const currentChatId = chatIdRef.current || chatId;
-    
-    console.log('[CAMERA] Upload photos called:', { 
-      patientId: currentPatientId, 
-      chatId: currentChatId, 
-      photoCount: photos.length,
-      photos: photos.map((uri, i) => ({ index: i, uri: uri.substring(0, 50) + '...' }))
-    });
-    
+
+    console.log('[CAMERA] uploadPhotos:', { patientId: currentPatientId, photoCount: photos.length });
+
     if (!currentPatientId || photos.length === 0) {
-      console.error('[CAMERA] Missing patientId or photos:', { patientId: currentPatientId, photoCount: photos.length });
-      Alert.alert('Hata', `Fotoğraf veya hasta bilgisi bulunamadı. PatientId: ${currentPatientId || 'yok'}, Fotoğraf sayısı: ${photos.length}`);
+      Alert.alert('Hata', `Hasta bilgisi veya fotoğraf bulunamadı. PatientId: ${currentPatientId || 'yok'}`);
       return;
     }
 
     setUploading(true);
 
     try {
-      // Get auth token - prefer from useAuth hook, fallback to AsyncStorage
+      // Resolve auth token: useAuth hook first, then AsyncStorage fallbacks
       let token: string | null = null;
-      
-      // First try to get from useAuth hook (most reliable)
-      if (user?.token) {
-        token = user.token;
-        console.log('[CAMERA] Auth token from useAuth hook, length:', token.length);
+
+      if ((user as any)?.token) {
+        token = (user as any).token;
       } else {
-        // Fallback to AsyncStorage
-        console.log('[CAMERA] useAuth token not available, trying AsyncStorage...');
-        const AUTH_KEY = 'cliniflow.auth.v1'; // From auth.tsx
-        const authData = await AsyncStorage.getItem(AUTH_KEY);
-        
+        const authData = await AsyncStorage.getItem('cliniflow.auth.v1');
         if (authData) {
           try {
             const parsed = JSON.parse(authData);
             token = parsed.token || parsed.accessToken || parsed.user?.token || null;
-            console.log('[CAMERA] Auth token from AsyncStorage (AUTH_KEY), length:', token?.length || 0);
-          } catch (e) {
-            console.error('[CAMERA] Failed to parse auth_data:', e);
-          }
+          } catch { /* ignore */ }
         }
-        
-        // Try other common keys
         if (!token) {
-          const altAuthData = await AsyncStorage.getItem('auth_data');
-          if (altAuthData) {
+          const alt = await AsyncStorage.getItem('auth_data');
+          if (alt) {
             try {
-              const parsed = JSON.parse(altAuthData);
+              const parsed = JSON.parse(alt);
               token = parsed.token || parsed.accessToken || null;
-              console.log('[CAMERA] Auth token from AsyncStorage (auth_data), length:', token?.length || 0);
-            } catch (e) {
-              console.error('[CAMERA] Failed to parse alt auth_data:', e);
-            }
+            } catch { /* ignore */ }
           }
         }
-        
         if (!token) {
           token = await AsyncStorage.getItem('auth_token');
-          console.log('[CAMERA] Auth token from AsyncStorage (auth_token), length:', token?.length || 0);
         }
       }
-      
+
       if (!token) {
-        console.error('[CAMERA] Auth token not found in any location');
-        console.error('[CAMERA] Available AsyncStorage keys:', await AsyncStorage.getAllKeys());
         throw new Error('Authentication token not found');
       }
-      
-      console.log('[CAMERA] Auth token found successfully, length:', token.length);
 
-      // Upload all photos in a single request
-      const formData = new FormData();
-      
+      // Upload each photo individually with its shotType
       for (let i = 0; i < photos.length; i++) {
         const uri = photos[i];
-        const fileName = `intraoral_${Date.now()}_${i}.jpg`;
-        
-        // Check file exists
+        const step = PHOTO_SEQUENCE[i];
+        const shotType = step?.guide ?? `shot_${i}`;
+        const fileName = `intraoral_${shotType}_${Date.now()}.jpg`;
+
         const fileInfo = await FileSystem.getInfoAsync(uri);
         if (!fileInfo.exists) {
           throw new Error(`File not found: ${uri}`);
         }
 
-        formData.append('files', {
-          uri: Platform.OS === 'ios' ? uri : uri,
+        const formData = new FormData();
+        formData.append('file', {
+          uri,
           type: 'image/jpeg',
           name: fileName,
         } as any);
+        formData.append('patientId', currentPatientId);
+        formData.append('shotType', shotType);
+
+        console.log(`[CAMERA] Uploading ${i + 1}/${photos.length}: shotType=${shotType}`);
+
+        const res = await fetch(`${API_BASE}/api/patient/${currentPatientId}/upload`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || errData.message || `Upload failed: ${res.status}`);
+        }
+
+        console.log(`[CAMERA] Uploaded ${i + 1}/${photos.length} OK`);
       }
-      
-      formData.append('patientId', currentPatientId);
-      formData.append('isImage', 'true');
-
-      const uploadResponse = await fetch(`${API_BASE}/api/chat/upload`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          // Don't set Content-Type, let React Native set it automatically for FormData
-        },
-        body: formData,
-      });
-
-      if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.json().catch(() => ({}));
-        const errorText = errorData.error || errorData.message || `Upload failed: ${uploadResponse.status}`;
-        throw new Error(errorText);
-      }
-
-      const uploadResult = await uploadResponse.json();
 
       Alert.alert(
-        'Başarılı', 
-        'Fotoğraflar başarıyla gönderildi.\n\n' +
-        'Bu fotoğraflar yalnızca ön değerlendirme içindir. Nihai değerlendirme klinik tarafından yapılır.',
-        [
-          {
-            text: 'Tamam',
-            onPress: () => {
-              router.back();
-            },
-          },
-        ]
+        'Başarılı',
+        'Fotoğraflar başarıyla gönderildi.\n\nBu fotoğraflar yalnızca ön değerlendirme içindir. Nihai değerlendirme klinik tarafından yapılır.',
+        [{ text: 'Tamam', onPress: () => router.back() }]
       );
     } catch (error: any) {
       console.error('[CAMERA] Upload error:', error);

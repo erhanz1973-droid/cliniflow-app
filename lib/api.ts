@@ -5,11 +5,12 @@
  * Single source of truth for all API calls
  */
 
-// Same hosts as public/patient-login.html; override with EXPO_PUBLIC_API_URL for dev devices.
 const DEFAULT_API =
-  typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_URL
-    ? String(process.env.EXPO_PUBLIC_API_URL).replace(/\/+$/, "")
-    : "http://localhost:10000";
+  (typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_BASE)
+    ? String(process.env.EXPO_PUBLIC_API_BASE).replace(/\/+$/, "")
+    : (typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_URL)
+      ? String(process.env.EXPO_PUBLIC_API_URL).replace(/\/+$/, "")
+      : "https://cliniflow-backend-dg8a.onrender.com";
 
 export const API_BASE = DEFAULT_API;
 export const AUTH_API_BASE = API_BASE;
