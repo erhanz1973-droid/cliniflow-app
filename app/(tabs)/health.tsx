@@ -315,10 +315,12 @@ export default function Health() {
   };
 
   const handleNext = async () => {
+    console.log("[HEALTH NAV] handleNext step:", currentStep, "canProceed:", canProceed, "saving:", saving);
     // Validate current step before proceeding
     if (!canProceed) {
       const stepNames = [t("health.personalInformation"), t("health.generalHealthStatus"), t("health.medicationsAllergies"), t("health.dentalHistoryComplaint")];
       const stepName = stepNames[currentStep - 1];
+      console.log("[HEALTH NAV] blocked by validation. missingFields:", missingFields, "formData snapshot:", JSON.stringify(formData).substring(0, 300));
       Alert.alert(
         t("health.missingInformation"), 
         `${t("health.fillRequiredFields")} ${stepName}.${missingFields.length > 0 ? `\n\n${t("health.missingFields")}: ${missingFields.join(', ')}` : ''}`
@@ -515,6 +517,12 @@ export default function Health() {
         <Pressable style={styles.button} onPress={() => router.replace("/(tabs)/chat")}>
           <Text style={styles.buttonText}>{t("health.returnToHome")}</Text>
         </Pressable>
+        <Pressable
+          style={[styles.button, { backgroundColor: "#6B7280", marginTop: 12 }]}
+          onPress={() => { console.log("[HEALTH] User editing completed form"); setIsComplete(false); setCurrentStep(1); }}
+        >
+          <Text style={styles.buttonText}>{t("health.editForm") || "Formu Düzenle"}</Text>
+        </Pressable>
       </View>
     );
   }
@@ -562,7 +570,6 @@ export default function Health() {
             (saving || !canProceed) && styles.nextButtonDisabled
           ]}
           onPress={handleNext}
-          disabled={saving || !canProceed}
         >
           {saving ? (
             <ActivityIndicator size="small" color="#FFFFFF" />
