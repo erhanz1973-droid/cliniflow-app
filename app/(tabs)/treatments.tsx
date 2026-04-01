@@ -8,6 +8,7 @@ import React, { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import {
   ActivityIndicator,
   Image,
+  Pressable,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -414,11 +415,24 @@ export default function TreatmentsScreen() {
   }
 
   if (err) {
+    const isNetwork = err.includes("Network request failed") || err.includes("Cannot connect") || err.includes("Failed to fetch");
+    const isTimeout = err.includes("timeout");
+    const kind = isTimeout ? 'timeout' : isNetwork ? 'network' : 'generic';
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
         <View style={styles.errorContainer}>
-          <Text style={styles.errorTitle}>⚠️ {t("common.error")}</Text>
-          <Text style={styles.errorText}>{err}</Text>
+          <Text style={styles.errorTitle}>
+            {isNetwork ? '📡' : '⚠️'} {isNetwork ? t("common.serverNotResponding") : t("common.error")}
+          </Text>
+          <Text style={styles.errorText}>
+            {isNetwork ? t("common.serverNotRespondingSub") : isTimeout ? t("common.loadTimeoutSub") : err}
+          </Text>
+          <Pressable
+            style={styles.retryBtn}
+            onPress={() => { setErr(null); setLoading(true); }}
+          >
+            <Text style={styles.retryBtnText}>{t("common.retry")}</Text>
+          </Pressable>
         </View>
       </ScrollView>
     );
@@ -866,7 +880,16 @@ const styles = StyleSheet.create({
   errorText: {
     color: "#991B1B",
     fontSize: 14,
+    marginBottom: 16,
   },
+  retryBtn: {
+    backgroundColor: "#2563EB",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignSelf: "flex-start",
+  },
+  retryBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
   title: {
     fontSize: 24,
     fontWeight: "900",

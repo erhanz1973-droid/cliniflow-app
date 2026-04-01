@@ -42,7 +42,19 @@ export const translations: Record<Language, Record<string, string>> = {
     "common.pleaseRetry": "Lütfen tekrar deneyin",
     "common.retryFailed": "Tekrar deneme başarısız",
     "common.info": "Bilgi",
-    
+    "common.serverNotResponding": "Sunucu yanıt vermiyor",
+    "common.serverNotRespondingSub": "Lütfen internet bağlantınızı kontrol edin ve tekrar deneyin.",
+    "common.noDataAvailable": "Veri mevcut değil",
+    "common.noDataAvailableSub": "Gösterilecek içerik bulunamadı.",
+    "common.loadTimeout": "Yükleme zaman aşımına uğradı",
+    "common.loadTimeoutSub": "Sunucu uzun süre yanıt vermedi. Lütfen tekrar deneyin.",
+    "common.serverError": "Sunucu hatası",
+    "common.serverErrorSub": "Beklenmedik bir hata oluştu. Lütfen tekrar deneyin.",
+    "common.noDiagnoses": "Henüz tanı girilmedi",
+    "common.noDiagnosesSub": "Bu hasta için kaydedilmiş tanı bulunamadı.",
+    "common.noPatients": "Hasta bulunamadı",
+    "common.noPatientsSub": "Atanmış hastanız bulunmuyor.",
+
     // Colors
     "colors.black": "Siyah",
     "colors.white": "Beyaz",
@@ -837,7 +849,19 @@ export const translations: Record<Language, Record<string, string>> = {
     "common.pleaseRetry": "Please try again",
     "common.retryFailed": "Retry failed",
     "common.info": "Info",
-    
+    "common.serverNotResponding": "Server not responding",
+    "common.serverNotRespondingSub": "Please check your internet connection and try again.",
+    "common.noDataAvailable": "No data available",
+    "common.noDataAvailableSub": "No content found to display.",
+    "common.loadTimeout": "Loading timed out",
+    "common.loadTimeoutSub": "The server took too long to respond. Please try again.",
+    "common.serverError": "Server error",
+    "common.serverErrorSub": "An unexpected error occurred. Please try again.",
+    "common.noDiagnoses": "No diagnoses yet",
+    "common.noDiagnosesSub": "No saved diagnoses found for this patient.",
+    "common.noPatients": "No patients found",
+    "common.noPatientsSub": "You have no assigned patients.",
+
     // Colors
     "colors.black": "Black",
     "colors.white": "White",
@@ -1647,7 +1671,19 @@ export const translations: Record<Language, Record<string, string>> = {
     "common.call": "დარეკვა",
     "common.file": "ფაილი",
     "common.location": "მდებარეობა",
-    
+    "common.serverNotResponding": "სერვერი არ პასუხობს",
+    "common.serverNotRespondingSub": "გთხოვთ შეამოწმოთ ინტერნეტი და სცადოთ თავიდან.",
+    "common.noDataAvailable": "მონაცემები მიუწვდომელია",
+    "common.noDataAvailableSub": "საჩვენებელი კონტენტი ვერ მოიძებნა.",
+    "common.loadTimeout": "ჩატვირთვა ვადაგადაცილებულია",
+    "common.loadTimeoutSub": "სერვერმა დიდხანს არ უპასუხა. გთხოვთ სცადოთ თავიდან.",
+    "common.serverError": "სერვერის შეცდომა",
+    "common.serverErrorSub": "მოხდა მოულოდნელი შეცდომა. გთხოვთ სცადოთ თავიდან.",
+    "common.noDiagnoses": "დიაგნოზები ჯერ არ არის",
+    "common.noDiagnosesSub": "ამ პაციენტისთვის შენახული დიაგნოზები ვერ მოიძებნა.",
+    "common.noPatients": "პაციენტები ვერ მოიძებნა",
+    "common.noPatientsSub": "თქვენ არ გყავთ მინიჭებული პაციენტები.",
+
     // Colors
     "colors.black": "შავი",
     "colors.white": "თეთრი",
@@ -2443,7 +2479,19 @@ export const translations: Record<Language, Record<string, string>> = {
     "common.call": "Позвонить",
     "common.file": "Файл",
     "common.location": "Местоположение",
-    
+    "common.serverNotResponding": "Сервер не отвечает",
+    "common.serverNotRespondingSub": "Пожалуйста, проверьте интернет-соединение и повторите попытку.",
+    "common.noDataAvailable": "Данные недоступны",
+    "common.noDataAvailableSub": "Нет данных для отображения.",
+    "common.loadTimeout": "Время загрузки истекло",
+    "common.loadTimeoutSub": "Сервер слишком долго не отвечал. Пожалуйста, повторите попытку.",
+    "common.serverError": "Ошибка сервера",
+    "common.serverErrorSub": "Произошла непредвиденная ошибка. Пожалуйста, повторите попытку.",
+    "common.noDiagnoses": "Диагнозы ещё не добавлены",
+    "common.noDiagnosesSub": "Для этого пациента не найдено сохранённых диагнозов.",
+    "common.noPatients": "Пациенты не найдены",
+    "common.noPatientsSub": "У вас нет назначенных пациентов.",
+
     // Navigation
     "nav.home": "Главная",
     "nav.health": "Здоровье",

@@ -12,6 +12,24 @@ const DEFAULT_API =
       ? String(process.env.EXPO_PUBLIC_API_URL).replace(/\/+$/, "")
       : "https://cliniflow-backend-dg8a.onrender.com";
 
+// ── Timeout constants (ms) ───────────────────────────────────────────────────
+export const TIMEOUT_GET  = 10_000;
+export const TIMEOUT_POST = 15_000;
+export const TIMEOUT_PUT  = 10_000;
+
+// ── Error classification ─────────────────────────────────────────────────────
+export type ApiErrorKind = 'timeout' | 'network' | 'server' | 'warmingUp' | 'auth' | 'generic';
+
+export function classifyApiError(err: unknown): ApiErrorKind {
+  const msg = String((err as any)?.message || '');
+  if (msg.includes('timeout') || msg.includes('AbortError')) return 'timeout';
+  if (msg.includes('Network request failed') || msg.includes('Failed to fetch') || msg.includes('NetworkError')) return 'network';
+  if (msg.includes('502') || msg.includes('503') || msg.includes('504')) return 'warmingUp';
+  if (msg.includes('401') || msg.includes('403')) return 'auth';
+  if (/5\d\d/.test(msg)) return 'server';
+  return 'generic';
+}
+
 export const API_BASE = DEFAULT_API;
 export const AUTH_API_BASE = API_BASE;
 export const ADMIN_API_BASE = API_BASE;
@@ -63,7 +81,7 @@ export async function apiGet<T>(path: string): Promise<T> {
   console.log("[API] GET", url);
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_GET);
 
   try {
     const res = await fetch(url, {
@@ -103,7 +121,7 @@ export async function apiPost<T>(path: string, body: any): Promise<T> {
   console.log("[API] POST", url, JSON.stringify(body).substring(0, 200));
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000);
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_POST);
 
   try {
     const res = await fetch(url, {
@@ -146,7 +164,7 @@ export async function apiPut<T>(path: string, body: any): Promise<T> {
   console.log("[API] PUT", url, JSON.stringify(body).substring(0, 200));
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_PUT);
 
   try {
     const res = await fetch(url, {

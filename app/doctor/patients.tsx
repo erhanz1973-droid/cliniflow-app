@@ -7,7 +7,8 @@ import {
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
-import { apiGet } from '../../lib/api';
+import { apiGet, classifyApiError } from '../../lib/api';
+import { ErrorScreen } from '../../components/ScreenFeedback';
 
 interface Patient {
   id: string;
@@ -90,15 +91,18 @@ export default function DoctorPatientsScreen() {
   const [allPatients, setAllPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterTab>('All');
 
   const load = useCallback(async () => {
+    setLoadError(null);
     try {
       const res = await apiGet<{ ok: boolean; patients?: Patient[] }>('/api/doctor/patients');
       if (res?.ok && res.patients) setAllPatients(res.patients);
     } catch (e) {
       console.error('[DoctorPatients] load error:', e);
+      setLoadError(classifyApiError(e));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -162,6 +166,12 @@ export default function DoctorPatientsScreen() {
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#2563EB" />
         </View>
+      ) : loadError && !allPatients.length ? (
+        <ErrorScreen
+          kind={loadError}
+          onRetry={() => { setLoading(true); load(); }}
+          inline
+        />
       ) : (
         <ScrollView
           style={styles.scroll}

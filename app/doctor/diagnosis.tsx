@@ -9,8 +9,10 @@ import { useAuth } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
 import { API_ROUTES } from '../../lib/api-routes';
 import { secureGet, securePost } from '../../lib/secure-fetch';
+import { classifyApiError } from '../../lib/api';
 import TeethFDISelector from '../../components/TeethFDISelector';
 import ICD10Dropdown from '../../components/ICD10Dropdown';
+import { ErrorScreen, EmptyState } from '../../components/ScreenFeedback';
 
 interface DiagnosisItem {
   id?: string;
@@ -27,6 +29,7 @@ export default function DoctorDiagnosisScreen() {
   const { t } = useLanguage();
 
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [proceeding, setProceeding] = useState(false);
   const [diagnoses, setDiagnoses] = useState<DiagnosisItem[]>([]);
@@ -38,6 +41,7 @@ export default function DoctorDiagnosisScreen() {
   // ── Load ALL diagnoses for this patient (encounter_diagnoses + admin JSONB) ──
   const loadDiagnoses = useCallback(async () => {
     if (!patientId) return;
+    setLoadError(null);
     try {
       setLoading(true);
       const res = await secureGet(API_ROUTES.doctor.patientDiagnoses(patientId), user?.token);
@@ -46,6 +50,7 @@ export default function DoctorDiagnosisScreen() {
       setDiagnoses(list);
     } catch (err) {
       console.error('[Diagnosis] load diagnoses error:', err);
+      setLoadError(classifyApiError(err));
     } finally {
       setLoading(false);
     }
@@ -238,12 +243,18 @@ export default function DoctorDiagnosisScreen() {
 
         {loading ? (
           <ActivityIndicator style={{ marginVertical: 16 }} color="#2563EB" />
+        ) : loadError ? (
+          <ErrorScreen
+            kind={loadError}
+            onRetry={() => { loadDiagnoses(); }}
+            inline
+          />
         ) : diagnoses.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Text style={styles.emptyText}>
-              {t('diagnosis.noEntries')}
-            </Text>
-          </View>
+          <EmptyState
+            icon="🦷"
+            titleKey="common.noDiagnoses"
+            subKey="common.noDiagnosesSub"
+          />
         ) : (
           diagnoses.map((d, i) => {
             const label = d.icd10_code && d.icd10_description

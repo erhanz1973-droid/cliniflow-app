@@ -1,4 +1,6 @@
-import { API_BASE } from './api';
+import { API_BASE, TIMEOUT_GET, TIMEOUT_POST } from './api';
+
+const SECURE_TIMEOUT_MS = 10_000; // 10 s default for secure-fetch calls
 
 // Secure fetch pattern with proper error handling
 export async function secureFetch(
@@ -13,8 +15,14 @@ export async function secureFetch(
     ...(token && { Authorization: `Bearer ${token}` }),
   };
 
+  // Abort after timeout unless the caller has already provided a signal
+  const controller = new AbortController();
+  const timeoutMs = (options.method === 'POST' || options.method === 'PUT') ? TIMEOUT_POST : TIMEOUT_GET;
+  const timerId = setTimeout(() => controller.abort(), timeoutMs);
+
   const mergedOptions: RequestInit = {
     ...options,
+    signal: (options as any).signal ?? controller.signal,
     headers: {
       ...defaultHeaders,
       ...options.headers,
@@ -25,6 +33,7 @@ export async function secureFetch(
     console.log(`[API] ${options.method || 'GET'} ${endpoint}`);
     
     const res = await fetch(url, mergedOptions);
+    clearTimeout(timerId);
     const contentType = res.headers.get('content-type');
     
     console.log(`[API] Response status: ${res.status}`);
@@ -50,7 +59,13 @@ export async function secureFetch(
     console.log(`[API] Success:`, data);
     return data;
 
-  } catch (error) {
+  } catch (error: any) {
+    clearTimeout(timerId);
+    if (error?.name === 'AbortError') {
+      const timeoutErr = new Error(`Request timeout: ${endpoint}`);
+      (timeoutErr as any).kind = 'timeout';
+      throw timeoutErr;
+    }
     console.error(`[API] Error for ${endpoint}:`, error);
     throw error;
   }
