@@ -40,10 +40,10 @@ export default function ICD10Dropdown({ selectedCode, onCodeSelect, placeholder 
         const response = await fetch(`${API_BASE}/api/icd10/search?q=${encodeURIComponent(searchQuery)}`);
         const data = await response.json();
         
-        // Normalize response format to work with any backend structure
-        const codesArray = Array.isArray(data) 
-          ? data 
-          : data?.codes || data?.data || [];
+        // Normalize response format — backend returns { ok, results:[...] }
+        const codesArray = Array.isArray(data)
+          ? data
+          : data?.results || data?.codes || data?.data || [];
         
         setSuggestions(codesArray);
         setShowDropdown(codesArray.length > 0);
@@ -84,7 +84,7 @@ export default function ICD10Dropdown({ selectedCode, onCodeSelect, placeholder 
         value={searchQuery}
         onChangeText={setSearchQuery}
         onFocus={() => setShowDropdown(true)}
-        onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+        onBlur={() => setTimeout(() => setShowDropdown(false), 300)}
       />
       
       {loading && (
@@ -98,7 +98,7 @@ export default function ICD10Dropdown({ selectedCode, onCodeSelect, placeholder 
             renderItem={renderSuggestion}
             keyExtractor={(item) => item.code}
             style={styles.list}
-            keyboardShouldPersistTaps={false}
+            keyboardShouldPersistTaps="always"
           />
         </View>
       )}
