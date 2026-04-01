@@ -15,7 +15,7 @@ import {
 import { useRouter } from "expo-router";
 import { usePatientRegistration } from "../lib/patient/register";
 import { classifyApiError } from "../lib/api";
-import { useLanguage } from "../lib/i18n";
+import { useLanguage } from "../lib/language-context";
 
 export default function RegisterPatientScreen() {
   const router = useRouter();
