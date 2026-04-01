@@ -159,7 +159,7 @@ export default function TreatmentScreen() {
 
       // 🔥 CRITICAL: Diagnosis ekranına yönlendir
       router.push({
-        pathname: '/diagnosis',
+        pathname: '/doctor/diagnosis',
         params: { patientId: patientIdStr, encounterId }
       });
 

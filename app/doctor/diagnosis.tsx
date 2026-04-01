@@ -1,214 +1,312 @@
-// app/doctor/diagnosis.tsx
-// Doctor ICD-10 Diagnosis Screen (UI + Role Guard + Mock)
-
-import React, { useState } from 'react';
+// app/doctor/diagnosis.tsx — Doctor ICD-10 Diagnosis Screen
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View,
-  Text,
-  Pressable,
-  StyleSheet,
-  ScrollView,
-  Alert,
+  View, Text, ScrollView, Pressable, StyleSheet,
+  ActivityIndicator, Alert, SafeAreaView,
 } from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../lib/auth';
+import { useLanguage } from '../../lib/language-context';
+import { API_ROUTES } from '../../lib/api-routes';
+import { secureGet, securePost } from '../../lib/secure-fetch';
+import TeethFDISelector from '../../components/TeethFDISelector';
+import ICD10Dropdown from '../../components/ICD10Dropdown';
 
-export default function DoctorDiagnosis() {
+interface DiagnosisItem {
+  id?: string;
+  icd10_code: string;
+  icd10_description: string;
+  tooth_number?: string | number;
+  is_primary?: boolean;
+}
+
+export default function DoctorDiagnosisScreen() {
+  const router = useRouter();
+  const { patientId, encounterId } = useLocalSearchParams<{ patientId?: string; encounterId?: string }>();
   const { user } = useAuth();
+  const { t } = useLanguage();
 
-  // 🔐 ROLE GUARD
-  if (!user || user.role !== 'DOCTOR') {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>
-          Bu sayfaya sadece doktorlar erişebilir.
-        </Text>
-      </View>
-    );
-  }
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [diagnoses, setDiagnoses] = useState<DiagnosisItem[]>([]);
+  const [selectedTooth, setSelectedTooth] = useState('');
+  const [selectedCode, setSelectedCode] = useState('');
+  const [selectedDescription, setSelectedDescription] = useState('');
+  const [activeEncounterId, setActiveEncounterId] = useState(encounterId || '');
 
-  const [selectedTooth, setSelectedTooth] = useState<string | null>(null);
-  const [selectedDiagnosis, setSelectedDiagnosis] = useState<string | null>(null);
+  // ── Load or create encounter ────────────────────────────────────────────────
+  const ensureEncounter = useCallback(async () => {
+    if (activeEncounterId) return activeEncounterId;
+    if (!patientId) return '';
+    try {
+      const res = await securePost(
+        API_ROUTES.doctor.encounters,
+        { patient_id: patientId, notes: 'Diagnosis session' },
+        user?.token,
+      );
+      const id = res?.encounter?.id || res?.id || '';
+      setActiveEncounterId(id);
+      return id;
+    } catch (err) {
+      console.error('[Diagnosis] create encounter error:', err);
+      return '';
+    }
+  }, [activeEncounterId, patientId, user?.token]);
 
-  // 🦷 Basit diş numaraları (mock)
-  const teeth = Array.from({ length: 32 }, (_, i) => (i + 11).toString());
+  // ── Load existing diagnoses ─────────────────────────────────────────────────
+  const loadDiagnoses = useCallback(async (eid: string) => {
+    if (!eid) return;
+    try {
+      setLoading(true);
+      const res = await secureGet(API_ROUTES.doctor.encounterDiagnoses(eid), user?.token);
+      const list: DiagnosisItem[] = res?.diagnoses || res?.data || [];
+      setDiagnoses(list);
+    } catch (err) {
+      console.error('[Diagnosis] load diagnoses error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.token]);
 
-  // 📘 ICD-10 MOCK (ileride API'den gelecek)
-  const icd10List = [
-    'K02.0 - Mine çürüğü',
-    'K02.1 - Dentin çürüğü',
-    'K02.2 - Cementum çürüğü',
-    'K04.0 - Pulpitis',
-    'K04.1 - Pulpa nekrozu',
-  ];
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const eid = await ensureEncounter();
+      if (eid) loadDiagnoses(eid);
+    })();
+  }, [user]);
 
-  const handleSave = () => {
-    if (!selectedTooth || !selectedDiagnosis) {
-      Alert.alert('Eksik Bilgi', 'Lütfen diş ve tanı seçin.');
+  // ── Save diagnosis ──────────────────────────────────────────────────────────
+  const handleSave = async () => {
+    if (!selectedTooth) {
+      Alert.alert('', t('diagnosis.selectToothFirst') || 'Önce bir diş seçin');
+      return;
+    }
+    if (!selectedCode) {
+      Alert.alert('', t('diagnosis.selectICD10First') || 'ICD-10 kodu seçin');
       return;
     }
 
-    // ❗ Backend POST burada YOK (bilinçli)
-    Alert.alert(
-      'Başarılı',
-      `Diş: ${selectedTooth}\nTanı: ${selectedDiagnosis}`
+    const eid = await ensureEncounter();
+    if (!eid) {
+      Alert.alert('Hata', 'Muayene oluşturulamadı');
+      return;
+    }
+
+    const alreadyHasPrimary = diagnoses.some(
+      (d) => String(d.tooth_number) === selectedTooth && d.is_primary,
     );
 
-    // reset (opsiyonel)
-    setSelectedTooth(null);
-    setSelectedDiagnosis(null);
+    try {
+      setSaving(true);
+      await securePost(
+        API_ROUTES.doctor.encounterDiagnoses(eid),
+        {
+          diagnoses: [{
+            icd10_code: selectedCode,
+            icd10_description: selectedDescription,
+            is_primary: !alreadyHasPrimary,
+            tooth_number: selectedTooth,
+          }],
+          toothNumbers: [selectedTooth],
+        },
+        user?.token,
+      );
+      await loadDiagnoses(eid);
+      setSelectedCode('');
+      setSelectedDescription('');
+      Alert.alert('', t('diagnosis.saved') || 'Tanı kaydedildi');
+    } catch (err) {
+      console.error('[Diagnosis] save error:', err);
+      Alert.alert('Hata', 'Kaydedilemedi');
+    } finally {
+      setSaving(false);
+    }
   };
 
+  // ── Proceed to treatment plan ───────────────────────────────────────────────
+  const handleProceed = () => {
+    if (diagnoses.length === 0) {
+      Alert.alert('', t('diagnosis.noDiagnosisYet') || 'Önce en az bir tanı girin');
+      return;
+    }
+    router.replace({
+      pathname: '/treatment-plan',
+      params: { patientId: patientId || '', encounterId: activeEncounterId },
+    });
+  };
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+  const toothDiagnoses = diagnoses.filter(
+    (d) => String(d.tooth_number) === selectedTooth,
+  );
+
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>🦷 Doktor Tanı Ekranı</Text>
+    <SafeAreaView style={styles.root}>
+      {/* ── Header ── */}
+      <View style={styles.header}>
+        <Pressable style={styles.backBtn} onPress={() => router.back()}>
+          <Text style={styles.backBtnText}>←</Text>
+        </Pressable>
+        <Text style={styles.headerTitle}>
+          {t('diagnosis.addNew') || 'diagnosis.addNew'}
+        </Text>
+        <View style={{ width: 40 }} />
+      </View>
 
-      {/* 🦷 Diş Seçimi */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Diş Seçimi</Text>
-        <View style={styles.toothGrid}>
-          {teeth.map((tooth) => (
-            <Pressable
-              key={tooth}
-              style={[
-                styles.tooth,
-                selectedTooth === tooth && styles.toothSelected,
-              ]}
-              onPress={() => setSelectedTooth(tooth)}
-            >
-              <Text
-                style={[
-                  styles.toothNumber,
-                  selectedTooth === tooth && styles.toothNumberSelected,
-                ]}
-              >
-                {tooth}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+
+        {/* ── Tooth chart ── */}
+        <TeethFDISelector
+          value={selectedTooth || undefined}
+          onChange={(id) => {
+            setSelectedTooth(id);
+            setSelectedCode('');
+            setSelectedDescription('');
+          }}
+          diagnoses={diagnoses.map((d) => ({ id: String(d.id || d.icd10_code), tooth_number: d.tooth_number }))}
+          title={t('diagnosis.toothChart') || 'Diş Haritası (FDI)'}
+        />
+
+        {/* ── ICD-10 selector ── */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>
+            {t('diagnosis.selectICD10') || 'diagnosis.selectICD10'}
+          </Text>
+
+          {!selectedTooth ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>
+                {t('diagnosis.selectToothFirst') || 'Önce bir diş seçin'}
               </Text>
-            </Pressable>
-          ))}
+            </View>
+          ) : (
+            <ICD10Dropdown
+              selectedCode={selectedCode}
+              onCodeSelect={(item) => {
+                setSelectedCode(item.code);
+                setSelectedDescription(item.description);
+              }}
+              placeholder={t('diagnosis.icd10Placeholder') || 'ICD-10 kodu veya açıklama ara...'}
+            />
+          )}
         </View>
-      </View>
 
-      {/* 📘 ICD-10 Tanı */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>ICD-10 Tanısı</Text>
+        {/* ── Save button ── */}
+        <Pressable
+          style={[styles.saveBtn, (!selectedTooth || !selectedCode || saving) && styles.saveBtnDisabled]}
+          onPress={handleSave}
+          disabled={!selectedTooth || !selectedCode || saving}
+        >
+          {saving
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={styles.saveBtnText}>{t('common.save') || 'Save'}</Text>
+          }
+        </Pressable>
 
-        {icd10List.map((item) => (
-          <Pressable
-            key={item}
-            style={[
-              styles.icdItem,
-              selectedDiagnosis === item && styles.icdItemSelected,
-            ]}
-            onPress={() => setSelectedDiagnosis(item)}
-          >
-            <Text
-              style={[
-                styles.icdText,
-                selectedDiagnosis === item && styles.icdTextSelected,
-              ]}
-            >
-              {item}
+        {/* ── Tanılar list ── */}
+        <Text style={styles.tanılarTitle}>{t('diagnosis.list') || 'Tanılar'}</Text>
+
+        {loading ? (
+          <ActivityIndicator style={{ marginVertical: 16 }} color="#2563EB" />
+        ) : diagnoses.length === 0 ? (
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyText}>
+              {t('diagnosis.noEntries') || 'Henüz tanı girilmedi'}
             </Text>
-          </Pressable>
-        ))}
-      </View>
+          </View>
+        ) : (
+          diagnoses.map((d, i) => (
+            <View key={i} style={styles.diagnosisCard}>
+              <View style={styles.diagnosisCardTop}>
+                <Text style={styles.diagnosisCode}>
+                  {d.icd10_code}
+                  {d.icd10_description ? ` - ${d.icd10_description}` : ''}
+                </Text>
+                {d.is_primary && (
+                  <View style={styles.primaryBadge}>
+                    <Text style={styles.primaryBadgeText}>PRIMARY</Text>
+                  </View>
+                )}
+              </View>
+              {d.tooth_number ? (
+                <Text style={styles.diagnosisTooth}>
+                  {t('common.tooth') || 'common.tooth'}: {d.tooth_number}
+                </Text>
+              ) : null}
+            </View>
+          ))
+        )}
 
-      {/* 💾 Kaydet */}
-      <Pressable style={styles.saveButton} onPress={handleSave}>
-        <Text style={styles.saveButtonText}>Tanıyı Kaydet</Text>
-      </Pressable>
-    </ScrollView>
+        <View style={{ height: 100 }} />
+      </ScrollView>
+
+      {/* ── Proceed to treatment ── */}
+      <View style={styles.bottomBar}>
+        <Pressable style={styles.proceedBtn} onPress={handleProceed}>
+          <Text style={styles.proceedBtnText}>
+            {t('diagnosis.proceedToTreatment') || 'diagnosis.proceedToTreatment'}
+          </Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 20,
-    backgroundColor: '#F9FAFB',
+  root: { flex: 1, backgroundColor: '#F3F4F6' },
+
+  // Header
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: '#fff', paddingHorizontal: 14, paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
   },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
+  backBtnText: { fontSize: 22, color: '#111827' },
+  headerTitle: { fontSize: 17, fontWeight: '700', color: '#111827' },
+
+  scroll: { flex: 1 },
+  scrollContent: { padding: 14, gap: 14 },
+
+  // ICD section
+  section: { gap: 8 },
+  sectionLabel: { fontSize: 14, fontWeight: '700', color: '#374151' },
+  placeholderBox: {
+    backgroundColor: '#fff', borderRadius: 10, padding: 16,
+    borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center',
   },
-  errorText: {
-    fontSize: 16,
-    color: '#DC2626',
-    fontWeight: '600',
+  placeholderText: { fontSize: 14, color: '#9CA3AF' },
+
+  // Save
+  saveBtn: {
+    backgroundColor: '#16A34A', borderRadius: 12, padding: 16, alignItems: 'center',
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 30,
+  saveBtnDisabled: { backgroundColor: '#86EFAC' },
+  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+
+  // Tanılar
+  tanılarTitle: { fontSize: 17, fontWeight: '800', color: '#111827', marginTop: 4 },
+  emptyBox: {
+    backgroundColor: '#fff', borderRadius: 10, padding: 20, alignItems: 'center',
+    borderWidth: 1, borderColor: '#E5E7EB',
   },
-  section: {
-    marginBottom: 30,
+  emptyText: { fontSize: 14, color: '#9CA3AF' },
+
+  diagnosisCard: {
+    backgroundColor: '#fff', borderRadius: 10, padding: 14,
+    borderWidth: 1, borderColor: '#E5E7EB',
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 15,
+  diagnosisCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  diagnosisCode: { fontSize: 14, fontWeight: '600', color: '#111827', flex: 1, marginRight: 8 },
+  primaryBadge: { backgroundColor: '#EF4444', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
+  primaryBadgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  diagnosisTooth: { fontSize: 12, color: '#6B7280', marginTop: 4 },
+
+  // Bottom
+  bottomBar: {
+    backgroundColor: '#1F2937', padding: 14,
   },
-  toothGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-  },
-  tooth: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    justifyContent: 'center',
-    alignItems: 'center',
-    margin: 5,
-  },
-  toothSelected: {
-    backgroundColor: '#2563EB',
-    borderColor: '#2563EB',
-  },
-  toothNumber: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  toothNumberSelected: {
-    color: '#FFFFFF',
-  },
-  icdItem: {
-    padding: 14,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    backgroundColor: '#FFFFFF',
-    marginBottom: 10,
-  },
-  icdItemSelected: {
-    backgroundColor: '#DBEAFE',
-    borderColor: '#2563EB',
-  },
-  icdText: {
-    fontSize: 15,
-    color: '#374151',
-  },
-  icdTextSelected: {
-    color: '#1D4ED8',
-    fontWeight: '600',
-  },
-  saveButton: {
-    backgroundColor: '#10B981',
-    padding: 18,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '600',
-  },
+  proceedBtn: { alignItems: 'center', paddingVertical: 4 },
+  proceedBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 });

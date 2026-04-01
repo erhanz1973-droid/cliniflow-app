@@ -50,7 +50,7 @@ export default function TreatmentPlanScreen() {
       if (!primaryDiagnosis) {
         Alert.alert('Hata', 'Önce birincil tanı girilmelidir');
         router.replace({
-          pathname: '/diagnosis',
+          pathname: '/doctor/diagnosis',
           params: { patientId, encounterId }
         });
         return;
