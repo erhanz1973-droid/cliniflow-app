@@ -227,26 +227,28 @@ export default function DoctorDiagnosisScreen() {
             </Text>
           </View>
         ) : (
-          diagnoses.map((d, i) => (
-            <View key={i} style={styles.diagnosisCard}>
-              <View style={styles.diagnosisCardTop}>
-                <Text style={styles.diagnosisCode}>
-                  {d.icd10_code}
-                  {d.icd10_description ? ` - ${d.icd10_description}` : ''}
-                </Text>
-                {d.is_primary && (
-                  <View style={styles.primaryBadge}>
-                    <Text style={styles.primaryBadgeText}>PRIMARY</Text>
-                  </View>
-                )}
+          diagnoses.map((d, i) => {
+            const label = d.icd10_code && d.icd10_description
+              ? `${d.icd10_code} - ${d.icd10_description}`
+              : d.icd10_code || d.icd10_description || '—';
+            return (
+              <View key={i} style={styles.diagnosisCard}>
+                <View style={styles.diagnosisCardTop}>
+                  <Text style={styles.diagnosisCode} numberOfLines={2}>{label}</Text>
+                  {d.is_primary && (
+                    <View style={styles.primaryBadge}>
+                      <Text style={styles.primaryBadgeText}>PRIMARY</Text>
+                    </View>
+                  )}
+                </View>
+                {d.tooth_number ? (
+                  <Text style={styles.diagnosisTooth}>
+                    Diş: {d.tooth_number}
+                  </Text>
+                ) : null}
               </View>
-              {d.tooth_number ? (
-                <Text style={styles.diagnosisTooth}>
-                  {t('common.tooth') || 'common.tooth'}: {d.tooth_number}
-                </Text>
-              ) : null}
-            </View>
-          ))
+            );
+          })
         )}
 
         <View style={{ height: 100 }} />
