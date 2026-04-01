@@ -608,6 +608,23 @@ export const translations: Record<Language, Record<string, string>> = {
     "login.welcomePending": "Hoş geldiniz {{name}}! Hesabınız onay bekliyor.",
     "login.pleaseRetry": "Bir hata oluştu. Lütfen tekrar deneyin.",
     "login.noAccount": "Hesabınız yok mu? Kayıt olun",
+
+    // Diagnosis (Doctor)
+    "diagnosis.addNew": "Diş Tanısı",
+    "diagnosis.toothChart": "Diş Haritası (FDI)",
+    "diagnosis.selectICD10": "ICD-10 Tanı Seç",
+    "diagnosis.selectToothFirst": "Önce bir diş seçin",
+    "diagnosis.selectICD10First": "ICD-10 kodu seçin",
+    "diagnosis.icd10Placeholder": "ICD-10 kodu veya açıklama ara...",
+    "diagnosis.list": "Mevcut Tanılar",
+    "diagnosis.noEntries": "Henüz tanı girilmedi",
+    "diagnosis.saved": "Tanı kaydedildi",
+    "diagnosis.noDiagnosisYet": "Önce en az bir tanı girin",
+    "diagnosis.proceedToTreatment": "Tedavi Planına Geç →",
+    "diagnosis.tooth": "Diş",
+    "diagnosis.primary": "BİRİNCİL",
+    "diagnosis.encounterError": "Muayene kaydı oluşturulamadı",
+    "diagnosis.saveError": "Tanı kaydedilemedi",
   },
   en: {
     // Common
@@ -1213,6 +1230,23 @@ export const translations: Record<Language, Record<string, string>> = {
     "login.welcomePending": "Welcome {{name}}! Your account is pending approval.",
     "login.pleaseRetry": "An error occurred. Please try again.",
     "login.noAccount": "Don't have an account? Register",
+
+    // Diagnosis (Doctor)
+    "diagnosis.addNew": "Dental Diagnosis",
+    "diagnosis.toothChart": "Tooth Chart (FDI)",
+    "diagnosis.selectICD10": "Select ICD-10 Diagnosis",
+    "diagnosis.selectToothFirst": "Select a tooth first",
+    "diagnosis.selectICD10First": "Select an ICD-10 code",
+    "diagnosis.icd10Placeholder": "Search ICD-10 code or description...",
+    "diagnosis.list": "Diagnoses",
+    "diagnosis.noEntries": "No diagnoses entered yet",
+    "diagnosis.saved": "Diagnosis saved",
+    "diagnosis.noDiagnosisYet": "Please add at least one diagnosis first",
+    "diagnosis.proceedToTreatment": "Proceed to Treatment Plan →",
+    "diagnosis.tooth": "Tooth",
+    "diagnosis.primary": "PRIMARY",
+    "diagnosis.encounterError": "Could not create encounter record",
+    "diagnosis.saveError": "Failed to save diagnosis",
   },
   
   ka: {
@@ -1819,6 +1853,23 @@ export const translations: Record<Language, Record<string, string>> = {
     "settings.languageChangedMessage": "ენა შეიცვალა",
     "settings.languageChangeFailed": "ენის შეცვლა ვერ მოხერხდა",
     "settings.languagePickerFailed": "ენის არჩევა ვერ მოხერხდა",
+
+    // Diagnosis (Doctor)
+    "diagnosis.addNew": "კბილის დიაგნოზი",
+    "diagnosis.toothChart": "კბილის რუქა (FDI)",
+    "diagnosis.selectICD10": "ICD-10 დიაგნოზის არჩევა",
+    "diagnosis.selectToothFirst": "ჯერ კბილი აირჩიეთ",
+    "diagnosis.selectICD10First": "ICD-10 კოდი აირჩიეთ",
+    "diagnosis.icd10Placeholder": "ICD-10 კოდი ან აღწერა...",
+    "diagnosis.list": "დიაგნოზები",
+    "diagnosis.noEntries": "დიაგნოზი ჯერ არ შეყვანილა",
+    "diagnosis.saved": "დიაგნოზი შენახულია",
+    "diagnosis.noDiagnosisYet": "ჯერ მინიმუმ ერთი დიაგნოზი შეიყვანეთ",
+    "diagnosis.proceedToTreatment": "მკურნალობის გეგმაზე გადასვლა →",
+    "diagnosis.tooth": "კბილი",
+    "diagnosis.primary": "პირველადი",
+    "diagnosis.encounterError": "ვიზიტის ჩანაწერი ვერ შეიქმნა",
+    "diagnosis.saveError": "დიაგნოზი ვერ შეინახა",
   },
   ru: {
     // Common
@@ -2103,5 +2154,22 @@ export const translations: Record<Language, Record<string, string>> = {
     "treatment.chartTitle": "FDI Стоматологическая карта",
     "treatment.allTreatments": "Все процедуры",
     "treatment.readOnlyNotice": "Эта страница предназначена только для просмотра. Для добавления/редактирования процедур обратитесь в клинику.",
+
+    // Diagnosis (Doctor)
+    "diagnosis.addNew": "Диагноз зуба",
+    "diagnosis.toothChart": "Карта зубов (FDI)",
+    "diagnosis.selectICD10": "Выбрать диагноз МКБ-10",
+    "diagnosis.selectToothFirst": "Сначала выберите зуб",
+    "diagnosis.selectICD10First": "Выберите код МКБ-10",
+    "diagnosis.icd10Placeholder": "Поиск по коду или описанию МКБ-10...",
+    "diagnosis.list": "Диагнозы",
+    "diagnosis.noEntries": "Диагнозы пока не введены",
+    "diagnosis.saved": "Диагноз сохранён",
+    "diagnosis.noDiagnosisYet": "Сначала введите хотя бы один диагноз",
+    "diagnosis.proceedToTreatment": "Перейти к плану лечения →",
+    "diagnosis.tooth": "Зуб",
+    "diagnosis.primary": "ПЕРВИЧНЫЙ",
+    "diagnosis.encounterError": "Не удалось создать запись приёма",
+    "diagnosis.saveError": "Не удалось сохранить диагноз",
   },
 };

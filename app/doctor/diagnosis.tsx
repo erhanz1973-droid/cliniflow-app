@@ -28,6 +28,7 @@ export default function DoctorDiagnosisScreen() {
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [proceeding, setProceeding] = useState(false);
   const [diagnoses, setDiagnoses] = useState<DiagnosisItem[]>([]);
   const [selectedTooth, setSelectedTooth] = useState('');
   const [selectedCode, setSelectedCode] = useState('');
@@ -90,17 +91,17 @@ export default function DoctorDiagnosisScreen() {
   // ── Save diagnosis ──────────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!selectedTooth) {
-      Alert.alert('', t('diagnosis.selectToothFirst') || 'Önce bir diş seçin');
+      Alert.alert('', t('diagnosis.selectToothFirst'));
       return;
     }
     if (!selectedCode) {
-      Alert.alert('', t('diagnosis.selectICD10First') || 'ICD-10 kodu seçin');
+      Alert.alert('', t('diagnosis.selectICD10First'));
       return;
     }
 
     const eid = await ensureEncounter();
     if (!eid) {
-      Alert.alert('Hata', 'Muayene oluşturulamadı');
+      Alert.alert(t('common.error'), t('diagnosis.encounterError'));
       return;
     }
 
@@ -126,10 +127,10 @@ export default function DoctorDiagnosisScreen() {
       await loadDiagnoses();
       setSelectedCode('');
       setSelectedDescription('');
-      Alert.alert('', t('diagnosis.saved') || 'Tanı kaydedildi');
+      Alert.alert('', t('diagnosis.saved'));
     } catch (err) {
       console.error('[Diagnosis] save error:', err);
-      Alert.alert('Hata', 'Kaydedilemedi');
+      Alert.alert(t('common.error'), t('diagnosis.saveError'));
     } finally {
       setSaving(false);
     }
@@ -137,20 +138,25 @@ export default function DoctorDiagnosisScreen() {
 
   // ── Proceed to treatment plan ───────────────────────────────────────────────
   const handleProceed = async () => {
+    if (proceeding) return; // guard against double-tap
     if (diagnoses.length === 0) {
-      Alert.alert('', t('diagnosis.noDiagnosisYet') || 'Önce en az bir tanı girin');
+      Alert.alert('', t('diagnosis.noDiagnosisYet'));
       return;
     }
-    // Ensure we have a valid encounter before navigating (needed for treatment plan creation)
-    const eid = await ensureEncounter();
-    if (!eid) {
-      Alert.alert('Hata', 'Muayene kaydı oluşturulamadı');
-      return;
+    setProceeding(true);
+    try {
+      const eid = await ensureEncounter();
+      if (!eid) {
+        Alert.alert(t('common.error'), t('diagnosis.encounterError'));
+        return;
+      }
+      router.replace({
+        pathname: '/treatment-plan',
+        params: { patientId: patientId || '', encounterId: eid },
+      });
+    } finally {
+      setProceeding(false);
     }
-    router.replace({
-      pathname: '/treatment-plan',
-      params: { patientId: patientId || '', encounterId: eid },
-    });
   };
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -166,7 +172,7 @@ export default function DoctorDiagnosisScreen() {
           <Text style={styles.backBtnText}>←</Text>
         </Pressable>
         <Text style={styles.headerTitle}>
-          {t('diagnosis.addNew') || 'diagnosis.addNew'}
+          {t('diagnosis.addNew')}
         </Text>
         <View style={{ width: 40 }} />
       </View>
@@ -182,19 +188,19 @@ export default function DoctorDiagnosisScreen() {
             setSelectedDescription('');
           }}
           diagnoses={diagnoses.map((d) => ({ id: String(d.id || d.icd10_code), tooth_number: d.tooth_number }))}
-          title={t('diagnosis.toothChart') || 'Diş Haritası (FDI)'}
+          title={t('diagnosis.toothChart')}
         />
 
         {/* ── ICD-10 selector ── */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>
-            {t('diagnosis.selectICD10') || 'diagnosis.selectICD10'}
+            {t('diagnosis.selectICD10')}
           </Text>
 
           {!selectedTooth ? (
             <View style={styles.placeholderBox}>
               <Text style={styles.placeholderText}>
-                {t('diagnosis.selectToothFirst') || 'Önce bir diş seçin'}
+                {t('diagnosis.selectToothFirst')}
               </Text>
             </View>
           ) : (
@@ -204,7 +210,7 @@ export default function DoctorDiagnosisScreen() {
                 setSelectedCode(item.code);
                 setSelectedDescription(item.description);
               }}
-              placeholder={t('diagnosis.icd10Placeholder') || 'ICD-10 kodu veya açıklama ara...'}
+              placeholder={t('diagnosis.icd10Placeholder')}
             />
           )}
         </View>
@@ -217,19 +223,19 @@ export default function DoctorDiagnosisScreen() {
         >
           {saving
             ? <ActivityIndicator color="#fff" />
-            : <Text style={styles.saveBtnText}>{t('common.save') || 'Save'}</Text>
+            : <Text style={styles.saveBtnText}>{t('common.save')}</Text>
           }
         </Pressable>
 
         {/* ── Tanılar list ── */}
-        <Text style={styles.tanılarTitle}>{t('diagnosis.list') || 'Tanılar'}</Text>
+        <Text style={styles.tanılarTitle}>{t('diagnosis.list')}</Text>
 
         {loading ? (
           <ActivityIndicator style={{ marginVertical: 16 }} color="#2563EB" />
         ) : diagnoses.length === 0 ? (
           <View style={styles.emptyBox}>
             <Text style={styles.emptyText}>
-              {t('diagnosis.noEntries') || 'Henüz tanı girilmedi'}
+              {t('diagnosis.noEntries')}
             </Text>
           </View>
         ) : (
@@ -243,13 +249,13 @@ export default function DoctorDiagnosisScreen() {
                   <Text style={styles.diagnosisCode} numberOfLines={2}>{label}</Text>
                   {d.is_primary && (
                     <View style={styles.primaryBadge}>
-                      <Text style={styles.primaryBadgeText}>PRIMARY</Text>
+                      <Text style={styles.primaryBadgeText}>{t('diagnosis.primary')}</Text>
                     </View>
                   )}
                 </View>
                 {d.tooth_number ? (
                   <Text style={styles.diagnosisTooth}>
-                    Diş: {d.tooth_number}
+                    {t('diagnosis.tooth')}: {d.tooth_number}
                   </Text>
                 ) : null}
               </View>
@@ -262,10 +268,15 @@ export default function DoctorDiagnosisScreen() {
 
       {/* ── Proceed to treatment ── */}
       <View style={styles.bottomBar}>
-        <Pressable style={styles.proceedBtn} onPress={handleProceed}>
-          <Text style={styles.proceedBtnText}>
-            {t('diagnosis.proceedToTreatment') || 'diagnosis.proceedToTreatment'}
-          </Text>
+        <Pressable
+          style={[styles.proceedBtn, proceeding && styles.proceedBtnDisabled]}
+          onPress={handleProceed}
+          disabled={proceeding}
+        >
+          {proceeding
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={styles.proceedBtnText}>{t('diagnosis.proceedToTreatment')}</Text>
+          }
         </Pressable>
       </View>
     </SafeAreaView>
@@ -327,5 +338,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#1F2937', padding: 14,
   },
   proceedBtn: { alignItems: 'center', paddingVertical: 4 },
+  proceedBtnDisabled: { opacity: 0.5 },
   proceedBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 });
