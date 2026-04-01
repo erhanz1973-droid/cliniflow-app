@@ -13,24 +13,48 @@ import { API_BASE } from '../lib/api';
 
 // ── Procedure types ────────────────────────────────────────────────────────
 const PROCEDURES = [
-  { type: 'CROWN',       label: 'Kron' },
-  { type: 'TEMP_CROWN',  label: 'Geçici Kron' },
-  { type: 'BRIDGE_UNIT', label: 'Köprü Ünitesi' },
-  { type: 'TEMP_BRIDGE', label: 'Geçici Köprü' },
-  { type: 'IMPLANT',     label: 'İmplant' },
-  { type: 'FILLING',     label: 'Dolgu' },
-  { type: 'EXTRACTION',  label: 'Çekim' },
-  { type: 'ROOT_CANAL',  label: 'Kanal Tedavisi' },
-  { type: 'CLEANING',    label: 'Temizlik' },
-  { type: 'VENEER',      label: 'Veneer' },
-  { type: 'INLAY',       label: 'İnley' },
-  { type: 'ONLAY',       label: 'Onley' },
-  { type: 'SINUS_LIFT',  label: 'Sinüs Lift' },
-  { type: 'BONE_GRAFT',  label: 'Kemik Grefti' },
-  { type: 'GUM_TREATMENT', label: 'Diş Eti Tedavisi' },
-  { type: 'WHITENING',   label: 'Beyazlatma' },
-  { type: 'XRAY',        label: 'Röntgen' },
-  { type: 'OTHER',       label: 'Diğer' },
+  // Olaylar
+  { type: 'CONSULT',        label: 'Konsültasyon',             category: 'Olaylar' },
+  { type: 'FOLLOWUP',       label: 'Kontrol',                  category: 'Olaylar' },
+  { type: 'LAB',            label: 'Laboratuvar / Tarama',     category: 'Olaylar' },
+  // Protetik
+  { type: 'CROWN',                          label: 'Kron',                        category: 'Protetik' },
+  { type: 'TEMP_CROWN',                     label: 'Geçici Kron',                 category: 'Protetik' },
+  { type: 'BRIDGE_UNIT',                    label: 'Köprü Ünitesi',               category: 'Protetik' },
+  { type: 'TEMP_BRIDGE_UNIT',               label: 'Geçici Köprü',                category: 'Protetik' },
+  { type: 'CROWN_REPLACEMENT',              label: 'Kron Değişimi',               category: 'Protetik' },
+  { type: 'BRIDGE_REPLACEMENT_OR_REMOVAL',  label: 'Köprü Değişimi / Çıkarma',   category: 'Protetik' },
+  { type: 'INLAY',                          label: 'İnley',                       category: 'Protetik' },
+  { type: 'ONLAY',                          label: 'Onley',                       category: 'Protetik' },
+  { type: 'OVERLAY',                        label: 'Overlay',                     category: 'Protetik' },
+  { type: 'POST_AND_CORE',                  label: 'Post & Kor',                  category: 'Protetik' },
+  { type: 'VENEER',                         label: 'Veneer',                      category: 'Protetik' },
+  // Restoratif
+  { type: 'FILLING',                            label: 'Dolgu',                    category: 'Restoratif' },
+  { type: 'TEMP_FILLING',                       label: 'Geçici Dolgu',             category: 'Restoratif' },
+  { type: 'FILLING_REPLACEMENT_OR_REMOVAL',     label: 'Dolgu Değişimi / Çıkarma', category: 'Restoratif' },
+  // Endodontik
+  { type: 'ROOT_CANAL_TREATMENT',   label: 'Kanal Tedavisi',         category: 'Endodontik' },
+  { type: 'ROOT_CANAL_RETREATMENT', label: 'Kanal Retreatman',       category: 'Endodontik' },
+  { type: 'CANAL_OPENING',          label: 'Kanal Açma',             category: 'Endodontik' },
+  { type: 'CANAL_FILLING',          label: 'Kanal Dolgusu',          category: 'Endodontik' },
+  { type: 'ROOT_CANAL',             label: 'Kanal (Genel)',          category: 'Endodontik' },
+  // Cerrahi
+  { type: 'EXTRACTION',          label: 'Çekim',                category: 'Cerrahi' },
+  { type: 'SURGICAL_EXTRACTION', label: 'Cerrahi Çekim',        category: 'Cerrahi' },
+  { type: 'APICAL_RESECTION',    label: 'Apikal Rezeksiyon',    category: 'Cerrahi' },
+  { type: 'SINUS_LIFT',          label: 'Sinüs Lift',           category: 'Cerrahi' },
+  { type: 'BONE_GRAFT',          label: 'Kemik Grefti',         category: 'Cerrahi' },
+  // İmplant
+  { type: 'IMPLANT',          label: 'İmplant',            category: 'İmplant' },
+  { type: 'HEALING_ABUTMENT', label: 'Healing Abutment',   category: 'İmplant' },
+  { type: 'IMPLANT_CROWN',    label: 'İmplant Kron',       category: 'İmplant' },
+  // Diğer
+  { type: 'CLEANING',         label: 'Temizlik',           category: 'Diğer' },
+  { type: 'GUM_TREATMENT',    label: 'Diş Eti Tedavisi',   category: 'Diğer' },
+  { type: 'WHITENING',        label: 'Beyazlatma',         category: 'Diğer' },
+  { type: 'XRAY',             label: 'Röntgen',            category: 'Diğer' },
+  { type: 'OTHER',            label: 'Diğer',              category: 'Diğer' },
 ];
 const PROC_MAP: Record<string, string> = Object.fromEntries(
   PROCEDURES.map(p => [p.type, p.label])
@@ -284,17 +308,31 @@ function AddModal({
             </TouchableOpacity>
             {showProcList && (
               <View style={styles.dropDown}>
-                {PROCEDURES.map(p => (
-                  <TouchableOpacity
-                    key={p.type}
-                    style={[styles.dropItem, selectedProc?.type === p.type && styles.dropItemActive]}
-                    onPress={() => { setSelectedProc(p); setShowProcList(false); }}
-                  >
-                    <Text style={[styles.dropItemText, selectedProc?.type === p.type && styles.dropItemTextActive]}>
-                      {p.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                <ScrollView nestedScrollEnabled style={{ maxHeight: 260 }}>
+                  {(() => {
+                    let lastCat = '';
+                    return PROCEDURES.map(p => {
+                      const catHeader = p.category !== lastCat ? (lastCat = p.category, p.category) : null;
+                      return (
+                        <React.Fragment key={p.type}>
+                          {catHeader && (
+                            <View style={styles.dropCatHeader}>
+                              <Text style={styles.dropCatText}>{catHeader}</Text>
+                            </View>
+                          )}
+                          <TouchableOpacity
+                            style={[styles.dropItem, selectedProc?.type === p.type && styles.dropItemActive]}
+                            onPress={() => { setSelectedProc(p); setShowProcList(false); }}
+                          >
+                            <Text style={[styles.dropItemText, selectedProc?.type === p.type && styles.dropItemTextActive]}>
+                              {p.label}
+                            </Text>
+                          </TouchableOpacity>
+                        </React.Fragment>
+                      );
+                    });
+                  })()}
+                </ScrollView>
               </View>
             )}
 
@@ -811,8 +849,10 @@ const styles = StyleSheet.create({
   pickerArrow: { fontSize: 12, color: '#6B7280', marginLeft: 8 },
   dropDown: {
     borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10,
-    backgroundColor: '#fff', marginTop: 4, maxHeight: 220, overflow: 'hidden',
+    backgroundColor: '#fff', marginTop: 4,
   },
+  dropCatHeader: { paddingHorizontal: 14, paddingVertical: 5, backgroundColor: '#F3F4F6' },
+  dropCatText: { fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.5 },
   dropItem: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
   dropItemActive: { backgroundColor: '#EFF6FF' },
   dropItemText: { fontSize: 14, color: '#374151' },
