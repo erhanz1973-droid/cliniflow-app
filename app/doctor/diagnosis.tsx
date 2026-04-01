@@ -136,14 +136,20 @@ export default function DoctorDiagnosisScreen() {
   };
 
   // ── Proceed to treatment plan ───────────────────────────────────────────────
-  const handleProceed = () => {
+  const handleProceed = async () => {
     if (diagnoses.length === 0) {
       Alert.alert('', t('diagnosis.noDiagnosisYet') || 'Önce en az bir tanı girin');
       return;
     }
+    // Ensure we have a valid encounter before navigating (needed for treatment plan creation)
+    const eid = await ensureEncounter();
+    if (!eid) {
+      Alert.alert('Hata', 'Muayene kaydı oluşturulamadı');
+      return;
+    }
     router.replace({
       pathname: '/treatment-plan',
-      params: { patientId: patientId || '', encounterId: activeEncounterId },
+      params: { patientId: patientId || '', encounterId: eid },
     });
   };
 

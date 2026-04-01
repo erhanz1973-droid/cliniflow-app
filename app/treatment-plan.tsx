@@ -27,28 +27,36 @@ export default function TreatmentPlanScreen() {
   }, [encounterId]);
 
   const loadTreatmentData = async () => {
+    // Guard: encounterId required for treatment plan operations
+    if (!encounterId) {
+      router.replace({
+        pathname: '/doctor/diagnosis',
+        params: { patientId },
+      });
+      return;
+    }
+
     try {
       setLoading(true);
       
-      // Get encounter and diagnoses
+      // Get encounter
       const encounterData = await secureGet(
         API_ROUTES.doctor.encounterById(encounterId as string),
         user?.token
       );
       setEncounter(encounterData);
       
-      // Get diagnoses
+      // Get all diagnoses for this patient (single source: encounter_diagnoses)
       const diagnosesData = await secureGet(
-        API_ROUTES.doctor.encounterDiagnoses(encounterId as string),
+        API_ROUTES.doctor.patientDiagnoses(patientId as string),
         user?.token
       );
-      const diagnoses = diagnosesData?.data || diagnosesData?.diagnoses || diagnosesData || [];
+      const diagnoses = diagnosesData?.diagnoses || [];
       setDiagnoses(diagnoses);
       
-      // CRITICAL: Check if primary diagnosis exists
-      const primaryDiagnosis = diagnoses.find((d: any) => d.is_primary);
-      if (!primaryDiagnosis) {
-        Alert.alert('Hata', 'Önce birincil tanı girilmelidir');
+      // Check if any diagnosis exists (primary check relaxed — allow proceeding if diagnoses exist)
+      if (diagnoses.length === 0) {
+        Alert.alert('Uyarı', 'Önce en az bir tanı girilmelidir');
         router.replace({
           pathname: '/doctor/diagnosis',
           params: { patientId, encounterId }
