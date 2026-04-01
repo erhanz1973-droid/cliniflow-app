@@ -1,5 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View, Text, TextInput, TouchableOpacity,
+  StyleSheet, ActivityIndicator, ScrollView,
+} from 'react-native';
 import { API_BASE } from '../lib/api';
 
 interface ICD10Code {
@@ -13,93 +16,105 @@ interface ICD10DropdownProps {
   placeholder?: string;
 }
 
-export default function ICD10Dropdown({ selectedCode, onCodeSelect, placeholder = "ICD-10 kodu ara..." }: ICD10DropdownProps) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<ICD10Code[]>([]);
+export default function ICD10Dropdown({
+  selectedCode,
+  onCodeSelect,
+  placeholder = 'ICD-10 kodu ara…',
+}: ICD10DropdownProps) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<ICD10Code[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
+  const [open, setOpen] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Update searchQuery when selectedCode changes
+  // Reflect external selectedCode into input (e.g. on reset)
   useEffect(() => {
-    if (selectedCode) {
-      setSearchQuery(selectedCode);
-    }
+    if (!selectedCode) setQuery('');
   }, [selectedCode]);
 
-  // Debounced search
+  // Debounced search whenever query changes
   useEffect(() => {
-    const timeoutId = setTimeout(async () => {
-      if (searchQuery.length < 2) {
-        setSuggestions([]);
-        setShowDropdown(false);
-        return;
-      }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
 
+    if (query.length < 2) {
+      setResults([]);
+      setOpen(false);
+      return;
+    }
+
+    debounceRef.current = setTimeout(async () => {
       try {
         setLoading(true);
-        const response = await fetch(`${API_BASE}/api/icd10/search?q=${encodeURIComponent(searchQuery)}`);
-        const data = await response.json();
-        
-        // Normalize response format — backend returns { ok, results:[...] }
-        const codesArray = Array.isArray(data)
-          ? data
-          : data?.results || data?.codes || data?.data || [];
-        
-        setSuggestions(codesArray);
-        setShowDropdown(codesArray.length > 0);
-      } catch (error) {
-        console.error('ICD-10 search error:', error);
-        setSuggestions([]);
-        setShowDropdown(false);
+        const res = await fetch(
+          `${API_BASE}/api/icd10/search?q=${encodeURIComponent(query)}`,
+        );
+        const json = await res.json();
+        const list: ICD10Code[] = Array.isArray(json)
+          ? json
+          : json?.results || json?.codes || json?.data || [];
+        setResults(list);
+        setOpen(list.length > 0);
+      } catch (e) {
+        console.error('[ICD10Dropdown] search error:', e);
+        setResults([]);
+        setOpen(false);
       } finally {
         setLoading(false);
       }
-    }, 300);
+    }, 350);
 
-    return () => clearTimeout(timeoutId);
-  }, [searchQuery]);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [query]);
 
-  const handleCodeSelect = (code: ICD10Code) => {
-    onCodeSelect(code);
-    setSearchQuery(code.description); // Show description in input
-    setShowDropdown(false);
-    setSuggestions([]);
+  const handleSelect = (item: ICD10Code) => {
+    onCodeSelect(item);
+    setQuery(`${item.code} – ${item.description}`);
+    setOpen(false);
+    setResults([]);
   };
 
-  const renderSuggestion = ({ item }: { item: ICD10Code }) => (
-    <TouchableOpacity 
-      style={styles.suggestionItem} 
-      onPress={() => handleCodeSelect(item)}
-    >
-      <Text style={styles.suggestionCode}>{item.code}</Text>
-      <Text style={styles.suggestionDescription}>{item.description}</Text>
-    </TouchableOpacity>
-  );
-
   return (
-    <View style={styles.container}>
-      <TextInput
-        style={styles.input}
-        placeholder={placeholder}
-        value={searchQuery}
-        onChangeText={setSearchQuery}
-        onFocus={() => setShowDropdown(true)}
-        onBlur={() => setTimeout(() => setShowDropdown(false), 300)}
-      />
-      
-      {loading && (
-        <ActivityIndicator size="small" color="#007AFF" style={styles.loader} />
-      )}
-      
-      {showDropdown && suggestions.length > 0 && (
-        <View style={styles.dropdown}>
-          <FlatList
-            data={suggestions}
-            renderItem={renderSuggestion}
-            keyExtractor={(item) => item.code}
-            style={styles.list}
-            keyboardShouldPersistTaps="always"
+    <View style={styles.wrapper}>
+      {/* Search input */}
+      <View style={styles.inputRow}>
+        <TextInput
+          style={styles.input}
+          placeholder={placeholder}
+          placeholderTextColor="#9CA3AF"
+          value={query}
+          onChangeText={(t) => { setQuery(t); }}
+          autoCorrect={false}
+          autoCapitalize="none"
+        />
+        {loading && (
+          <ActivityIndicator
+            size="small"
+            color="#2563EB"
+            style={styles.spinner}
           />
+        )}
+      </View>
+
+      {/* Inline suggestion list — rendered below input, no absolute position */}
+      {open && results.length > 0 && (
+        <View style={styles.list}>
+          <ScrollView
+            nestedScrollEnabled
+            keyboardShouldPersistTaps="always"
+            style={{ maxHeight: 220 }}
+          >
+            {results.map((item) => (
+              <TouchableOpacity
+                key={item.code}
+                style={styles.item}
+                activeOpacity={0.7}
+                onPress={() => handleSelect(item)}
+              >
+                <Text style={styles.code}>{item.code}</Text>
+                <Text style={styles.desc}>{item.description}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
       )}
     </View>
@@ -107,53 +122,49 @@ export default function ICD10Dropdown({ selectedCode, onCodeSelect, placeholder 
 }
 
 const styles = StyleSheet.create({
-  container: {
-    position: 'relative',
-    zIndex: 1000,
+  wrapper: {
+    gap: 0,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 10,
+    paddingHorizontal: 12,
   },
   input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: '#fff',
+    flex: 1,
+    height: 48,
+    fontSize: 15,
+    color: '#111827',
   },
-  dropdown: {
-    position: 'absolute',
-    top: '100%',
-    left: 0,
-    right: 0,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderTopWidth: 0,
-    borderRadius: 8,
-    maxHeight: 200,
-    zIndex: 1001,
+  spinner: {
+    marginLeft: 8,
   },
   list: {
-    maxHeight: 180,
+    marginTop: 2,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 10,
+    overflow: 'hidden',
   },
-  suggestionItem: {
-    padding: 12,
+  item: {
+    paddingHorizontal: 14,
+    paddingVertical: 11,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#F3F4F6',
   },
-  suggestionCode: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#007AFF',
-    marginRight: 8,
+  code: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2563EB',
+    marginBottom: 1,
   },
-  suggestionDescription: {
-    fontSize: 14,
-    color: '#333',
-    flex: 1,
-  },
-  loader: {
-    position: 'absolute',
-    right: 12,
-    top: 12,
+  desc: {
+    fontSize: 13,
+    color: '#374151',
   },
 });
