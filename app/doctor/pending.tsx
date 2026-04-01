@@ -6,10 +6,12 @@ import { useRouter } from "expo-router";
 import { Pressable } from "react-native";
 import { useAuth } from "../../lib/auth";
 import { getCurrentDoctorProfile } from "../../lib/doctor/api";
+import { useLanguage } from "../../lib/language-context";
 
 export default function DoctorPendingScreen() {
   const router = useRouter();
   const { isAuthed } = useAuth();
+  const { t } = useLanguage();
   const [doctorStatus, setDoctorStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -55,7 +57,7 @@ export default function DoctorPendingScreen() {
       {loading ? (
         <View style={styles.content}>
           <ActivityIndicator size="large" color="#2563eb" />
-          <Text style={styles.loadingText}>Durum kontrol ediliyor...</Text>
+          <Text style={styles.loadingText}>{t('doctor.pending.checking')}</Text>
         </View>
       ) : (
         <View style={styles.content}>
@@ -72,38 +74,34 @@ export default function DoctorPendingScreen() {
               <Text style={styles.pendingEmoji}>⏳</Text>
             </View>
             
-            <Text style={styles.title}>Başvurunuz Değerlendiriliyor</Text>
-            <Text style={styles.subtitle}>
-              Doktor başvurunuz incelenmektedir. Onaylandığında bildirim alacaksınız.
-            </Text>
+            <Text style={styles.title}>{t('doctor.pending.title')}</Text>
+            <Text style={styles.subtitle}>{t('doctor.pending.subtitle')}</Text>
             {doctorStatus && (
-              <Text style={styles.statusText}>Mevcut Durum: {doctorStatus}</Text>
+              <Text style={styles.statusText}>{t('doctor.pending.currentStatus')}: {doctorStatus}</Text>
             )}
           </View>
 
           <View style={styles.infoContainer}>
-            <Text style={styles.infoTitle}>Ne zaman onaylanır?</Text>
-            <Text style={styles.infoText}>
-              Başvurularınız genellikle 24-48 saat içinde incelenir ve onaylanır.
-            </Text>
+            <Text style={styles.infoTitle}>{t('doctor.pending.approvalTime')}</Text>
+            <Text style={styles.infoText}>{t('doctor.pending.approvalInfo')}</Text>
           </View>
 
           <View style={styles.actionsContainer}>
             <Pressable style={styles.refreshButton} onPress={handleRefresh}>
-              <Text style={styles.refreshButtonText}>Durumu Kontrol Et</Text>
+              <Text style={styles.refreshButtonText}>{t('doctor.pending.checkStatus')}</Text>
             </Pressable>
             
             <Pressable 
               style={styles.logoutButton} 
               onPress={() => router.replace("/login/doctor")}
             >
-              <Text style={styles.logoutButtonText}>Çıkış Yap</Text>
+              <Text style={styles.logoutButtonText}>{t('doctor.logout')}</Text>
             </Pressable>
           </View>
 
           <View style={styles.contactContainer}>
             <Text style={styles.contactText}>
-              Sorularınız için: support@cliniflow.com
+              support@cliniflow.com
             </Text>
           </View>
         </View>

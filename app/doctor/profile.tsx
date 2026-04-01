@@ -33,8 +33,10 @@ interface DoctorProfile {
 const STATUS_COLORS: Record<string, string> = {
   APPROVED: '#16A34A', PENDING: '#F59E0B', SUSPENDED: '#EF4444',
 };
-const STATUS_LABELS: Record<string, string> = {
-  APPROVED: 'Onaylı', PENDING: 'Beklemede', SUSPENDED: 'Askıda',
+const STATUS_LABEL_KEYS: Record<string, string> = {
+  APPROVED: 'doctor.profile.status.approved',
+  PENDING: 'doctor.profile.status.pending',
+  SUSPENDED: 'doctor.profile.status.suspended',
 };
 
 function InfoRow({ icon, label, value }: { icon: string; label: string; value?: string | null }) {
@@ -122,21 +124,21 @@ export default function DoctorProfileScreen() {
         public_profile: form.public_profile,
       });
       if (res?.ok) {
-        Alert.alert('', 'Profil güncellendi');
+        Alert.alert('', t('doctor.profile.updated'));
         setEditing(false);
         await load();
       } else {
-        Alert.alert('Hata', res?.error || 'Profil güncellenemedi');
+        Alert.alert(t('common.error'), res?.error || t('doctor.profile.updateError'));
       }
     } catch (e: any) {
-      Alert.alert('Hata', e?.message || 'Profil güncellenirken hata oluştu');
+      Alert.alert(t('common.error'), e?.message || t('doctor.profile.updateError'));
     } finally {
       setSaving(false);
     }
   };
 
   const statusColor = STATUS_COLORS[profile?.status?.toUpperCase() || ''] || '#9CA3AF';
-  const statusLabel = STATUS_LABELS[profile?.status?.toUpperCase() || ''] || profile?.status || '';
+  const statusLabel = t(STATUS_LABEL_KEYS[profile?.status?.toUpperCase() || ''] || '') || profile?.status || '';
 
   const fmtDate = (iso: string | null) => {
     if (!iso) return null;
@@ -158,14 +160,14 @@ export default function DoctorProfileScreen() {
         <TouchableOpacity style={s.backBtn} onPress={() => router.canGoBack() ? router.back() : router.replace('/doctor')}>
           <Text style={s.backBtnText}>←</Text>
         </TouchableOpacity>
-        <Text style={s.headerTitle}>Profilim</Text>
+        <Text style={s.headerTitle}>{t('doctor.profile.title')}</Text>
         <TouchableOpacity
           style={[s.editBtn, editing && s.editBtnActive]}
           onPress={() => editing ? handleSave() : setEditing(true)}
           disabled={saving}
         >
           {saving ? <ActivityIndicator size="small" color="#fff" /> : (
-            <Text style={s.editBtnText}>{editing ? 'Kaydet' : 'Düzenle'}</Text>
+            <Text style={s.editBtnText}>{editing ? t('doctor.profile.save') : t('doctor.profile.edit')}</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -183,17 +185,17 @@ export default function DoctorProfileScreen() {
             {editing ? (
               <TextInput style={[s.input, { fontSize: 17, fontWeight: '700' }]}
                 value={form.name} onChangeText={v => setForm(f => ({ ...f, name: v }))}
-                placeholder="Ad Soyad" />
+                placeholder={t('doctor.profile.title')} />
             ) : (
               <Text style={s.heroName}>{profile?.name || '—'}</Text>
             )}
             {editing ? (
               <TextInput style={s.input}
                 value={form.title} onChangeText={v => setForm(f => ({ ...f, title: v }))}
-                placeholder="Ünvan (Diş Dr.)" />
+                placeholder={t('doctor.profile.dentist')} />
             ) : (
               <Text style={s.heroTitle}>
-                {[profile?.title, profile?.department].filter(Boolean).join(' · ') || 'Diş Hekimi'}
+                {[profile?.title, profile?.department].filter(Boolean).join(' · ') || t('doctor.profile.dentist')}
               </Text>
             )}
             <View style={[s.statusBadge, { backgroundColor: statusColor + '22' }]}>
@@ -204,63 +206,63 @@ export default function DoctorProfileScreen() {
         </View>
 
         {/* Contact info (read-only) */}
-        <SectionCard title="İletişim">
-          <InfoRow icon="✉️" label="Email" value={profile?.email} />
+        <SectionCard title={t('doctor.profile.contact')}>
+          <InfoRow icon="✉️" label={t('doctor.profile.email')} value={profile?.email} />
           {editing ? (
             <View style={s.fieldRow}>
-              <Text style={s.fieldLabel}>📱 Telefon</Text>
+              <Text style={s.fieldLabel}>{t('doctor.profile.phone')}</Text>
               <TextInput style={s.input} value={form.phone}
                 onChangeText={v => setForm(f => ({ ...f, phone: v }))}
                 keyboardType="phone-pad" placeholder="+90 xxx xxx xxxx" />
             </View>
           ) : (
-            <InfoRow icon="📱" label="Telefon" value={profile?.phone} />
+            <InfoRow icon="📱" label={t('doctor.profile.phone')} value={profile?.phone} />
           )}
-          <InfoRow icon="🏥" label="Klinik" value={profile?.clinic_code} />
-          <InfoRow icon="📜" label="Lisans No" value={profile?.license_number} />
-          <InfoRow icon="📅" label="Kayıt Tarihi" value={fmtDate(profile?.created_at)} />
+          <InfoRow icon="🏥" label={t('doctor.profile.clinic')} value={profile?.clinic_code} />
+          <InfoRow icon="📜" label={t('doctor.profile.license')} value={profile?.license_number} />
+          <InfoRow icon="📅" label={t('doctor.profile.registrationDate')} value={fmtDate(profile?.created_at)} />
         </SectionCard>
 
         {/* Professional */}
-        <SectionCard title="Mesleki">
+        <SectionCard title={t('doctor.profile.professional')}>
           <View style={s.fieldRow}>
-            <Text style={s.fieldLabel}>Deneyim</Text>
+            <Text style={s.fieldLabel}>{t('doctor.profile.experience')}</Text>
             {editing ? (
               <TextInput style={s.input} value={form.experience_years}
                 onChangeText={v => setForm(f => ({ ...f, experience_years: v }))}
                 keyboardType="numeric" placeholder="15" />
             ) : (
               <Text style={s.fieldValue}>
-                {profile?.experience_years ? `${profile.experience_years} yıl` : 'Belirtilmedi'}
+                {profile?.experience_years ? `${profile.experience_years} ${t('doctor.profile.years')}` : t('doctor.profile.notSpecified')}
               </Text>
             )}
           </View>
           <View style={s.fieldRow}>
-            <Text style={s.fieldLabel}>Üniversite</Text>
+            <Text style={s.fieldLabel}>{t('doctor.profile.university')}</Text>
             {editing ? (
               <TextInput style={s.input} value={form.university}
                 onChangeText={v => setForm(f => ({ ...f, university: v }))}
-                placeholder="Hacettepe Üniversitesi" />
+                placeholder={t('doctor.profile.university')} />
             ) : (
-              <Text style={s.fieldValue}>{profile?.university || 'Belirtilmedi'}</Text>
+              <Text style={s.fieldValue}>{profile?.university || t('doctor.profile.notSpecified')}</Text>
             )}
           </View>
           <View style={s.fieldRow}>
-            <Text style={s.fieldLabel}>Mezuniyet</Text>
+            <Text style={s.fieldLabel}>{t('doctor.profile.graduation')}</Text>
             {editing ? (
               <TextInput style={s.input} value={form.graduation_year}
                 onChangeText={v => setForm(f => ({ ...f, graduation_year: v }))}
                 keyboardType="numeric" placeholder="2011" />
             ) : (
-              <Text style={s.fieldValue}>{profile?.graduation_year || 'Belirtilmedi'}</Text>
+              <Text style={s.fieldValue}>{profile?.graduation_year || t('doctor.profile.notSpecified')}</Text>
             )}
           </View>
         </SectionCard>
 
-        {/* Profil visibility */}
-        <SectionCard title="Profil">
+        {/* Profile visibility */}
+        <SectionCard title={t('doctor.profile.visibility')}>
           <View style={s.switchRow}>
-            <Text style={s.fieldLabel}>🌐 Profil Görünürlüğü</Text>
+            <Text style={s.fieldLabel}>{t('doctor.profile.publicProfile')}</Text>
             {editing ? (
               <Switch
                 value={form.public_profile}
@@ -269,48 +271,48 @@ export default function DoctorProfileScreen() {
               />
             ) : (
               <Text style={[s.fieldValue, { color: profile?.public_profile ? '#16A34A' : '#6B7280' }]}>
-                {profile?.public_profile ? 'Açık' : 'Kapalı'}
+                {profile?.public_profile ? t('doctor.profile.open') : t('doctor.profile.closed')}
               </Text>
             )}
           </View>
         </SectionCard>
 
-        {/* Uzmanlık */}
-        <SectionCard title="Uzmanlık">
+        {/* Specialties */}
+        <SectionCard title={t('doctor.profile.specialties')}>
           <View style={s.fieldRow}>
-            <Text style={s.fieldLabel}>Uzmanlık Alanları</Text>
+            <Text style={s.fieldLabel}>{t('doctor.profile.specialtyAreas')}</Text>
             {editing ? (
               <TextInput style={[s.input, s.multiline]} value={form.specialties}
                 onChangeText={v => setForm(f => ({ ...f, specialties: v }))}
-                placeholder="Ortodonti, Pedodonti, Cerrahi" multiline />
+                placeholder={t('doctor.profile.specialtyAreas')} multiline />
             ) : (
-              <Text style={s.fieldValue}>{profile?.specialties || 'Belirtilmedi'}</Text>
+              <Text style={s.fieldValue}>{profile?.specialties || t('doctor.profile.notSpecified')}</Text>
             )}
           </View>
           <View style={s.fieldRow}>
-            <Text style={s.fieldLabel}>Diller</Text>
+            <Text style={s.fieldLabel}>{t('doctor.profile.languages')}</Text>
             {editing ? (
               <TextInput style={s.input} value={form.languages}
                 onChangeText={v => setForm(f => ({ ...f, languages: v }))}
-                placeholder="Türkçe, İngilizce" />
+                placeholder={t('doctor.profile.languages')} />
             ) : (
-              <Text style={s.fieldValue}>{profile?.languages || 'Belirtilmedi'}</Text>
+              <Text style={s.fieldValue}>{profile?.languages || t('doctor.profile.notSpecified')}</Text>
             )}
           </View>
           <View style={s.fieldRow}>
-            <Text style={s.fieldLabel}>Bio</Text>
+            <Text style={s.fieldLabel}>{t('doctor.profile.bio')}</Text>
             {editing ? (
               <TextInput style={[s.input, s.multiline]} value={form.bio}
                 onChangeText={v => setForm(f => ({ ...f, bio: v }))}
-                placeholder="Kısa özgeçmiş..." multiline />
+                placeholder={t('doctor.profile.bio')} multiline />
             ) : (
-              <Text style={s.fieldValue}>{profile?.bio || 'Belirtilmedi'}</Text>
+              <Text style={s.fieldValue}>{profile?.bio || t('doctor.profile.notSpecified')}</Text>
             )}
           </View>
         </SectionCard>
 
         {/* App Language */}
-        <SectionCard title="Uygulama Dili">
+        <SectionCard title={t('doctor.profile.appLanguage')}>
           <View style={s.langRow}>
             {SUPPORTED_LANGUAGES.map((lang) => (
               <TouchableOpacity
@@ -328,7 +330,7 @@ export default function DoctorProfileScreen() {
 
         {editing && (
           <TouchableOpacity style={s.cancelBtn} onPress={() => { setEditing(false); load(); }}>
-            <Text style={s.cancelBtnText}>İptal</Text>
+            <Text style={s.cancelBtnText}>{t('doctor.profile.cancel')}</Text>
           </TouchableOpacity>
         )}
 

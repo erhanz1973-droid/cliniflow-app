@@ -36,11 +36,11 @@ interface DashboardData {
   recentPatients: RecentPatient[];
 }
 
-function greeting() {
+function greetingKey() {
   const h = new Date().getHours();
-  if (h < 12) return 'Good morning';
-  if (h < 18) return 'Good afternoon';
-  return 'Good evening';
+  if (h < 12) return 'doctor.greeting.morning';
+  if (h < 18) return 'doctor.greeting.afternoon';
+  return 'doctor.greeting.evening';
 }
 
 function fmtDate(iso: string | null) {
@@ -101,7 +101,7 @@ export default function DoctorDashboard() {
         {/* ── Header ── */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>{greeting()}</Text>
+            <Text style={styles.greeting}>{t(greetingKey())}</Text>
             <Text style={styles.doctorName}>Dr. {doctorName}</Text>
           </View>
           <View style={styles.headerRight}>
@@ -111,13 +111,13 @@ export default function DoctorDashboard() {
             <Pressable
               style={styles.logoutBtn}
               onPress={() =>
-                Alert.alert('Çıkış Yap', 'Çıkış yapmak istediğinizden emin misiniz?', [
-                  { text: 'İptal', style: 'cancel' },
-                  { text: 'Çıkış Yap', onPress: () => { signOut(); router.replace('/'); } },
+                Alert.alert(t('doctor.logout'), t('doctor.logoutConfirm'), [
+                  { text: t('doctor.logoutCancel'), style: 'cancel' },
+                  { text: t('doctor.logout'), onPress: () => { signOut(); router.replace('/'); } },
                 ])
               }
             >
-              <Text style={styles.logoutBtnText}>Logout</Text>
+              <Text style={styles.logoutBtnText}>{t('doctor.logout')}</Text>
             </Pressable>
           </View>
         </View>
@@ -125,32 +125,32 @@ export default function DoctorDashboard() {
         {/* ── Stats ── */}
         <View style={styles.statsRow}>
           {[
-            { label: 'Today',       value: stats.today,       color: '#2563EB' },
-            { label: 'Planned',     value: stats.planned,     color: '#F59E0B' },
-            { label: 'In Progress', value: stats.in_progress, color: '#10B981' },
-            { label: 'Completed',   value: stats.done,        color: '#9CA3AF' },
+            { key: 'doctor.stats.today',      value: stats.today,       color: '#2563EB' },
+            { key: 'doctor.stats.planned',     value: stats.planned,     color: '#F59E0B' },
+            { key: 'doctor.stats.inProgress',  value: stats.in_progress, color: '#10B981' },
+            { key: 'doctor.stats.completed',   value: stats.done,        color: '#9CA3AF' },
           ].map((s) => (
-            <View key={s.label} style={[styles.statCard, { borderLeftColor: s.color }]}>
+            <View key={s.key} style={[styles.statCard, { borderLeftColor: s.color }]}>
               <Text style={[styles.statNum, { color: s.color }]}>{s.value}</Text>
-              <Text style={styles.statLabel}>{s.label}</Text>
+              <Text style={styles.statLabel}>{t(s.key)}</Text>
             </View>
           ))}
         </View>
 
         {/* ── Quick Actions ── */}
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
+        <Text style={styles.sectionTitle}>{t('doctor.quickActions')}</Text>
         <View style={styles.quickRow}>
           <Pressable style={styles.quickCard} onPress={() => router.push('/doctor/patients')}>
             <Text style={styles.quickIcon}>👥</Text>
-            <Text style={styles.quickLabel}>Patients</Text>
+            <Text style={styles.quickLabel}>{t('doctor.quickActions.patients')}</Text>
           </Pressable>
           <Pressable style={styles.quickCard} onPress={() => router.push('/doctor/patients')}>
             <Text style={styles.quickIcon}>🦷</Text>
-            <Text style={styles.quickLabel}>X-Ray</Text>
+            <Text style={styles.quickLabel}>{t('doctor.quickActions.xray')}</Text>
           </Pressable>
           <Pressable style={styles.quickCard} onPress={() => router.push('/doctor/patients')}>
             <Text style={styles.quickIcon}>📋</Text>
-            <Text style={styles.quickLabel}>Tasks</Text>
+            <Text style={styles.quickLabel}>{t('doctor.quickActions.tasks')}</Text>
           </Pressable>
         </View>
 
@@ -160,18 +160,18 @@ export default function DoctorDashboard() {
         ) : (
           <>
             <Text style={styles.sectionTitle}>
-              Today's Appointments ({data?.todayAppointments?.length ?? 0})
+              {t('doctor.todayAppointments')} ({data?.todayAppointments?.length ?? 0})
             </Text>
             <View style={styles.card}>
               {!data?.todayAppointments?.length ? (
-                <Text style={styles.emptyText}>No appointments today.</Text>
+                <Text style={styles.emptyText}>{t('doctor.noAppointments.today')}</Text>
               ) : (
                 data.todayAppointments.map((appt) => (
                   <View key={appt.appointmentId} style={styles.apptRow}>
                     <View style={styles.apptTime}>
                       <Text style={styles.apptTimeText}>{appt.time}</Text>
                       {appt.chairNumber ? (
-                        <Text style={styles.apptChair}>Koltuk {appt.chairNumber}</Text>
+                        <Text style={styles.apptChair}>{t('doctor.chair')} {appt.chairNumber}</Text>
                       ) : null}
                     </View>
                     <View style={styles.apptInfo}>
@@ -182,7 +182,7 @@ export default function DoctorDashboard() {
                     </View>
                     <View style={[styles.apptStatus, { backgroundColor: appt.status === 'completed' ? '#D1FAE5' : appt.status === 'in_progress' ? '#FEF3C7' : '#EFF6FF' }]}>
                       <Text style={[styles.apptStatusText, { color: appt.status === 'completed' ? '#065F46' : appt.status === 'in_progress' ? '#92400E' : '#1D4ED8' }]}>
-                        {appt.status === 'completed' ? 'Tamamlandı' : appt.status === 'in_progress' ? 'Devam' : 'Planlandı'}
+                        {appt.status === 'completed' ? t('doctor.status.completed') : appt.status === 'in_progress' ? t('doctor.status.inProgress') : t('doctor.status.scheduled')}
                       </Text>
                     </View>
                   </View>
@@ -192,18 +192,18 @@ export default function DoctorDashboard() {
 
             {/* ── Tomorrow's Appointments ── */}
             <Text style={styles.sectionTitle}>
-              Tomorrow's Appointments ({data?.tomorrowAppointments?.length ?? 0})
+              {t('doctor.tomorrowAppointments')} ({data?.tomorrowAppointments?.length ?? 0})
             </Text>
             <View style={styles.card}>
               {!data?.tomorrowAppointments?.length ? (
-                <Text style={styles.emptyText}>No appointments tomorrow.</Text>
+                <Text style={styles.emptyText}>{t('doctor.noAppointments.tomorrow')}</Text>
               ) : (
                 data.tomorrowAppointments.map((appt) => (
                   <View key={appt.appointmentId} style={styles.apptRow}>
                     <View style={styles.apptTime}>
                       <Text style={styles.apptTimeText}>{appt.time}</Text>
                       {appt.chairNumber ? (
-                        <Text style={styles.apptChair}>Koltuk {appt.chairNumber}</Text>
+                        <Text style={styles.apptChair}>{t('doctor.chair')} {appt.chairNumber}</Text>
                       ) : null}
                     </View>
                     <View style={styles.apptInfo}>
@@ -214,7 +214,7 @@ export default function DoctorDashboard() {
                     </View>
                     <View style={[styles.apptStatus, { backgroundColor: appt.status === 'completed' ? '#D1FAE5' : appt.status === 'in_progress' ? '#FEF3C7' : '#EFF6FF' }]}>
                       <Text style={[styles.apptStatusText, { color: appt.status === 'completed' ? '#065F46' : appt.status === 'in_progress' ? '#92400E' : '#1D4ED8' }]}>
-                        {appt.status === 'completed' ? 'Tamamlandı' : appt.status === 'in_progress' ? 'Devam' : 'Planlandı'}
+                        {appt.status === 'completed' ? t('doctor.status.completed') : appt.status === 'in_progress' ? t('doctor.status.inProgress') : t('doctor.status.scheduled')}
                       </Text>
                     </View>
                   </View>
@@ -223,10 +223,10 @@ export default function DoctorDashboard() {
             </View>
 
             {/* ── Recent Patients ── */}
-            <Text style={styles.sectionTitle}>Recent Patients</Text>
+            <Text style={styles.sectionTitle}>{t('doctor.recentPatients')}</Text>
             <View style={styles.card}>
               {!data?.recentPatients?.length ? (
-                <Text style={styles.emptyText}>No recent patients.</Text>
+                <Text style={styles.emptyText}>{t('doctor.noPatients')}</Text>
               ) : (
                 data.recentPatients.map((p) => (
                   <Pressable
@@ -249,7 +249,7 @@ export default function DoctorDashboard() {
                         )}
                       </View>
                       <Text style={styles.patientSub}>
-                        Last visit: {fmtDate(p.lastVisit)}
+                        {t('doctor.lastVisit')}: {fmtDate(p.lastVisit)}
                       </Text>
                     </View>
                   </Pressable>

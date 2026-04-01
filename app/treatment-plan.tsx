@@ -7,6 +7,7 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../lib/auth';
+import { useLanguage } from '../lib/language-context';
 import { API_ROUTES } from '../lib/api-routes';
 import { secureGet, securePost } from '../lib/secure-fetch';
 import { API_BASE } from '../lib/api';
@@ -65,15 +66,15 @@ function procLabel(type: string) {
 
 // ── Statuses ───────────────────────────────────────────────────────────────
 const STATUSES = [
-  { value: 'planned',   label: 'Planlı',       color: '#6366F1', bg: '#EEF2FF' },
-  { value: 'scheduled', label: 'Planlandı',     color: '#2563EB', bg: '#DBEAFE' },
-  { value: 'active',    label: 'Devam Ediyor',  color: '#F59E0B', bg: '#FEF3C7' },
-  { value: 'completed', label: 'Tamamlandı',    color: '#10B981', bg: '#D1FAE5' },
-  { value: 'cancelled', label: 'İptal',         color: '#EF4444', bg: '#FEE2E2' },
+  { value: 'planned',   labelKey: 'treatmentPlan.status.planned',   color: '#6366F1', bg: '#EEF2FF' },
+  { value: 'scheduled', labelKey: 'treatmentPlan.status.scheduled', color: '#2563EB', bg: '#DBEAFE' },
+  { value: 'active',    labelKey: 'treatmentPlan.status.active',    color: '#F59E0B', bg: '#FEF3C7' },
+  { value: 'completed', labelKey: 'treatmentPlan.status.completed', color: '#10B981', bg: '#D1FAE5' },
+  { value: 'cancelled', labelKey: 'treatmentPlan.status.cancelled', color: '#EF4444', bg: '#FEE2E2' },
 ];
 function statusInfo(s: string) {
   return STATUSES.find(x => x.value === String(s || '').toLowerCase())
-    ?? { value: s, label: s || '—', color: '#6B7280', bg: '#F3F4F6' };
+    ?? { value: s, labelKey: '', color: '#6B7280', bg: '#F3F4F6' };
 }
 
 type Treatment = {
@@ -112,6 +113,7 @@ function DateTimeField({
   value: Date | null;
   onChange: (d: Date) => void;
 }) {
+  const { t } = useLanguage();
   const [showDate, setShowDate] = useState(false);
   const [showTime, setShowTime] = useState(false);
 
@@ -146,7 +148,7 @@ function DateTimeField({
           <Text style={styles.dtBtnText}>
             {value
               ? value.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-              : 'Tarih seç'}
+              : t('treatmentPlan.selectDate')}
           </Text>
         </TouchableOpacity>
 
@@ -155,7 +157,7 @@ function DateTimeField({
           <Text style={styles.dtBtnText}>
             {value
               ? value.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
-              : 'Saat seç'}
+              : t('treatmentPlan.selectTime')}
           </Text>
         </TouchableOpacity>
 
@@ -179,7 +181,7 @@ function DateTimeField({
           />
           {Platform.OS === 'ios' && (
             <TouchableOpacity style={styles.dtDoneBtn} onPress={() => setShowDate(false)}>
-              <Text style={styles.dtDoneBtnText}>Tamam</Text>
+              <Text style={styles.dtDoneBtnText}>{t('treatmentPlan.ok')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -196,7 +198,7 @@ function DateTimeField({
           />
           {Platform.OS === 'ios' && (
             <TouchableOpacity style={styles.dtDoneBtn} onPress={() => setShowTime(false)}>
-              <Text style={styles.dtDoneBtnText}>Tamam</Text>
+              <Text style={styles.dtDoneBtnText}>{t('treatmentPlan.ok')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -214,6 +216,7 @@ function AddModal({
   token?: string; patientId: string; currentDoctorId?: string;
   onClose: () => void; onAdded: (t: Treatment) => void;
 }) {
+  const { t } = useLanguage();
   const [toothInput, setToothInput] = useState('');
   const [selectedProc, setSelectedProc] = useState<typeof PROCEDURES[0] | null>(null);
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
@@ -233,9 +236,9 @@ function AddModal({
   const save = async () => {
     const toothNum = parseInt(toothInput, 10);
     if (isNaN(toothNum) || toothNum < 11 || toothNum > 48) {
-      Alert.alert('Hata', 'Geçerli bir diş numarası girin (11-48)'); return;
+      Alert.alert(t('common.error'), t('treatmentPlan.invalidTooth')); return;
     }
-    if (!selectedProc) { Alert.alert('Hata', 'İşlem seçin'); return; }
+    if (!selectedProc) { Alert.alert(t('common.error'), t('treatmentPlan.selectProcedure')); return; }
 
     try {
       setSaving(true);
@@ -250,11 +253,11 @@ function AddModal({
         API_ROUTES.doctor.addPatientTreatment(patientId),
         body, token
       );
-      if (!res?.ok) throw new Error(res?.error || 'Kaydedilemedi');
+      if (!res?.ok) throw new Error(res?.error || t('common.error'));
       onAdded(res.treatment);
       reset();
     } catch (e: any) {
-      Alert.alert('Hata', e.message || 'Kaydedilemedi');
+      Alert.alert(t('common.error'), e.message || t('common.error'));
     } finally {
       setSaving(false);
     }
@@ -265,7 +268,7 @@ function AddModal({
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalOverlay}>
         <View style={styles.modalSheet}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Yeni İşlem Ekle</Text>
+            <Text style={styles.modalTitle}>{t('treatmentPlan.addNew')}</Text>
             <TouchableOpacity onPress={() => { reset(); onClose(); }}>
               <Text style={styles.modalClose}>✕</Text>
             </TouchableOpacity>
@@ -273,17 +276,17 @@ function AddModal({
 
           <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
             {/* Tooth selector */}
-            <Text style={styles.fieldLabel}>Diş Numarası *</Text>
+            <Text style={styles.fieldLabel}>{t('treatmentPlan.toothNumberRequired')}</Text>
             {diagnosedTeeth.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.teethChips}>
-                {diagnosedTeeth.map(t => (
+                {diagnosedTeeth.map(tooth => (
                   <TouchableOpacity
-                    key={t}
-                    style={[styles.teethChip, toothInput === t && styles.teethChipActive]}
-                    onPress={() => setToothInput(t)}
+                    key={tooth}
+                    style={[styles.teethChip, toothInput === tooth && styles.teethChipActive]}
+                    onPress={() => setToothInput(tooth)}
                   >
-                    <Text style={[styles.teethChipText, toothInput === t && styles.teethChipTextActive]}>
-                      Diş {t}
+                    <Text style={[styles.teethChipText, toothInput === tooth && styles.teethChipTextActive]}>
+                      {t('diagnosis.tooth')} {tooth}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -291,7 +294,7 @@ function AddModal({
             )}
             <TextInput
               style={styles.input}
-              placeholder="11-48 arası"
+              placeholder="11-48"
               keyboardType="numeric"
               value={toothInput}
               onChangeText={setToothInput}
@@ -299,10 +302,10 @@ function AddModal({
             />
 
             {/* Procedure picker */}
-            <Text style={styles.fieldLabel}>İşlem Türü *</Text>
+            <Text style={styles.fieldLabel}>{t('treatmentPlan.procedure')}</Text>
             <TouchableOpacity style={styles.picker} onPress={() => setShowProcList(!showProcList)}>
               <Text style={selectedProc ? styles.pickerValue : styles.pickerPlaceholder}>
-                {selectedProc ? selectedProc.label : 'Seçin…'}
+                {selectedProc ? t(`treatmentPlan.proc.${selectedProc.type}`) || selectedProc.label : t('treatmentPlan.selectProcedure')}
               </Text>
               <Text style={styles.pickerArrow}>{showProcList ? '▲' : '▼'}</Text>
             </TouchableOpacity>
@@ -317,7 +320,9 @@ function AddModal({
                         <React.Fragment key={p.type}>
                           {catHeader && (
                             <View style={styles.dropCatHeader}>
-                              <Text style={styles.dropCatText}>{catHeader}</Text>
+                              <Text style={styles.dropCatText}>
+                                {t(`treatmentPlan.cat.${catHeader}`) || catHeader}
+                              </Text>
                             </View>
                           )}
                           <TouchableOpacity
@@ -325,7 +330,7 @@ function AddModal({
                             onPress={() => { setSelectedProc(p); setShowProcList(false); }}
                           >
                             <Text style={[styles.dropItemText, selectedProc?.type === p.type && styles.dropItemTextActive]}>
-                              {p.label}
+                              {t(`treatmentPlan.proc.${p.type}`) || p.label}
                             </Text>
                           </TouchableOpacity>
                         </React.Fragment>
@@ -337,17 +342,17 @@ function AddModal({
             )}
 
             {/* Doctor picker */}
-            <Text style={styles.fieldLabel}>Doktor</Text>
+            <Text style={styles.fieldLabel}>{t('treatmentPlan.assignDoctor')}</Text>
             <TouchableOpacity style={styles.picker} onPress={() => setShowDoctorList(!showDoctorList)}>
               <Text style={selectedDoctor ? styles.pickerValue : styles.pickerPlaceholder}>
-                {selectedDoctor ? (selectedDoctor.full_name || selectedDoctor.name || selectedDoctor.id) : 'Seçin…'}
+                {selectedDoctor ? (selectedDoctor.full_name || selectedDoctor.name || selectedDoctor.id) : t('treatmentPlan.selectProcedure')}
               </Text>
               <Text style={styles.pickerArrow}>{showDoctorList ? '▲' : '▼'}</Text>
             </TouchableOpacity>
             {showDoctorList && (
               <View style={styles.dropDown}>
                 <TouchableOpacity style={styles.dropItem} onPress={() => { setSelectedDoctor(null); setShowDoctorList(false); }}>
-                  <Text style={styles.dropItemText}>— Seçilmedi</Text>
+                  <Text style={styles.dropItemText}>—</Text>
                 </TouchableOpacity>
                 {doctors.map(d => {
                   const isSelf = currentDoctorId && (d.id === currentDoctorId || d.doctor_id === currentDoctorId);
@@ -358,7 +363,7 @@ function AddModal({
                       onPress={() => { setSelectedDoctor(d); setShowDoctorList(false); }}
                     >
                       <Text style={[styles.dropItemText, selectedDoctor?.id === d.id && styles.dropItemTextActive]}>
-                        {d.full_name || d.name || d.id}{isSelf ? ' (Ben)' : ''}
+                        {d.full_name || d.name || d.id}{isSelf ? ` (${t('treatmentPlan.self')})` : ''}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -367,11 +372,11 @@ function AddModal({
             )}
 
             {/* Date + Time */}
-            <Text style={styles.fieldLabel}>Tarih ve Saat</Text>
+            <Text style={styles.fieldLabel}>{t('treatmentPlan.dateTime')}</Text>
             <DateTimeField value={selectedDate} onChange={d => setSelectedDate(d)} />
 
             {/* Chair */}
-            <Text style={styles.fieldLabel}>Koltuk No</Text>
+            <Text style={styles.fieldLabel}>{t('treatmentPlan.chairNo')}</Text>
             <View style={styles.inputRow}>
               {['1','2','3','4'].map(n => (
                 <TouchableOpacity
@@ -389,7 +394,7 @@ function AddModal({
             <TouchableOpacity style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={save} disabled={saving}>
               {saving
                 ? <ActivityIndicator color="#fff" size="small" />
-                : <Text style={styles.saveBtnText}>Kaydet</Text>
+                : <Text style={styles.saveBtnText}>{t('treatmentPlan.save')}</Text>
               }
             </TouchableOpacity>
             <View style={{ height: 40 }} />
@@ -409,6 +414,7 @@ function EditModal({
   token?: string; currentDoctorId?: string;
   onClose: () => void; onUpdated: (t: Treatment) => void;
 }) {
+  const { t } = useLanguage();
   const [status, setStatus] = useState(treatment?.status || 'planned');
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -447,10 +453,10 @@ function EditModal({
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!data?.ok) throw new Error(data?.error || 'Güncellenemedi');
+      if (!data?.ok) throw new Error(data?.error || t('common.error'));
       onUpdated({ ...treatment, ...data.treatment });
     } catch (e: any) {
-      Alert.alert('Hata', e.message || 'Güncellenemedi');
+      Alert.alert(t('common.error'), e.message || t('common.error'));
     } finally {
       setSaving(false);
     }
@@ -465,7 +471,7 @@ function EditModal({
           <View style={styles.modalHeader}>
             <View>
               <Text style={styles.modalTitle}>
-                Diş {treatment.tooth_number} — {procLabel(treatment.procedure_type)}
+                {t('diagnosis.tooth')} {treatment.tooth_number} — {t(`treatmentPlan.proc.${treatment.procedure_type}`) || procLabel(treatment.procedure_type)}
               </Text>
             </View>
             <TouchableOpacity onPress={onClose}>
@@ -475,10 +481,10 @@ function EditModal({
 
           <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
             {/* Status picker */}
-            <Text style={styles.fieldLabel}>Durum</Text>
+            <Text style={styles.fieldLabel}>{t('treatmentPlan.status')}</Text>
             <TouchableOpacity style={styles.picker} onPress={() => setShowStatusList(!showStatusList)}>
               <View style={[styles.statusDot, { backgroundColor: si.bg }]}>
-                <Text style={[styles.statusDotText, { color: si.color }]}>{si.label}</Text>
+                <Text style={[styles.statusDotText, { color: si.color }]}>{t(si.labelKey) || si.value}</Text>
               </View>
               <Text style={styles.pickerArrow}>{showStatusList ? '▲' : '▼'}</Text>
             </TouchableOpacity>
@@ -491,7 +497,7 @@ function EditModal({
                     onPress={() => { setStatus(s.value); setShowStatusList(false); }}
                   >
                     <View style={[styles.statusDot, { backgroundColor: s.bg }]}>
-                      <Text style={[styles.statusDotText, { color: s.color }]}>{s.label}</Text>
+                      <Text style={[styles.statusDotText, { color: s.color }]}>{t(s.labelKey)}</Text>
                     </View>
                   </TouchableOpacity>
                 ))}
@@ -499,17 +505,17 @@ function EditModal({
             )}
 
             {/* Doctor picker */}
-            <Text style={styles.fieldLabel}>Doktor Ata</Text>
+            <Text style={styles.fieldLabel}>{t('treatmentPlan.assignDoctor')}</Text>
             <TouchableOpacity style={styles.picker} onPress={() => setShowDoctorList(!showDoctorList)}>
               <Text style={selectedDoctor ? styles.pickerValue : styles.pickerPlaceholder}>
-                {selectedDoctor ? (selectedDoctor.full_name || selectedDoctor.name || selectedDoctor.id) : 'Seçin…'}
+                {selectedDoctor ? (selectedDoctor.full_name || selectedDoctor.name || selectedDoctor.id) : t('treatmentPlan.selectProcedure')}
               </Text>
               <Text style={styles.pickerArrow}>{showDoctorList ? '▲' : '▼'}</Text>
             </TouchableOpacity>
             {showDoctorList && (
               <View style={styles.dropDown}>
                 <TouchableOpacity style={styles.dropItem} onPress={() => { setSelectedDoctor(null); setShowDoctorList(false); }}>
-                  <Text style={styles.dropItemText}>— Seçilmedi</Text>
+                  <Text style={styles.dropItemText}>—</Text>
                 </TouchableOpacity>
                 {doctors.map(d => {
                   const isSelf = currentDoctorId && (d.id === currentDoctorId || d.doctor_id === currentDoctorId);
@@ -520,7 +526,7 @@ function EditModal({
                       onPress={() => { setSelectedDoctor(d); setShowDoctorList(false); }}
                     >
                       <Text style={[styles.dropItemText, selectedDoctor?.id === d.id && styles.dropItemTextActive]}>
-                        {d.full_name || d.name || d.id}{isSelf ? ' (Ben)' : ''}
+                        {d.full_name || d.name || d.id}{isSelf ? ` (${t('treatmentPlan.self')})` : ''}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -529,11 +535,11 @@ function EditModal({
             )}
 
             {/* Date + Time */}
-            <Text style={styles.fieldLabel}>Tarih ve Saat</Text>
+            <Text style={styles.fieldLabel}>{t('treatmentPlan.dateTime')}</Text>
             <DateTimeField value={selectedDate} onChange={d => setSelectedDate(d)} />
 
             {/* Chair chips */}
-            <Text style={styles.fieldLabel}>Koltuk No</Text>
+            <Text style={styles.fieldLabel}>{t('treatmentPlan.chairNo')}</Text>
             <View style={styles.inputRow}>
               {['1','2','3','4'].map(n => (
                 <TouchableOpacity
@@ -551,7 +557,7 @@ function EditModal({
             <TouchableOpacity style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={save} disabled={saving}>
               {saving
                 ? <ActivityIndicator color="#fff" size="small" />
-                : <Text style={styles.saveBtnText}>Güncelle</Text>
+                : <Text style={styles.saveBtnText}>{t('treatmentPlan.save')}</Text>
               }
             </TouchableOpacity>
             <View style={{ height: 40 }} />
@@ -567,6 +573,7 @@ export default function TreatmentPlanScreen() {
   const router = useRouter();
   const { patientId } = useLocalSearchParams();
   const { user } = useAuth();
+  const { t } = useLanguage();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -603,7 +610,7 @@ export default function TreatmentPlanScreen() {
     return (
       <SafeAreaView style={styles.centered}>
         <ActivityIndicator size="large" color="#2563EB" />
-        <Text style={styles.loadingText}>Yükleniyor…</Text>
+        <Text style={styles.loadingText}>{t('common.loading')}</Text>
       </SafeAreaView>
     );
   }
@@ -624,11 +631,11 @@ export default function TreatmentPlanScreen() {
             });
           }
         }}>
-          <Text style={styles.backBtnText}>← Geri</Text>
+          <Text style={styles.backBtnText}>← {t('common.back')}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Tedavi Planı</Text>
+        <Text style={styles.headerTitle}>{t('treatmentPlan.title')}</Text>
         <TouchableOpacity style={styles.dashBtn} onPress={() => router.replace('/doctor')}>
-          <Text style={styles.dashBtnText}>△ Dashboard</Text>
+          <Text style={styles.dashBtnText}>△ {t('nav.dashboard')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -640,10 +647,10 @@ export default function TreatmentPlanScreen() {
         {/* Primary diagnosis badge */}
         {primaryDx && (
           <View style={styles.dxBadge}>
-            <Text style={styles.dxBadgeLabel}>Birincil Tanı</Text>
+            <Text style={styles.dxBadgeLabel}>{t('diagnosis.primary')}</Text>
             <Text style={styles.dxBadgeText}>
               {primaryDx.icd10_code ? `${primaryDx.icd10_code} — ` : ''}{primaryDx.icd10_description}
-              {primaryDx.tooth_number ? `  (Diş ${primaryDx.tooth_number})` : ''}
+              {primaryDx.tooth_number ? `  (${t('diagnosis.tooth')} ${primaryDx.tooth_number})` : ''}
             </Text>
           </View>
         )}
@@ -651,19 +658,19 @@ export default function TreatmentPlanScreen() {
         {/* Treatment list */}
         <View style={styles.sectionRow}>
           <Text style={styles.sectionTitle}>
-            Tedaviler {treatments.length > 0 ? `(${treatments.length})` : ''}
+            {t('treatmentPlan.title')} {treatments.length > 0 ? `(${treatments.length})` : ''}
           </Text>
           <TouchableOpacity style={styles.addBtn} onPress={() => setShowAdd(true)}>
-            <Text style={styles.addBtnText}>+ İşlem Ekle</Text>
+            <Text style={styles.addBtnText}>+ {t('treatmentPlan.addTreatment')}</Text>
           </TouchableOpacity>
         </View>
 
         {treatments.length === 0 ? (
           <View style={styles.emptyBox}>
             <Text style={styles.emptyIcon}>🦷</Text>
-            <Text style={styles.emptyText}>Henüz tedavi kaydı yok</Text>
+            <Text style={styles.emptyText}>{t('treatmentPlan.noTreatments')}</Text>
             <TouchableOpacity style={styles.emptyAddBtn} onPress={() => setShowAdd(true)}>
-              <Text style={styles.emptyAddBtnText}>+ İşlem Ekle</Text>
+              <Text style={styles.emptyAddBtnText}>+ {t('treatmentPlan.addTreatment')}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -683,18 +690,18 @@ export default function TreatmentPlanScreen() {
                 <View style={styles.cardRow}>
                   <View style={styles.toothBadge}>
                     <Text style={styles.toothBadgeText}>
-                      {tx.tooth_number ? `Diş ${tx.tooth_number}` : '—'}
+                      {tx.tooth_number ? `${t('diagnosis.tooth')} ${tx.tooth_number}` : '—'}
                     </Text>
                   </View>
                   <View style={[styles.statusPill, { backgroundColor: si.bg }]}>
-                    <Text style={[styles.statusPillText, { color: si.color }]}>{si.label}</Text>
+                    <Text style={[styles.statusPillText, { color: si.color }]}>{t(si.labelKey) || si.value}</Text>
                   </View>
                   <Text style={styles.editHint}>›</Text>
                 </View>
-                <Text style={styles.procName}>{procLabel(tx.procedure_type)}</Text>
+                <Text style={styles.procName}>{t(`treatmentPlan.proc.${tx.procedure_type}`) || procLabel(tx.procedure_type)}</Text>
                 <View style={styles.cardMeta}>
                   {date && <Text style={styles.metaText}>📅 {date}</Text>}
-                  {tx.chair && <Text style={styles.metaText}>💺 Koltuk {tx.chair}</Text>}
+                  {tx.chair && <Text style={styles.metaText}>💺 {t('treatmentPlan.chairNo')} {tx.chair}</Text>}
                   {docName && <Text style={styles.metaText}>👨‍⚕️ {docName}</Text>}
                 </View>
               </TouchableOpacity>
@@ -706,7 +713,7 @@ export default function TreatmentPlanScreen() {
         {diagnoses.length > 0 && (
           <>
             <Text style={[styles.sectionTitle, { marginTop: 24 }]}>
-              Tanılar ({diagnoses.length})
+              {t('treatmentPlan.diagnoses')} ({diagnoses.length})
             </Text>
             {diagnoses.map(dx => (
               <View key={dx.id} style={[styles.card, styles.dxCard]}>
@@ -714,13 +721,13 @@ export default function TreatmentPlanScreen() {
                   {dx.tooth_number && (
                     <View style={[styles.toothBadge, styles.toothBadgeDx]}>
                       <Text style={[styles.toothBadgeText, { color: '#7C3AED' }]}>
-                        Diş {dx.tooth_number}
+                        {t('diagnosis.tooth')} {dx.tooth_number}
                       </Text>
                     </View>
                   )}
                   {dx.is_primary && (
                     <View style={styles.primaryPill}>
-                      <Text style={styles.primaryPillText}>BİRİNCİL</Text>
+                      <Text style={styles.primaryPillText}>{t('diagnosis.primary')}</Text>
                     </View>
                   )}
                 </View>

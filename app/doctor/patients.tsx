@@ -26,6 +26,12 @@ interface Patient {
 
 type FilterTab = 'All' | 'Approved' | 'Pending' | 'Rejected';
 const FILTER_TABS: FilterTab[] = ['All', 'Approved', 'Pending', 'Rejected'];
+const FILTER_KEYS: Record<FilterTab, string> = {
+  All: 'doctor.patients.all',
+  Approved: 'doctor.patients.approved',
+  Pending: 'doctor.patients.pending',
+  Rejected: 'doctor.patients.rejected',
+};
 
 const STATUS_MAP: Record<string, string> = {
   ACTIVE: 'Approved',
@@ -99,13 +105,13 @@ export default function DoctorPatientsScreen() {
     <SafeAreaView style={styles.root}>
       {/* ── Header ── */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>{t('nav.patients') || 'nav.patients'}</Text>
+        <Text style={styles.headerTitle}>{t('nav.patients')}</Text>
         <View style={styles.headerBtns}>
           <Pressable style={styles.refreshBtn} onPress={onRefresh}>
-            <Text style={styles.refreshBtnText}>↺ Refresh</Text>
+            <Text style={styles.refreshBtnText}>{t('doctor.patients.refresh')}</Text>
           </Pressable>
           <Pressable style={styles.dashBtn} onPress={() => router.replace('/doctor')}>
-            <Text style={styles.dashBtnText}>⌂ Dashboard</Text>
+            <Text style={styles.dashBtnText}>⌂ {t('nav.dashboard')}</Text>
           </Pressable>
         </View>
       </View>
@@ -114,7 +120,7 @@ export default function DoctorPatientsScreen() {
       <View style={styles.searchWrap}>
         <TextInput
           style={styles.searchInput}
-          placeholder="Search patients..."
+          placeholder={t('doctor.patients.search')}
           placeholderTextColor="#9CA3AF"
           value={search}
           onChangeText={setSearch}
@@ -130,7 +136,7 @@ export default function DoctorPatientsScreen() {
             style={[styles.tab, filter === tab && styles.tabActive]}
             onPress={() => setFilter(tab)}
           >
-            <Text style={[styles.tabText, filter === tab && styles.tabTextActive]}>{tab}</Text>
+            <Text style={[styles.tabText, filter === tab && styles.tabTextActive]}>{t(FILTER_KEYS[tab])}</Text>
           </Pressable>
         ))}
       </View>
@@ -151,10 +157,10 @@ export default function DoctorPatientsScreen() {
             <View style={styles.emptyBox}>
               <Text style={styles.emptyIcon}>👥</Text>
               <Text style={styles.emptyTitle}>
-                {search ? 'No results found' : 'No patients yet'}
+                {search ? t('doctor.patients.noResults') : t('doctor.patients.noPatientsYet')}
               </Text>
               <Text style={styles.emptySub}>
-                {search ? 'Try a different search term.' : 'Patients assigned to you will appear here.'}
+                {search ? t('doctor.patients.noResultsSub') : t('doctor.patients.noPatientsYetSub')}
               </Text>
             </View>
           ) : (
@@ -197,19 +203,19 @@ export default function DoctorPatientsScreen() {
                       style={[styles.actionBtn, styles.actionBtnGreen]}
                       onPress={() => router.push(`/doctor/diagnosis?patientId=${p.id}`)}
                     >
-                      <Text style={styles.actionBtnText}>New Treatment</Text>
+                      <Text style={styles.actionBtnText}>{t('doctor.patients.newTreatment')}</Text>
                     </Pressable>
                     <Pressable
                       style={[styles.actionBtn, styles.actionBtnGray]}
                       onPress={() => router.push(`/doctor/diagnosis?patientId=${p.id}`)}
                     >
-                      <Text style={[styles.actionBtnText, { color: '#fff' }]}>History</Text>
+                      <Text style={[styles.actionBtnText, { color: '#fff' }]}>{t('doctor.patients.history')}</Text>
                     </Pressable>
                     <Pressable
                       style={[styles.actionBtn, styles.actionBtnPurple]}
                       onPress={() => router.push(`/doctor/patients`)}
                     >
-                      <Text style={styles.actionBtnText}>Files</Text>
+                      <Text style={styles.actionBtnText}>{t('doctor.patients.files')}</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -224,15 +230,15 @@ export default function DoctorPatientsScreen() {
       <View style={styles.bottomNav}>
         <Pressable style={styles.navItem} onPress={() => router.replace('/doctor')}>
           <Text style={styles.navIcon}>🏠</Text>
-          <Text style={styles.navLabel}>{t('nav.dashboard') || 'nav.dashboard'}</Text>
+          <Text style={styles.navLabel}>{t('nav.dashboard')}</Text>
         </Pressable>
         <Pressable style={[styles.navItem, styles.navItemActive]}>
           <Text style={styles.navIcon}>👥</Text>
-          <Text style={[styles.navLabel, styles.navLabelActive]}>{t('nav.patients') || 'nav.patients'}</Text>
+          <Text style={[styles.navLabel, styles.navLabelActive]}>{t('nav.patients')}</Text>
         </Pressable>
         <Pressable style={styles.navItem} onPress={() => router.push('/doctor/profile')}>
           <Text style={styles.navIcon}>👤</Text>
-          <Text style={styles.navLabel}>{t('nav.profile') || 'nav.profile'}</Text>
+          <Text style={styles.navLabel}>{t('nav.profile')}</Text>
         </Pressable>
       </View>
     </SafeAreaView>
