@@ -4,10 +4,12 @@ import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator, Styl
 import { useRouter } from "expo-router";
 import { handleDoctorRegistration } from "../lib/doctor/register";
 import { useAuth } from "../lib/auth";
+import { useLanguage } from "../lib/language-context";
 
 export default function RegisterDoctorScreen() {
   const router = useRouter();
   const { signIn } = useAuth();
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     fullName: "",
@@ -27,7 +29,7 @@ export default function RegisterDoctorScreen() {
 
   const handleRegister = async () => {
     if (!isFormValid) {
-      Alert.alert("Hata", "Tüm zorunlu alanları doldurun");
+      Alert.alert(t('login.error'), t('register.fillRequired'));
       return;
     }
 
@@ -61,11 +63,11 @@ export default function RegisterDoctorScreen() {
           }
 
           Alert.alert(
-            "Başarılı",
-            "Doktor hesabınız onaylı. Giriş yapılıyorsunuz.",
+            t('register.success'),
+            t('register.successApproved'),
             [
               {
-                text: "Tamam",
+                text: t('register.ok'),
                 onPress: () => {
                   router.replace("/doctor");
                 },
@@ -74,11 +76,11 @@ export default function RegisterDoctorScreen() {
           );
         } else {
           Alert.alert(
-            "Başvuru alındı",
-            "Doktor hesabınız admin onayından sonra giriş yapabilirsiniz.",
+            t('register.pending'),
+            t('register.pendingMessage'),
             [
               {
-                text: "Tamam",
+                text: t('register.ok'),
                 onPress: () => {
                   router.replace("/login/doctor");
                 },
@@ -87,31 +89,30 @@ export default function RegisterDoctorScreen() {
           );
         }
       } else {
-        Alert.alert("Hata", result.error || "Doktor kaydı başarısız");
+        Alert.alert(t('login.error'), result.error || t('register.failed'));
       }
     } catch (error: any) {
       console.error("Doctor registration error:", error);
       
-      // Handle 409 Conflict (already registered) specifically
       if (error.message && error.message.includes("409")) {
         Alert.alert(
-          "Zaten Kayıtlı",
-          "Bu telefon numarası veya email ile kayıtlı bir doktor zaten mevcut. Giriş yapmak için doktor login ekranına gidin.",
+          t('register.alreadyExists'),
+          t('register.alreadyExistsMessage'),
           [
             {
-              text: "Giriş Yap",
+              text: t('register.goToLogin'),
               onPress: () => {
                 router.replace("/login/doctor");
               },
             },
             {
-              text: "İptal",
+              text: t('register.cancel'),
               style: "cancel"
             }
           ]
         );
       } else {
-        Alert.alert("Hata", error.message || "Kayıt başarısız oldu");
+        Alert.alert(t('login.error'), error.message || t('register.failed'));
       }
     } finally {
       setLoading(false);
@@ -120,17 +121,17 @@ export default function RegisterDoctorScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Doktor Kayıt</Text>
+      <Text style={styles.title}>{t('register.doctorTitle')}</Text>
 
       <TextInput
-        placeholder="Ad Soyad"
+        placeholder={t('register.fullName')}
         value={formData.fullName}
         onChangeText={(text) => setFormData({ ...formData, fullName: text })}
         style={styles.input}
       />
 
       <TextInput
-        placeholder="Telefon"
+        placeholder={t('register.phone')}
         value={formData.phone}
         onChangeText={(text) => setFormData({ ...formData, phone: text })}
         keyboardType="phone-pad"
@@ -138,7 +139,7 @@ export default function RegisterDoctorScreen() {
       />
 
       <TextInput
-        placeholder="Email (opsiyonel)"
+        placeholder={t('register.emailOptional')}
         value={formData.email}
         onChangeText={(text) => setFormData({ ...formData, email: text })}
         keyboardType="email-address"
@@ -146,7 +147,7 @@ export default function RegisterDoctorScreen() {
       />
 
       <TextInput
-        placeholder="Klinik Kodu (ZORUNLU)"
+        placeholder={t('register.clinicCodeRequired')}
         value={formData.clinicCode}
         onChangeText={(text) => setFormData({ ...formData, clinicCode: text.toUpperCase() })}
         autoCapitalize="characters"
@@ -154,7 +155,7 @@ export default function RegisterDoctorScreen() {
       />
 
       <TextInput
-        placeholder="Lisans No (ZORUNLU)"
+        placeholder={t('register.licenseRequired')}
         value={formData.licenseNumber}
         onChangeText={(text) => setFormData({ ...formData, licenseNumber: text })}
         style={styles.input}
@@ -169,7 +170,7 @@ export default function RegisterDoctorScreen() {
           <ActivityIndicator color="white" />
         ) : (
           <Text style={styles.registerButtonText}>
-            Doktor Olarak Başvur
+            {t('register.submit')}
           </Text>
         )}
       </TouchableOpacity>
@@ -179,7 +180,7 @@ export default function RegisterDoctorScreen() {
         style={styles.linkButton}
       >
         <Text style={styles.linkText}>
-          Hasta olarak mı kayıt olacaksınız?
+          {t('register.isPatient')}
         </Text>
       </TouchableOpacity>
     </View>

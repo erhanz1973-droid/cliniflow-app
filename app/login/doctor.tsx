@@ -266,7 +266,7 @@ export default function DoctorLogin() {
           {loading ? (
             <ActivityIndicator size="small" color="#ffffff" />
           ) : (
-            <Text style={styles.buttonText}>{t('login.doctorTitle')}</Text>
+            <Text style={styles.buttonText}>{t('login.loginButton')}</Text>
           )}
         </Pressable>
         {!!statusMsg && (
@@ -294,7 +294,7 @@ export default function DoctorLogin() {
           style={[styles.altButton, { alignSelf: 'center', marginTop: 8, minWidth: 200 }]}
           onPress={() => router.push('/register-doctor')}
         >
-          <Text style={styles.altButtonText}>Doktor Kaydı</Text>
+          <Text style={styles.altButtonText}>{t('login.registerDoctor')}</Text>
         </Pressable>
       </View>
     </View>
