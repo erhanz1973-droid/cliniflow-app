@@ -35,20 +35,42 @@ export default function DoctorDiagnosisScreen() {
   const [activeEncounterId, setActiveEncounterId] = useState(encounterId || '');
 
   // ── Load or create encounter ────────────────────────────────────────────────
-  const ensureEncounter = useCallback(async () => {
+  // First tries to find the latest existing encounter for the patient,
+  // only creates a new one if none exist.
+  const ensureEncounter = useCallback(async (): Promise<string> => {
     if (activeEncounterId) return activeEncounterId;
     if (!patientId) return '';
     try {
+      // Try to find existing encounters for this patient
+      const existing = await secureGet(
+        API_ROUTES.doctor.encountersByPatient(patientId),
+        user?.token,
+      );
+      const list: any[] = existing?.encounters || existing?.data || (Array.isArray(existing) ? existing : []);
+      if (list.length > 0) {
+        // Sort by created_at desc, pick the latest
+        const sorted = [...list].sort((a, b) => {
+          const ta = new Date(a.created_at || 0).getTime();
+          const tb = new Date(b.created_at || 0).getTime();
+          return tb - ta;
+        });
+        const id = sorted[0].id || '';
+        console.log('[Diagnosis] using existing encounter:', id);
+        setActiveEncounterId(id);
+        return id;
+      }
+      // No existing encounter — create one
       const res = await securePost(
         API_ROUTES.doctor.encounters,
         { patient_id: patientId, notes: 'Diagnosis session' },
         user?.token,
       );
       const id = res?.encounter?.id || res?.id || '';
+      console.log('[Diagnosis] created new encounter:', id);
       setActiveEncounterId(id);
       return id;
     } catch (err) {
-      console.error('[Diagnosis] create encounter error:', err);
+      console.error('[Diagnosis] ensureEncounter error:', err);
       return '';
     }
   }, [activeEncounterId, patientId, user?.token]);
@@ -60,6 +82,7 @@ export default function DoctorDiagnosisScreen() {
       setLoading(true);
       const res = await secureGet(API_ROUTES.doctor.encounterDiagnoses(eid), user?.token);
       const list: DiagnosisItem[] = res?.diagnoses || res?.data || [];
+      console.log('[Diagnosis] loaded diagnoses:', list.length, 'for encounter:', eid);
       setDiagnoses(list);
     } catch (err) {
       console.error('[Diagnosis] load diagnoses error:', err);

@@ -1,7 +1,9 @@
 // app/components/TeethFDISelector.tsx
 
 import React, { useMemo, useState } from "react";
-import { View, Text, Pressable, ScrollView } from "react-native";
+import { View, Text, Pressable, ScrollView, Dimensions } from "react-native";
+
+const SCREEN_W = Dimensions.get("window").width;
 
 type Diagnosis = {
   id: string
@@ -23,13 +25,17 @@ const TEETH = [
 ]
 
 export default function TeethFDISelector({
-  value = "11",
+  value = "",
   onChange,
   diagnoses = [],
   title = "Dental Chart (FDI)"
 }: Props){
 
-  const [selectedTooth,setSelectedTooth] = useState(value)
+  const [selectedTooth, setSelectedTooth] = useState(value)
+
+  // Responsive tooth size: fit 8 teeth per row with 4px gap
+  // Card padding = 14px × 2, outer screen padding = 14px × 2
+  const toothSize = Math.floor((SCREEN_W - 14 * 2 - 14 * 2 - 4 * 7) / 8)
 
   // diagnosis map
   const diagnosisMap = useMemo(()=>{
@@ -78,86 +84,52 @@ export default function TeethFDISelector({
         Upper: 11–18 / 21–28 • Lower: 31–38 / 41–48
       </Text>
 
-      <ScrollView
-        style={{marginTop:12}}
-        contentContainerStyle={{paddingBottom:4}}
-      >
+      <View style={{ marginTop: 12, gap: 4 }}>
+        {TEETH.map((row, i) => (
+          <View
+            key={i}
+            style={{ flexDirection: "row", gap: 4, justifyContent: "center" }}
+          >
+            {row.map((tooth) => {
+              const active = String(tooth) === selectedTooth;
+              const hasDiagnosis = diagnosisMap[String(tooth)];
 
-        <View style={{gap:8}}>
-
-          {TEETH.map((row,i)=>(
-            <View
-              key={i}
-              style={{
-                flexDirection:"row",
-                gap:8,
-                justifyContent:"center"
-              }}
-            >
-
-              {row.map((tooth)=>{
-
-                const active = String(tooth)===selectedTooth
-
-                const hasDiagnosis = diagnosisMap[String(tooth)]
-
-                return(
-                  <Pressable
-                    key={tooth}
-                    onPress={()=>handleClick(tooth)}
+              return (
+                <Pressable
+                  key={tooth}
+                  onPress={() => handleClick(tooth)}
+                  style={{
+                    width: toothSize,
+                    height: toothSize,
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: active ? "#1D4ED8" : "rgba(0,0,0,0.15)",
+                    backgroundColor: hasDiagnosis
+                      ? active ? "#DC2626" : "#FEE2E2"
+                      : active ? "#1D4ED8" : "rgba(0,0,0,0.03)",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Text
                     style={{
-                      width:48,
-                      paddingVertical:10,
-                      borderRadius:14,
-                      borderWidth:1,
-                      borderColor:active
-                        ?"rgba(0,0,0,0.85)"
-                        :"rgba(0,0,0,0.12)",
-                      backgroundColor:active
-                        ?"rgba(0,0,0,0.90)"
-                        :"rgba(0,0,0,0.03)",
-                      alignItems:"center",
-                      justifyContent:"center"
+                      fontSize: toothSize < 38 ? 10 : 11,
+                      fontWeight: "800",
+                      color: active || (hasDiagnosis && active)
+                        ? "#fff"
+                        : hasDiagnosis
+                          ? "#DC2626"
+                          : "rgba(0,0,0,0.75)",
                     }}
                   >
-
-                    {/* tooth number */}
-                    <Text
-                      style={{
-                        fontWeight:"900",
-                        color:active
-                          ?"white"
-                          :"rgba(0,0,0,0.75)"
-                      }}
-                    >
-                      {tooth}
-                    </Text>
-
-                    {/* diagnosis indicator */}
-                    {hasDiagnosis && (
-                      <View
-                        style={{
-                          position:"absolute",
-                          top:4,
-                          right:4,
-                          width:8,
-                          height:8,
-                          borderRadius:4,
-                          backgroundColor:"#ef4444"
-                        }}
-                      />
-                    )}
-
-                  </Pressable>
-                )
-              })}
-
-            </View>
-          ))}
-
-        </View>
-
-      </ScrollView>
+                    {tooth}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ))}
+      </View>
 
     </View>
   )
