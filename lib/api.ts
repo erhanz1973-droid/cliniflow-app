@@ -101,14 +101,9 @@ export async function apiGet<T>(path: string): Promise<T> {
 export async function apiPost<T>(path: string, body: any): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
   console.log("[API] POST", url, JSON.stringify(body).substring(0, 200));
-  
-  // 🔥 DEBUG: Check if patientName is included in payload
-  if (path === '/api/register/patient' && body.patientName) {
-    console.log("[API] POST patientName found:", body.patientName);
-  }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
 
   try {
     const res = await fetch(url, {

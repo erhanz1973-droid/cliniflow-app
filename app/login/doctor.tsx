@@ -83,11 +83,21 @@ function doctorLoginErrorMessage(code: string, t: (key: string) => string): stri
   }
 }
 
+async function warmUpServer(): Promise<void> {
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 55000);
+    await fetch(`${API_BASE}/api/health`, { method: "GET", signal: ctrl.signal });
+    clearTimeout(tid);
+  } catch { /* cold start ping — ignore errors */ }
+}
+
 export default function DoctorLogin() {
   const { signIn } = useAuth();
   const router = useRouter();
   const { t, currentLanguage, setLanguage } = useLanguage();
   const [loading, setLoading] = useState(false);
+  const [statusMsg, setStatusMsg] = useState('');
 
   const [email, setEmail] = useState('');
   const [clinicCode, setClinicCode] = useState('');
@@ -107,14 +117,51 @@ export default function DoctorLogin() {
     }
 
     setLoading(true);
+    setStatusMsg(t('login.connecting') || 'Sunucuya bağlanılıyor...');
+
+    // Warm up the server first (handles Render cold starts)
+    await warmUpServer();
+    setStatusMsg(t('login.loggingIn') || 'Giriş yapılıyor...');
+
+    let res: DoctorLoginResponse | null = null;
+    let lastError: unknown = null;
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const loginUrl = API_ROUTES.doctor.login;
+        res = await apiPost<DoctorLoginResponse>(loginUrl, {
+          email: normalizedEmail,
+          clinicCode: normalizedClinicCode,
+        });
+        lastError = null;
+        break;
+      } catch (err: unknown) {
+        lastError = err;
+        const msg = String(err instanceof Error ? err.message : "");
+        if (attempt === 1 && msg.includes("timeout")) {
+          setStatusMsg(t('login.retrying') || 'Yeniden deneniyor...');
+          await warmUpServer();
+        }
+      }
+    }
+
+    if (lastError || !res) {
+      const message = String(lastError instanceof Error ? lastError.message : "");
+      const isNetworkIssue =
+        message.includes("Network request failed") ||
+        message.includes("Network unreachable") ||
+        message.includes("Failed to fetch") ||
+        message.includes("timeout");
+      Alert.alert(
+        t("login.error"),
+        isNetworkIssue ? t("login.networkError") || "Sunucu yanıt vermiyor, tekrar deneyin." : t("login.loginFailed")
+      );
+      setLoading(false);
+      setStatusMsg('');
+      return;
+    }
+
     try {
-      const loginUrl = API_ROUTES.doctor.login;
-      console.log("LOGIN URL:", API_BASE + loginUrl);
-      console.log("LOGIN DATA:", { email: normalizedEmail, clinicCode: normalizedClinicCode });
-      const res = await apiPost<DoctorLoginResponse>(loginUrl, {
-        email: normalizedEmail,
-        clinicCode: normalizedClinicCode
-      });
 
       if (!res || typeof res !== "object") {
         Alert.alert(t("login.error"), t("login.loginFailed"));
@@ -160,18 +207,11 @@ export default function DoctorLogin() {
         }, 0);
       }
     } catch (error: unknown) {
-      const message = String(error instanceof Error ? error.message : "");
-      const isNetworkIssue =
-        message.includes("Network request failed") ||
-        message.includes("Network unreachable") ||
-        message.includes("Failed to fetch");
-      Alert.alert(
-        t("login.error"),
-        isNetworkIssue ? t("login.networkError") : t("login.loginFailed")
-      );
       console.error("Login error:", error);
+      Alert.alert(t("login.error"), t("login.loginFailed"));
     } finally {
       setLoading(false);
+      setStatusMsg('');
     }
   };
 
@@ -229,6 +269,11 @@ export default function DoctorLogin() {
             <Text style={styles.buttonText}>{t('login.doctorTitle')}</Text>
           )}
         </Pressable>
+        {!!statusMsg && (
+          <Text style={{ textAlign: 'center', color: '#6b7280', fontSize: 13, marginTop: 8 }}>
+            {statusMsg}
+          </Text>
+        )}
 
         <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 8 }}>
           <Pressable
