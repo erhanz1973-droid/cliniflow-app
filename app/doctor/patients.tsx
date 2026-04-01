@@ -33,10 +33,21 @@ const FILTER_KEYS: Record<FilterTab, string> = {
   Rejected: 'doctor.patients.rejected',
 };
 
-const STATUS_MAP: Record<string, string> = {
-  ACTIVE: 'Approved',
+// Maps raw status → translation key
+const STATUS_KEY_MAP: Record<string, string> = {
+  ACTIVE:   'doctor.patients.approved',
+  APPROVED: 'doctor.patients.approved',
+  PENDING:  'doctor.patients.pending',
+  REJECTED: 'doctor.patients.rejected',
+  INACTIVE: 'doctor.patients.rejected',
+};
+
+// Maps raw status → color bucket (stable, language-agnostic)
+type StatusBucket = 'Approved' | 'Pending' | 'Rejected';
+const STATUS_BUCKET: Record<string, StatusBucket> = {
+  ACTIVE:   'Approved',
   APPROVED: 'Approved',
-  PENDING: 'Pending',
+  PENDING:  'Pending',
   REJECTED: 'Rejected',
   INACTIVE: 'Rejected',
 };
@@ -47,12 +58,17 @@ function patientDisplayName(p: Patient): string {
     || 'Hasta';
 }
 
-function patientStatus(p: Patient): string {
+function patientStatusBucket(p: Patient): StatusBucket {
   const s = String(p.status || '').toUpperCase();
-  return STATUS_MAP[s] || (p.status ? p.status : 'Pending');
+  return STATUS_BUCKET[s] || 'Pending';
 }
 
-function statusColor(s: string) {
+function patientStatusKey(p: Patient): string {
+  const s = String(p.status || '').toUpperCase();
+  return STATUS_KEY_MAP[s] || 'doctor.patients.pending';
+}
+
+function statusColor(s: StatusBucket) {
   switch (s) {
     case 'Approved': return { bg: '#D1FAE5', text: '#065F46' };
     case 'Pending':  return { bg: '#FEF3C7', text: '#92400E' };
@@ -96,8 +112,8 @@ export default function DoctorPatientsScreen() {
     const name = patientDisplayName(p).toLowerCase();
     const matchSearch = !search || name.includes(search.toLowerCase())
       || (p.phone || '').includes(search);
-    const pStatus = patientStatus(p);
-    const matchFilter = filter === 'All' || pStatus === filter;
+    const bucket = patientStatusBucket(p);
+    const matchFilter = filter === 'All' || bucket === filter;
     return matchSearch && matchFilter;
   });
 
@@ -166,8 +182,9 @@ export default function DoctorPatientsScreen() {
           ) : (
             visible.map((p) => {
               const name = patientDisplayName(p);
-              const status = patientStatus(p);
-              const sc = statusColor(status);
+              const bucket = patientStatusBucket(p);
+              const statusLabel = t(patientStatusKey(p));
+              const sc = statusColor(bucket);
               const initial = name.charAt(0).toUpperCase();
               return (
                 <View key={p.id} style={styles.card}>
@@ -178,7 +195,7 @@ export default function DoctorPatientsScreen() {
                         <Text style={styles.avatarText}>{initial}</Text>
                       </View>
                       <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
-                        <Text style={[styles.statusBadgeText, { color: sc.text }]}>{status}</Text>
+                        <Text style={[styles.statusBadgeText, { color: sc.text }]}>{statusLabel}</Text>
                       </View>
                     </View>
 

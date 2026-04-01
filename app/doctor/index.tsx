@@ -43,6 +43,19 @@ function greetingKey() {
   return 'doctor.greeting.evening';
 }
 
+// Translate a procedure type key (e.g. "VENEER", "ROOT_CANAL_TREATMENT") using t()
+// Falls back to the raw value if no translation key exists.
+function useProcLabel() {
+  const { t } = useLanguage();
+  return (raw: string) => {
+    if (!raw) return '';
+    const key = `treatmentPlan.proc.${raw.trim().toUpperCase()}`;
+    const translated = t(key);
+    // t() returns the key itself when missing — return raw in that case
+    return translated && translated !== key ? translated : raw;
+  };
+}
+
 function fmtDate(iso: string | null) {
   if (!iso) return '-';
   try { return new Date(iso).toLocaleDateString('tr-TR'); } catch { return iso; }
@@ -52,6 +65,7 @@ export default function DoctorDashboard() {
   const router = useRouter();
   const { user, isAuthReady, isInitialized, signOut } = useAuth();
   const { t } = useLanguage();
+  const procLabel = useProcLabel();
 
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -214,7 +228,7 @@ export default function DoctorDashboard() {
                     <View style={styles.apptInfo}>
                       <Text style={styles.apptName}>{appt.patientName}</Text>
                       {appt.procedureSummary ? (
-                        <Text style={styles.apptProc} numberOfLines={1}>{appt.procedureSummary}</Text>
+                        <Text style={styles.apptProc} numberOfLines={1}>{procLabel(appt.procedureSummary)}</Text>
                       ) : null}
                     </View>
                     <View style={[styles.apptStatus, { backgroundColor: appt.status === 'completed' ? '#D1FAE5' : appt.status === 'in_progress' ? '#FEF3C7' : '#EFF6FF' }]}>
@@ -246,7 +260,7 @@ export default function DoctorDashboard() {
                     <View style={styles.apptInfo}>
                       <Text style={styles.apptName}>{appt.patientName}</Text>
                       {appt.procedureSummary ? (
-                        <Text style={styles.apptProc} numberOfLines={1}>{appt.procedureSummary}</Text>
+                        <Text style={styles.apptProc} numberOfLines={1}>{procLabel(appt.procedureSummary)}</Text>
                       ) : null}
                     </View>
                     <View style={[styles.apptStatus, { backgroundColor: appt.status === 'completed' ? '#D1FAE5' : appt.status === 'in_progress' ? '#FEF3C7' : '#EFF6FF' }]}>
