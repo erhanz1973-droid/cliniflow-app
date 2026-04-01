@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
   ActivityIndicator, SafeAreaView, RefreshControl, Modal,
-  Alert, KeyboardAvoidingView, Platform,
+  TextInput, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -183,11 +183,11 @@ function DateTimeField({
 
 // ── Add Treatment Modal ────────────────────────────────────────────────────
 function AddModal({
-  visible, diagnoses, doctors, token, patientId,
+  visible, diagnoses, doctors, token, patientId, currentDoctorId,
   onClose, onAdded,
 }: {
   visible: boolean; diagnoses: Diagnosis[]; doctors: Doctor[];
-  token?: string; patientId: string;
+  token?: string; patientId: string; currentDoctorId?: string;
   onClose: () => void; onAdded: (t: Treatment) => void;
 }) {
   const [toothInput, setToothInput] = useState('');
@@ -223,7 +223,7 @@ function AddModal({
         assigned_doctor_id: selectedDoctor?.id || null,
       };
       const res = await securePost(
-        `${API_BASE}${API_ROUTES.doctor.addPatientTreatment(patientId)}`,
+        API_ROUTES.doctor.addPatientTreatment(patientId),
         body, token
       );
       if (!res?.ok) throw new Error(res?.error || 'Kaydedilemedi');
@@ -311,17 +311,20 @@ function AddModal({
                 <TouchableOpacity style={styles.dropItem} onPress={() => { setSelectedDoctor(null); setShowDoctorList(false); }}>
                   <Text style={styles.dropItemText}>— Seçilmedi</Text>
                 </TouchableOpacity>
-                {doctors.map(d => (
-                  <TouchableOpacity
-                    key={d.id}
-                    style={[styles.dropItem, selectedDoctor?.id === d.id && styles.dropItemActive]}
-                    onPress={() => { setSelectedDoctor(d); setShowDoctorList(false); }}
-                  >
-                    <Text style={[styles.dropItemText, selectedDoctor?.id === d.id && styles.dropItemTextActive]}>
-                      {d.full_name || d.name || d.id}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                {doctors.map(d => {
+                  const isSelf = currentDoctorId && (d.id === currentDoctorId || d.doctor_id === currentDoctorId);
+                  return (
+                    <TouchableOpacity
+                      key={d.id}
+                      style={[styles.dropItem, selectedDoctor?.id === d.id && styles.dropItemActive]}
+                      onPress={() => { setSelectedDoctor(d); setShowDoctorList(false); }}
+                    >
+                      <Text style={[styles.dropItemText, selectedDoctor?.id === d.id && styles.dropItemTextActive]}>
+                        {d.full_name || d.name || d.id}{isSelf ? ' (Ben)' : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             )}
 
@@ -361,11 +364,11 @@ function AddModal({
 
 // ── Edit Treatment Modal ───────────────────────────────────────────────────
 function EditModal({
-  treatment, doctors, token,
+  treatment, doctors, token, currentDoctorId,
   onClose, onUpdated,
 }: {
   treatment: Treatment | null; doctors: Doctor[];
-  token?: string;
+  token?: string; currentDoctorId?: string;
   onClose: () => void; onUpdated: (t: Treatment) => void;
 }) {
   const [status, setStatus] = useState(treatment?.status || 'planned');
@@ -470,17 +473,20 @@ function EditModal({
                 <TouchableOpacity style={styles.dropItem} onPress={() => { setSelectedDoctor(null); setShowDoctorList(false); }}>
                   <Text style={styles.dropItemText}>— Seçilmedi</Text>
                 </TouchableOpacity>
-                {doctors.map(d => (
-                  <TouchableOpacity
-                    key={d.id}
-                    style={[styles.dropItem, selectedDoctor?.id === d.id && styles.dropItemActive]}
-                    onPress={() => { setSelectedDoctor(d); setShowDoctorList(false); }}
-                  >
-                    <Text style={[styles.dropItemText, selectedDoctor?.id === d.id && styles.dropItemTextActive]}>
-                      {d.full_name || d.name || d.id}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                {doctors.map(d => {
+                  const isSelf = currentDoctorId && (d.id === currentDoctorId || d.doctor_id === currentDoctorId);
+                  return (
+                    <TouchableOpacity
+                      key={d.id}
+                      style={[styles.dropItem, selectedDoctor?.id === d.id && styles.dropItemActive]}
+                      onPress={() => { setSelectedDoctor(d); setShowDoctorList(false); }}
+                    >
+                      <Text style={[styles.dropItemText, selectedDoctor?.id === d.id && styles.dropItemTextActive]}>
+                        {d.full_name || d.name || d.id}{isSelf ? ' (Ben)' : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             )}
 
@@ -570,7 +576,16 @@ export default function TreatmentPlanScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace({
+              pathname: '/doctor/diagnosis',
+              params: { patientId: patientId as string },
+            });
+          }
+        }}>
           <Text style={styles.backBtnText}>← Geri</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Tedavi Planı</Text>
@@ -687,6 +702,7 @@ export default function TreatmentPlanScreen() {
           treatment={editTarget}
           doctors={doctors}
           token={user?.token}
+          currentDoctorId={user?.doctorId}
           onClose={() => setEditTarget(null)}
           onUpdated={updated => {
             setTreatments(prev => prev.map(t => t.id === updated.id ? updated : t));
@@ -702,6 +718,7 @@ export default function TreatmentPlanScreen() {
         doctors={doctors}
         token={user?.token}
         patientId={patientId as string}
+        currentDoctorId={user?.doctorId}
         onClose={() => setShowAdd(false)}
         onAdded={t => { setTreatments(prev => [t, ...prev]); setShowAdd(false); }}
       />
