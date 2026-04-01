@@ -8,7 +8,9 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
 import { apiGet, classifyApiError } from '../../lib/api';
-import { ErrorScreen } from '../../components/ScreenFeedback';
+import { ErrorScreen, EmptyState } from '../../components/ScreenFeedback';
+
+const PAGE_SIZE = 20;
 
 interface Patient {
   id: string;
@@ -90,27 +92,56 @@ export default function DoctorPatientsScreen() {
 
   const [allPatients, setAllPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterTab>('All');
 
-  const load = useCallback(async () => {
-    setLoadError(null);
+  const fetchPage = useCallback(async (pageNum: number, append: boolean) => {
     try {
-      const res = await apiGet<{ ok: boolean; patients?: Patient[] }>('/api/doctor/patients');
-      if (res?.ok && res.patients) setAllPatients(res.patients);
+      const res = await apiGet<{
+        ok: boolean;
+        patients?: Patient[];
+        page?: number;
+        total?: number;
+        totalPages?: number;
+        hasMore?: boolean;
+      }>(`/api/doctor/patients?page=${pageNum}&limit=${PAGE_SIZE}`);
+      if (res?.ok) {
+        const incoming = res.patients ?? [];
+        setAllPatients((prev) => append ? [...prev, ...incoming] : incoming);
+        setPage(res.page ?? pageNum);
+        setTotal(res.total ?? incoming.length);
+        setHasMore(res.hasMore ?? false);
+      }
     } catch (e) {
       console.error('[DoctorPatients] load error:', e);
-      setLoadError(classifyApiError(e));
+      if (!append) setLoadError(classifyApiError(e));
     } finally {
       setLoading(false);
+      setLoadingMore(false);
       setRefreshing(false);
     }
   }, []);
 
+  const load = useCallback(() => {
+    setLoadError(null);
+    setLoading(true);
+    fetchPage(1, false);
+  }, [fetchPage]);
+
+  const loadMore = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    fetchPage(page + 1, true);
+  }, [loadingMore, hasMore, page, fetchPage]);
+
   useEffect(() => { if (user) load(); }, [user, load]);
-  const onRefresh = () => { setRefreshing(true); load(); };
+  const onRefresh = () => { setRefreshing(true); fetchPage(1, false); };
 
   const visible = allPatients.filter((p) => {
     const name = patientDisplayName(p).toLowerCase();
@@ -179,6 +210,13 @@ export default function DoctorPatientsScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           showsVerticalScrollIndicator={false}
         >
+          {/* Patient count */}
+          {total > 0 && (
+            <Text style={styles.countLabel}>
+              {visible.length} / {total}
+            </Text>
+          )}
+
           {visible.length === 0 ? (
             <View style={styles.emptyBox}>
               <Text style={styles.emptyIcon}>👥</Text>
@@ -249,6 +287,20 @@ export default function DoctorPatientsScreen() {
               );
             })
           )}
+          {/* Load More */}
+          {hasMore && !search && (
+            <Pressable
+              style={[styles.loadMoreBtn, loadingMore && styles.loadMoreBtnDisabled]}
+              onPress={loadMore}
+              disabled={loadingMore}
+            >
+              {loadingMore
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={styles.loadMoreBtnText}>{t('doctor.patients.loadMore')}</Text>
+              }
+            </Pressable>
+          )}
+
           <View style={{ height: 16 }} />
         </ScrollView>
       )}
@@ -336,6 +388,15 @@ const styles = StyleSheet.create({
   emptyIcon: { fontSize: 48, marginBottom: 12 },
   emptyTitle: { fontSize: 17, fontWeight: '700', color: '#374151', marginBottom: 6 },
   emptySub: { fontSize: 13, color: '#9CA3AF', textAlign: 'center' },
+
+  // Pagination
+  countLabel: { fontSize: 12, color: '#9CA3AF', marginBottom: 8, marginLeft: 2 },
+  loadMoreBtn: {
+    backgroundColor: '#2563EB', borderRadius: 10, paddingVertical: 12,
+    alignItems: 'center', marginTop: 8, marginBottom: 4,
+  },
+  loadMoreBtnDisabled: { opacity: 0.6 },
+  loadMoreBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 
   // Bottom nav
   bottomNav: {
