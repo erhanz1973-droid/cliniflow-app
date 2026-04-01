@@ -1,497 +1,346 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View, Text, TouchableOpacity, StyleSheet,
+  ScrollView, ActivityIndicator, SafeAreaView, RefreshControl,
+} from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../lib/auth';
-import { API_BASE } from '../lib/api';
 import { API_ROUTES } from '../lib/api-routes';
-import { secureGet, securePost } from '../lib/secure-fetch';
+import { secureGet } from '../lib/secure-fetch';
+
+// ── Procedure type → human-readable label ────────────────────────────────────
+const PROC_LABELS: Record<string, string> = {
+  CROWN: 'Kron',
+  TEMP_CROWN: 'Geçici Kron',
+  BRIDGE_UNIT: 'Köprü Ünitesi',
+  TEMP_BRIDGE: 'Geçici Köprü',
+  IMPLANT: 'İmplant',
+  FILLING: 'Dolgu',
+  EXTRACTION: 'Çekim',
+  ROOT_CANAL: 'Kanal Tedavisi',
+  CLEANING: 'Temizlik',
+  VENEER: 'Veneer',
+  INLAY: 'İnley',
+  ONLAY: 'Onley',
+  SINUS_LIFT: 'Sinüs Lift',
+  BONE_GRAFT: 'Kemik Grefti',
+  GUM_TREATMENT: 'Diş Eti Tedavisi',
+  WHITENING: 'Beyazlatma',
+  XRAY: 'Röntgen',
+  CONSULTATION: 'Konsültasyon',
+  OTHER: 'Diğer',
+};
+
+function procLabel(type: string) {
+  return PROC_LABELS[String(type || '').toUpperCase()] || type || '—';
+}
+
+// ── Status → Turkish label + color ───────────────────────────────────────────
+function statusInfo(s: string) {
+  const upper = String(s || '').toUpperCase();
+  if (upper === 'COMPLETED' || upper === 'DONE') return { label: 'Tamamlandı', color: '#10B981', bg: '#D1FAE5' };
+  if (upper === 'SCHEDULED')                    return { label: 'Planlandı',   color: '#2563EB', bg: '#DBEAFE' };
+  if (upper === 'PLANNED')                      return { label: 'Planlı',      color: '#6366F1', bg: '#EEF2FF' };
+  if (upper === 'ACTIVE')                       return { label: 'Aktif',       color: '#F59E0B', bg: '#FEF3C7' };
+  if (upper === 'CANCELLED' || upper === 'CANCELED') return { label: 'İptal', color: '#EF4444', bg: '#FEE2E2' };
+  return { label: s || 'Bekliyor', color: '#6B7280', bg: '#F3F4F6' };
+}
+
+type Treatment = {
+  id: string;
+  tooth_number: number | null;
+  procedure_type: string;
+  status: string;
+  scheduled_at: string | null;
+  chair: string | null;
+};
 
 export default function TreatmentPlanScreen() {
   const router = useRouter();
   const { patientId, encounterId } = useLocalSearchParams();
   const { user } = useAuth();
-  
+
   const [loading, setLoading] = useState(true);
-  const [encounter, setEncounter] = useState(null);
-  const [diagnoses, setDiagnoses] = useState([]);
-  const [treatmentPlan, setTreatmentPlan] = useState(null);
-  const [treatmentItems, setTreatmentItems] = useState([]);
-  
-  // Treatment item form
-  const [toothFDICode, setToothFDICode] = useState('');
-  const [procedureCode, setProcedureCode] = useState('');
-  const [procedureName, setProcedureName] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [treatments, setTreatments] = useState<Treatment[]>([]);
+  const [diagnoses, setDiagnoses] = useState<any[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!patientId) {
+      router.replace({ pathname: '/doctor/diagnosis', params: { patientId } });
+      return;
+    }
+    try {
+      setError(null);
+
+      const [txData, dxData] = await Promise.all([
+        secureGet(API_ROUTES.doctor.patientTreatments(patientId as string), user?.token),
+        secureGet(API_ROUTES.doctor.patientDiagnoses(patientId as string), user?.token),
+      ]);
+
+      setTreatments(txData?.treatments || []);
+      setDiagnoses(dxData?.diagnoses || []);
+    } catch (e: any) {
+      console.error('[TreatmentPlan] load error:', e.message);
+      setError('Veriler yüklenemedi');
+    }
+  }, [patientId, user?.token]);
 
   useEffect(() => {
-    loadTreatmentData();
-  }, [encounterId]);
-
-  const loadTreatmentData = async () => {
-    // Guard: encounterId required for treatment plan operations
-    if (!encounterId) {
-      router.replace({
-        pathname: '/doctor/diagnosis',
-        params: { patientId },
-      });
-      return;
-    }
-
-    try {
+    (async () => {
       setLoading(true);
-      
-      // Get encounter
-      const encounterData = await secureGet(
-        API_ROUTES.doctor.encounterById(encounterId as string),
-        user?.token
-      );
-      setEncounter(encounterData);
-      
-      // Get all diagnoses for this patient (single source: encounter_diagnoses)
-      const diagnosesData = await secureGet(
-        API_ROUTES.doctor.patientDiagnoses(patientId as string),
-        user?.token
-      );
-      const diagnoses = diagnosesData?.diagnoses || [];
-      setDiagnoses(diagnoses);
-      
-      // Check if any diagnosis exists (primary check relaxed — allow proceeding if diagnoses exist)
-      if (diagnoses.length === 0) {
-        Alert.alert('Uyarı', 'Önce en az bir tanı girilmelidir');
-        router.replace({
-          pathname: '/doctor/diagnosis',
-          params: { patientId, encounterId }
-        });
-        return;
-      }
-      
-      // Get treatment plans
-      const plansData = await secureGet(
-        API_ROUTES.TREATMENT_ENCOUNTERS_TREATMENT_PLANS(encounterId as string),
-        user?.token
-      );
-      const activePlan = plansData.find((p: any) => p.status !== 'completed' && p.status !== 'rejected');
-      
-      if (!activePlan) {
-        // Create new treatment plan
-        await createTreatmentPlan();
-      } else {
-        setTreatmentPlan(activePlan);
-        
-        // Get treatment items
-        const itemsData = await secureGet(
-          API_ROUTES.TREATMENT_PLANS_ITEMS(activePlan.id),
-          user?.token
-        );
-        setTreatmentItems(itemsData);
-      }
-      
-    } catch (error) {
-      console.error('Load treatment data error:', error);
-      Alert.alert('Hata', 'Veri yüklenirken hata oluştu');
-    } finally {
+      await load();
       setLoading(false);
-    }
-  };
+    })();
+  }, [load]);
 
-  const createTreatmentPlan = async () => {
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
+
+  const formatDate = (iso: string | null) => {
+    if (!iso) return null;
     try {
-      const response = await fetch(`${API_BASE}${API_ROUTES.TREATMENT_ENCOUNTERS_TREATMENT_PLANS(encounterId as string)}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
-        }
+      return new Date(iso).toLocaleDateString('tr-TR', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
       });
-
-      if (response.ok) {
-        const newPlan = await response.json();
-        setTreatmentPlan(newPlan);
-      } else {
-        const error = await response.json();
-        Alert.alert('Hata', error.error || 'Tedavi planı oluşturulamadı');
-      }
-    } catch (error) {
-      console.error('Create treatment plan error:', error);
-      Alert.alert('Hata', 'Tedavi planı oluşturulurken hata oluştu');
-    }
-  };
-
-  const addTreatmentItem = async () => {
-    if (!toothFDICode || !procedureCode || !procedureName) {
-      Alert.alert('Hata', 'Diş kodu, işlem kodu ve adı gereklidir');
-      return;
-    }
-
-    const toothCode = parseInt(toothFDICode);
-    if (isNaN(toothCode) || toothCode < 11 || toothCode > 48) {
-      Alert.alert('Hata', 'Diş kodu 11-48 arasında olmalıdır');
-      return;
-    }
-
-    try {
-      const response = await fetch(`${API_BASE}${API_ROUTES.TREATMENT_PLANS_ITEMS(treatmentPlan.id)}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          tooth_fdi_code: toothCode,
-          procedure_code: procedureCode,
-          procedure_name: procedureName,
-          linked_icd10_code: diagnoses.find((d: any) => d.is_primary)?.icd10_code
-        })
-      });
-
-      if (response.ok) {
-        Alert.alert('Başarılı', 'Tedavi eklendi');
-        setToothFDICode('');
-        setProcedureCode('');
-        setProcedureName('');
-        loadTreatmentData(); // Reload to get updated items
-      } else {
-        const error = await response.json();
-        Alert.alert('Hata', error.error || 'Tedavi eklenemedi');
-      }
-    } catch (error) {
-      console.error('Add treatment item error:', error);
-      Alert.alert('Hata', 'Tedavi eklenirken hata oluştu');
-    }
-  };
-
-  const updateItemStatus = async (itemId: string, status: string) => {
-    try {
-      const response = await fetch(`${API_BASE}${API_ROUTES.TREATMENT_ITEMS_STATUS(itemId)}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ status })
-      });
-
-      if (response.ok) {
-        loadTreatmentData(); // Reload to get updated items
-      } else {
-        const error = await response.json();
-        Alert.alert('Hata', error.error || 'Durum güncellenemedi');
-      }
-    } catch (error) {
-      console.error('Update item status error:', error);
-      Alert.alert('Hata', 'Durum güncellenirken hata oluştu');
-    }
+    } catch { return null; }
   };
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
+      <SafeAreaView style={styles.centered}>
         <ActivityIndicator size="large" color="#2563EB" />
-        <Text style={styles.loadingText}>Yükleniyor...</Text>
-      </View>
+        <Text style={styles.loadingText}>Yükleniyor…</Text>
+      </SafeAreaView>
     );
   }
 
-  const primaryDiagnosis = diagnoses.find((d: any) => d.is_primary);
+  const primaryDx = diagnoses.find((d) => d.is_primary) || diagnoses[0];
 
   return (
-    <ScrollView style={styles.container}>
+    <SafeAreaView style={styles.safe}>
+      {/* ── Header ── */}
       <View style={styles.header}>
-        <Text style={styles.title}>Tedavi Planı</Text>
-        <Text style={styles.subtitle}>Hasta: {patientId}</Text>
-        {primaryDiagnosis && (
-          <View style={styles.diagnosisBadge}>
-            <Text style={styles.diagnosisText}>
-              🔴 {primaryDiagnosis.icd10_code}: {primaryDiagnosis.icd10_description}
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Text style={styles.backBtnText}>← Geri</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Tedavi Planı</Text>
+        <TouchableOpacity
+          style={styles.dashBtn}
+          onPress={() => router.replace('/doctor')}
+        >
+          <Text style={styles.dashBtnText}>△ Dashboard</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        {/* Primary diagnosis badge */}
+        {primaryDx && (
+          <View style={styles.dxBadge}>
+            <Text style={styles.dxBadgeLabel}>Birincil Tanı</Text>
+            <Text style={styles.dxBadgeText}>
+              {primaryDx.icd10_code ? `${primaryDx.icd10_code} — ` : ''}{primaryDx.icd10_description || ''}
+              {primaryDx.tooth_number ? `  (Diş ${primaryDx.tooth_number})` : ''}
             </Text>
           </View>
         )}
-      </View>
 
-      {/* Treatment Plan Status */}
-      {treatmentPlan && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Plan Durumu</Text>
-          <View style={styles.statusContainer}>
-            <Text style={styles.statusText}>Durum: {treatmentPlan.status}</Text>
-            <TouchableOpacity 
-              style={styles.statusButton}
-              onPress={() => updateItemStatus(treatmentPlan.id, 'proposed')}
-            >
-              <Text style={styles.statusButtonText}>Onaya Gönder</Text>
-            </TouchableOpacity>
+        {/* Error */}
+        {error && (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{error}</Text>
           </View>
-        </View>
-      )}
+        )}
 
-      {/* Treatment Items */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Tedavi Kalemleri</Text>
-        
-        {treatmentItems.length === 0 ? (
-          <Text style={styles.emptyText}>Henüz tedavi eklenmemiş</Text>
+        {/* Treatment list */}
+        {treatments.length === 0 ? (
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyIcon}>🦷</Text>
+            <Text style={styles.emptyText}>Henüz tedavi kaydı yok</Text>
+            <Text style={styles.emptySubText}>
+              Admin panelinden veya doktor ekranından prosedür eklendiğinde burada görünür.
+            </Text>
+          </View>
         ) : (
-          treatmentItems.map((item: any) => (
-            <View key={item.id} style={styles.treatmentItem}>
-              <View style={styles.itemHeader}>
-                <Text style={styles.toothCode}>Diş #{item.tooth_fdi_code}</Text>
-                <Text style={[styles.itemStatus, styles[`status${item.status}`]]}>
-                  {item.status}
+          <>
+            <Text style={styles.sectionTitle}>
+              Tedaviler ({treatments.length})
+            </Text>
+            {treatments.map((tx) => {
+              const si = statusInfo(tx.status);
+              const date = formatDate(tx.scheduled_at);
+              return (
+                <View key={tx.id} style={styles.card}>
+                  <View style={styles.cardRow}>
+                    <View style={styles.toothBadge}>
+                      <Text style={styles.toothBadgeText}>
+                        {tx.tooth_number ? `Diş ${tx.tooth_number}` : '—'}
+                      </Text>
+                    </View>
+                    <View style={[styles.statusPill, { backgroundColor: si.bg }]}>
+                      <Text style={[styles.statusPillText, { color: si.color }]}>{si.label}</Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.procName}>{procLabel(tx.procedure_type)}</Text>
+
+                  <View style={styles.cardMeta}>
+                    {date && (
+                      <Text style={styles.metaText}>📅 {date}</Text>
+                    )}
+                    {tx.chair && (
+                      <Text style={styles.metaText}>💺 Koltuk {tx.chair}</Text>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+          </>
+        )}
+
+        {/* Diagnoses summary */}
+        {diagnoses.length > 0 && (
+          <>
+            <Text style={[styles.sectionTitle, { marginTop: 24 }]}>
+              Tanılar ({diagnoses.length})
+            </Text>
+            {diagnoses.map((dx) => (
+              <View key={dx.id} style={[styles.card, styles.dxCard]}>
+                <View style={styles.cardRow}>
+                  {dx.tooth_number && (
+                    <View style={[styles.toothBadge, styles.toothBadgeDx]}>
+                      <Text style={[styles.toothBadgeText, { color: '#7C3AED' }]}>
+                        Diş {dx.tooth_number}
+                      </Text>
+                    </View>
+                  )}
+                  {dx.is_primary && (
+                    <View style={styles.primaryPill}>
+                      <Text style={styles.primaryPillText}>BİRİNCİL</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.procName}>
+                  {dx.icd10_code ? `${dx.icd10_code}` : ''}{dx.icd10_code && dx.icd10_description ? ' — ' : ''}{dx.icd10_description || ''}
                 </Text>
               </View>
-              <Text style={styles.procedureCode}>{item.procedure_code}</Text>
-              <Text style={styles.procedureName}>{item.procedure_name}</Text>
-              
-              <View style={styles.itemActions}>
-                {item.status === 'planned' && (
-                  <TouchableOpacity 
-                    style={[styles.actionButton, styles.startButton]}
-                    onPress={() => updateItemStatus(item.id, 'in_progress')}
-                  >
-                    <Text style={styles.actionButtonText}>Başlat</Text>
-                  </TouchableOpacity>
-                )}
-                {item.status === 'in_progress' && (
-                  <TouchableOpacity 
-                    style={[styles.actionButton, styles.completeButton]}
-                    onPress={() => updateItemStatus(item.id, 'done')}
-                  >
-                    <Text style={styles.actionButtonText}>Tamamla</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          ))
+            ))}
+          </>
         )}
-      </View>
 
-      {/* Add Treatment Item Form */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Yeni Tedavi Ekle</Text>
-        
-        <TextInput
-          style={styles.input}
-          placeholder="Diş Kodu (FDI 11-48)"
-          value={toothFDICode}
-          onChangeText={setToothFDICode}
-          keyboardType="numeric"
-        />
-        
-        <TextInput
-          style={styles.input}
-          placeholder="İşlem Kodu"
-          value={procedureCode}
-          onChangeText={setProcedureCode}
-        />
-        
-        <TextInput
-          style={[styles.input, styles.textArea]}
-          placeholder="İşlem Adı"
-          value={procedureName}
-          onChangeText={setProcedureName}
-        />
-        
-        <TouchableOpacity style={styles.addButton} onPress={addTreatmentItem}>
-          <Text style={styles.addButtonText}>+ Tedavi Ekle</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Navigation */}
-      <View style={styles.navigation}>
-        <TouchableOpacity 
-          style={styles.navButton}
-          onPress={() => router.back()}
-        >
-          <Text style={styles.navButtonText}>← Geri</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-    padding: 20,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#666',
-  },
+  safe: { flex: 1, backgroundColor: '#F3F4F6' },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F3F4F6' },
+  loadingText: { marginTop: 12, color: '#6B7280', fontSize: 14 },
+
   header: {
-    backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 10,
-    marginBottom: 20,
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 5,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 10,
-  },
-  diagnosisBadge: {
-    backgroundColor: '#fef3c7',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderLeftWidth: 4,
-    borderLeftColor: '#f59e0b',
-  },
-  diagnosisText: {
-    fontSize: 12,
-    color: '#92400e',
-    fontWeight: '600',
-  },
-  section: {
-    backgroundColor: 'white',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 15,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  statusContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
-  statusText: {
-    fontSize: 16,
-    color: '#666',
-  },
-  statusButton: {
-    backgroundColor: '#2563EB',
-    paddingHorizontal: 12,
+  backBtn: {
+    paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 15,
-  },
-  statusButtonText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  emptyText: {
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
-    paddingVertical: 20,
-  },
-  treatmentItem: {
-    backgroundColor: '#f8f9fa',
-    padding: 15,
     borderRadius: 8,
-    marginBottom: 10,
+    backgroundColor: '#F3F4F6',
   },
-  itemHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  toothCode: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2563EB',
-  },
-  itemStatus: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  statusplanned: {
-    backgroundColor: '#e3f2fd',
-    color: '#1976d2',
-  },
-  statusin_progress: {
-    backgroundColor: '#fff3e0',
-    color: '#f57c00',
-  },
-  statusdone: {
-    backgroundColor: '#e8f5e8',
-    color: '#388e3c',
-  },
-  procedureCode: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
-  },
-  procedureName: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 10,
-  },
-  itemActions: {
-    flexDirection: 'row',
-  },
-  actionButton: {
-    paddingHorizontal: 12,
+  backBtnText: { color: '#374151', fontWeight: '600', fontSize: 13 },
+  headerTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
+  dashBtn: {
+    paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 15,
-    marginRight: 8,
-  },
-  startButton: {
-    backgroundColor: '#f57c00',
-  },
-  completeButton: {
-    backgroundColor: '#388e3c',
-  },
-  actionButtonText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 5,
-    padding: 12,
-    marginBottom: 10,
-    fontSize: 14,
-  },
-  textArea: {
-    height: 60,
-    textAlignVertical: 'top',
-  },
-  addButton: {
+    borderRadius: 8,
     backgroundColor: '#2563EB',
+  },
+  dashBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+
+  scroll: { flex: 1 },
+  content: { padding: 16 },
+
+  dxBadge: {
+    backgroundColor: '#EFF6FF',
+    borderLeftWidth: 4,
+    borderLeftColor: '#2563EB',
+    borderRadius: 8,
     padding: 12,
-    borderRadius: 5,
-    alignItems: 'center',
+    marginBottom: 16,
   },
-  addButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
+  dxBadgeLabel: { fontSize: 11, fontWeight: '700', color: '#1D4ED8', textTransform: 'uppercase', marginBottom: 4 },
+  dxBadgeText: { fontSize: 13, color: '#1E40AF', fontWeight: '600' },
+
+  errorBox: { backgroundColor: '#FEE2E2', borderRadius: 8, padding: 12, marginBottom: 16 },
+  errorText: { color: '#991B1B', fontSize: 13 },
+
+  emptyBox: { alignItems: 'center', paddingVertical: 48 },
+  emptyIcon: { fontSize: 40, marginBottom: 12 },
+  emptyText: { fontSize: 16, fontWeight: '600', color: '#374151', marginBottom: 6 },
+  emptySubText: { fontSize: 12, color: '#9CA3AF', textAlign: 'center', lineHeight: 18, maxWidth: 280 },
+
+  sectionTitle: {
+    fontSize: 15, fontWeight: '700', color: '#374151',
+    marginBottom: 10,
   },
-  navigation: {
-    paddingVertical: 20,
+
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
   },
-  navButton: {
-    backgroundColor: '#6b7280',
-    padding: 12,
-    borderRadius: 5,
-    alignItems: 'center',
+  dxCard: { borderLeftWidth: 3, borderLeftColor: '#7C3AED' },
+
+  cardRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
+
+  toothBadge: {
+    backgroundColor: '#DBEAFE',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
   },
-  navButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
+  toothBadgeDx: { backgroundColor: '#EDE9FE' },
+  toothBadgeText: { fontSize: 12, fontWeight: '700', color: '#1D4ED8' },
+
+  statusPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
   },
+  statusPillText: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
+
+  procName: { fontSize: 15, fontWeight: '600', color: '#111827', marginBottom: 6 },
+
+  cardMeta: { flexDirection: 'row', gap: 12 },
+  metaText: { fontSize: 12, color: '#6B7280' },
+
+  primaryPill: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 20,
+  },
+  primaryPillText: { fontSize: 10, fontWeight: '800', color: '#DC2626', textTransform: 'uppercase' },
 });
