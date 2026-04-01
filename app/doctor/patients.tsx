@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Alert, SafeAreaView, Pressable } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { apiGet } from '../../lib/api';
 
@@ -25,6 +26,7 @@ interface ApiResponse {
 
 export default function DoctorPatientsScreen() {
   const { user } = useAuth();
+  const router = useRouter();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -94,14 +96,22 @@ export default function DoctorPatientsScreen() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9FAFB' }}>
         <Text>Hastalar yükleniyor...</Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
+      {/* Header with back */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }}>
+        <Pressable onPress={() => router.back()} style={{ marginRight: 12, padding: 4 }}>
+          <Text style={{ fontSize: 22 }}>←</Text>
+        </Pressable>
+        <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827' }}>Hastalarım</Text>
+      </View>
+
       <ScrollView
         style={{ flex: 1 }}
         refreshControl={
@@ -109,9 +119,6 @@ export default function DoctorPatientsScreen() {
         }
       >
         <View style={{ padding: 16 }}>
-          <Text style={{ fontSize: 24, fontWeight: 'bold', marginBottom: 16 }}>
-            Hastalarım
-          </Text>
           
           {patients.length === 0 ? (
             <View style={{ 
@@ -191,6 +198,6 @@ export default function DoctorPatientsScreen() {
           )}
         </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
