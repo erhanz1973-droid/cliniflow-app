@@ -59,6 +59,7 @@ export default function DoctorDashboard() {
 
       {/* Body */}
       <View style={styles.body}>
+        <Text style={{ color: '#16a34a', fontWeight: '700', marginBottom: 8 }}>✅ REAL DOCTOR DASHBOARD</Text>
         <Text style={styles.title}>Ana Sayfa</Text>
         <Text style={styles.subtitle}>
           Hoş geldin{user.name ? `, Dr. ${user.name}` : ''}
