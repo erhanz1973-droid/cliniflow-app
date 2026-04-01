@@ -168,7 +168,13 @@ export default function DoctorDiagnosisScreen() {
     <SafeAreaView style={styles.root}>
       {/* ── Header ── */}
       <View style={styles.header}>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
+        <Pressable style={styles.backBtn} onPress={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace('/doctor/patients');
+          }
+        }}>
           <Text style={styles.backBtnText}>←</Text>
         </Pressable>
         <Text style={styles.headerTitle}>
