@@ -1,154 +1,264 @@
 // app/register-patient.tsx
-import React, { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
+import React, { useState, useRef } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+  StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
 import { useRouter } from "expo-router";
-import { API_BASE } from "../lib/api";
 import { usePatientRegistration } from "../lib/patient/register";
+import { classifyApiError } from "../lib/api";
+import { useLanguage } from "../lib/i18n";
 
 export default function RegisterPatientScreen() {
   const router = useRouter();
   const { handlePatientRegistration } = usePatientRegistration();
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
+  const [netError, setNetError] = useState<"network" | "warmingUp" | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [formData, setFormData] = useState({
     clinicCode: "",
     phone: "",
     patientName: "",
     email: "",
-    referralCode: "", // Add referral code field
+    referralCode: "",
   });
 
-  const handleRegister = async () => {
+  const doRegister = async () => {
     if (!formData.clinicCode || !formData.phone || !formData.patientName) {
-      Alert.alert("Hata", "Tüm alanları doldurun");
+      Alert.alert(t("common.error"), t("register.patientFillRequired"));
       return;
     }
 
-    console.log('[PATIENT REG] Form data:', formData);
-    console.log('[PATIENT REG] Sending to backend:', {
-      clinicCode: formData.clinicCode,
-      phone: formData.phone,
-      patientName: formData.patientName,
-      email: formData.email,
-      referralCode: formData.referralCode?.trim() // Trim referral code
-    });
-
+    setNetError(null);
     setLoading(true);
+
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+
     try {
       await handlePatientRegistration({
         name: formData.patientName,
         email: formData.email,
         phone: formData.phone,
         clinicCode: formData.clinicCode,
-        inviterReferralCode: formData.referralCode // Add referral code to API call
+        inviterReferralCode: formData.referralCode,
       });
     } catch (error: any) {
-      console.error('Registration error:', error);
-      Alert.alert("Hata", error.message || "Kayıt başarısız");
+      const kind = classifyApiError(error);
+
+      if (kind === "network" || kind === "warmingUp") {
+        setNetError(kind === "warmingUp" ? "warmingUp" : "network");
+        // Auto-retry after 30 s for cold-start; don't auto-retry for plain network errors
+        if (kind === "warmingUp") {
+          retryTimerRef.current = setTimeout(() => doRegister(), 30_000);
+        }
+      } else {
+        const msg = error.message || "";
+        let friendlyMsg = t("common.serverError");
+        if (msg.includes("phone_already_exists")) friendlyMsg = t("register.patientAlreadyExists");
+        else if (msg.includes("email_already_exists")) friendlyMsg = t("register.patientEmailExists");
+        else if (msg.includes("missing_required_fields")) friendlyMsg = t("register.patientFillRequired");
+        else if (msg.includes("invalid_clinic")) friendlyMsg = "Geçersiz klinik kodu";
+        else if (msg.includes("email_required")) friendlyMsg = "E-posta zorunludur";
+        Alert.alert(t("common.error"), friendlyMsg);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <View style={{ flex: 1, padding: 20, justifyContent: "center" }}>
-      <Text style={{ fontSize: 24, fontWeight: "bold", marginBottom: 20, textAlign: "center" }}>
-        Hasta Kayıt
-      </Text>
-      
-      <TextInput
-        style={{
-          borderWidth: 1,
-          borderColor: "#ddd",
-          padding: 15,
-          borderRadius: 8,
-          marginBottom: 15,
-        }}
-        placeholder="Klinik Kodu"
-        value={formData.clinicCode}
-        onChangeText={(text) => setFormData({ ...formData, clinicCode: text.toUpperCase() })}
-        autoCapitalize="characters"
-      />
-
-      <TextInput
-        style={{
-          borderWidth: 1,
-          borderColor: "#ddd",
-          padding: 15,
-          borderRadius: 8,
-          marginBottom: 15,
-        }}
-        placeholder="Telefon"
-        value={formData.phone}
-        onChangeText={(text) => setFormData({ ...formData, phone: text })}
-        keyboardType="phone-pad"
-      />
-
-      <TextInput
-        style={{
-          borderWidth: 1,
-          borderColor: "#ddd",
-          padding: 15,
-          borderRadius: 8,
-          marginBottom: 15,
-        }}
-        placeholder="Ad Soyad"
-        value={formData.patientName}
-        onChangeText={(text) => setFormData({ ...formData, patientName: text })}
-      />
-
-      <TextInput
-        style={{
-          borderWidth: 1,
-          borderColor: "#ddd",
-          padding: 15,
-          borderRadius: 8,
-          marginBottom: 20,
-        }}
-        placeholder="Email (opsiyonel)"
-        value={formData.email}
-        onChangeText={(text) => setFormData({ ...formData, email: text })}
-        keyboardType="email-address"
-      />
-
-      <TextInput
-        style={{
-          borderWidth: 1,
-          borderColor: "#ddd",
-          padding: 15,
-          borderRadius: 8,
-          marginBottom: 20,
-        }}
-        placeholder="Referans Kodu (isteğe bağlı)"
-        value={formData.referralCode}
-        onChangeText={(text) => setFormData({ ...formData, referralCode: text })}
-      />
-
-      <TouchableOpacity
-        style={{
-          backgroundColor: "#16a34a",
-          padding: 15,
-          borderRadius: 8,
-          alignItems: "center",
-        }}
-        onPress={handleRegister}
-        disabled={loading}
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
       >
-        {loading ? (
-          <ActivityIndicator color="white" />
-        ) : (
-          <Text style={{ color: "white", fontWeight: "bold" }}>Hasta Olarak Kayıt Ol</Text>
+        <Text style={styles.title}>{t("register.patientTitle")}</Text>
+
+        {/* Cold-start / network error banner */}
+        {netError && (
+          <View style={[styles.errorBanner, netError === "warmingUp" && styles.warmBanner]}>
+            <Text style={styles.errorIcon}>{netError === "warmingUp" ? "⏳" : "📡"}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.errorTitle}>
+                {netError === "warmingUp"
+                  ? t("register.serverStarting")
+                  : t("register.networkError")}
+              </Text>
+              <Text style={styles.errorSub}>
+                {netError === "warmingUp"
+                  ? t("register.serverStartingMsg")
+                  : t("register.networkErrorMsg")}
+              </Text>
+            </View>
+          </View>
         )}
-      </TouchableOpacity>
 
-      <TouchableOpacity
-        style={{
-          marginTop: 15,
-          alignItems: "center",
-        }}
-        onPress={() => router.push("/register-doctor")}
-      >
-        <Text style={{ color: "#2563eb" }}>Doktor mu kayıt olacaksınız?</Text>
-      </TouchableOpacity>
-    </View>
+        <TextInput
+          style={styles.input}
+          placeholder={t("register.patientClinicCode")}
+          placeholderTextColor="#9CA3AF"
+          value={formData.clinicCode}
+          onChangeText={(text) => setFormData({ ...formData, clinicCode: text.toUpperCase() })}
+          autoCapitalize="characters"
+        />
+
+        <TextInput
+          style={styles.input}
+          placeholder={t("register.patientName")}
+          placeholderTextColor="#9CA3AF"
+          value={formData.patientName}
+          onChangeText={(text) => setFormData({ ...formData, patientName: text })}
+        />
+
+        <TextInput
+          style={styles.input}
+          placeholder={t("register.patientPhone")}
+          placeholderTextColor="#9CA3AF"
+          value={formData.phone}
+          onChangeText={(text) => setFormData({ ...formData, phone: text })}
+          keyboardType="phone-pad"
+        />
+
+        <TextInput
+          style={styles.input}
+          placeholder={t("register.patientEmail")}
+          placeholderTextColor="#9CA3AF"
+          value={formData.email}
+          onChangeText={(text) => setFormData({ ...formData, email: text })}
+          keyboardType="email-address"
+          autoCapitalize="none"
+        />
+
+        <TextInput
+          style={styles.input}
+          placeholder={t("register.referralCode")}
+          placeholderTextColor="#9CA3AF"
+          value={formData.referralCode}
+          onChangeText={(text) => setFormData({ ...formData, referralCode: text })}
+          autoCapitalize="none"
+        />
+
+        <TouchableOpacity
+          style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
+          onPress={doRegister}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="white" />
+          ) : (
+            <Text style={styles.submitBtnText}>
+              {netError ? t("common.retry") : t("register.patientSubmit")}
+            </Text>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.linkBtn}
+          onPress={() => router.push("/register-doctor" as any)}
+        >
+          <Text style={styles.linkText}>{t("register.isDoctor")}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.linkBtn}
+          onPress={() => router.push("/login/patient" as any)}
+        >
+          <Text style={styles.linkText}>{t("login.loginButton")}</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    padding: 24,
+    justifyContent: "center",
+    flexGrow: 1,
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: "700",
+    color: "#111827",
+    textAlign: "center",
+    marginBottom: 28,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#F9FAFB",
+    padding: 14,
+    borderRadius: 10,
+    marginBottom: 14,
+    fontSize: 15,
+    color: "#111827",
+  },
+  submitBtn: {
+    backgroundColor: "#16a34a",
+    padding: 15,
+    borderRadius: 10,
+    alignItems: "center",
+    marginTop: 4,
+    marginBottom: 14,
+  },
+  submitBtnDisabled: {
+    opacity: 0.6,
+  },
+  submitBtnText: {
+    color: "white",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+  linkBtn: {
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  linkText: {
+    color: "#2563EB",
+    fontSize: 14,
+  },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 16,
+    gap: 10,
+  },
+  warmBanner: {
+    backgroundColor: "#FFFBEB",
+    borderColor: "#FDE68A",
+  },
+  errorIcon: {
+    fontSize: 22,
+  },
+  errorTitle: {
+    fontWeight: "700",
+    fontSize: 14,
+    color: "#111827",
+    marginBottom: 2,
+  },
+  errorSub: {
+    fontSize: 12,
+    color: "#6B7280",
+  },
+});

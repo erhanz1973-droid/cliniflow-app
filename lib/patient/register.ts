@@ -73,13 +73,16 @@ export function usePatientRegistration() {
     });
 
     if (!result.ok) {
-      throw new Error(result.error || 'Kayıt başarısız');
+      // Preserve the error code so the caller can show a specific message
+      const err = new Error(result.error || 'registration_failed') as any;
+      err.code = result.error;
+      throw err;
     }
 
     Alert.alert(
       'Başarılı',
       'Kayıt başarılı! Giriş yapabilirsiniz.',
-      [{ text: 'Tamam', onPress: () => router.replace('/login/patient') }]
+      [{ text: 'Tamam', onPress: () => router.replace('/login/patient' as any) }]
     );
 
     return result;
