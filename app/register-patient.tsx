@@ -65,7 +65,8 @@ export default function RegisterPatientScreen() {
         }}
         placeholder="Klinik Kodu"
         value={formData.clinicCode}
-        onChangeText={(text) => setFormData({ ...formData, clinicCode: text })}
+        onChangeText={(text) => setFormData({ ...formData, clinicCode: text.toUpperCase() })}
+        autoCapitalize="characters"
       />
 
       <TextInput

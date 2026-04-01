@@ -148,7 +148,8 @@ export default function RegisterDoctorScreen() {
       <TextInput
         placeholder="Klinik Kodu (ZORUNLU)"
         value={formData.clinicCode}
-        onChangeText={(text) => setFormData({ ...formData, clinicCode: text })}
+        onChangeText={(text) => setFormData({ ...formData, clinicCode: text.toUpperCase() })}
+        autoCapitalize="characters"
         style={styles.input}
       />
 
