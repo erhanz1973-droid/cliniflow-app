@@ -34,39 +34,46 @@ export default function DoctorDiagnosisScreen() {
   const [selectedDescription, setSelectedDescription] = useState('');
   const [activeEncounterId, setActiveEncounterId] = useState(encounterId || '');
 
-  // ── Load or create encounter ────────────────────────────────────────────────
-  // First tries to find the latest existing encounter for the patient,
-  // only creates a new one if none exist.
+  // ── Load ALL diagnoses for this patient (encounter_diagnoses + admin JSONB) ──
+  const loadDiagnoses = useCallback(async () => {
+    if (!patientId) return;
+    try {
+      setLoading(true);
+      const res = await secureGet(API_ROUTES.doctor.patientDiagnoses(patientId), user?.token);
+      const list: DiagnosisItem[] = res?.diagnoses || [];
+      console.log('[Diagnosis] loaded diagnoses:', list.length, 'for patient:', patientId);
+      setDiagnoses(list);
+    } catch (err) {
+      console.error('[Diagnosis] load diagnoses error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [patientId, user?.token]);
+
+  // ── Ensure encounter exists (needed for saving new diagnoses) ───────────────
   const ensureEncounter = useCallback(async (): Promise<string> => {
     if (activeEncounterId) return activeEncounterId;
     if (!patientId) return '';
     try {
-      // Try to find existing encounters for this patient
       const existing = await secureGet(
         API_ROUTES.doctor.encountersByPatient(patientId),
         user?.token,
       );
-      const list: any[] = existing?.encounters || existing?.data || (Array.isArray(existing) ? existing : []);
+      const list: any[] = existing?.encounters || [];
       if (list.length > 0) {
-        // Sort by created_at desc, pick the latest
-        const sorted = [...list].sort((a, b) => {
-          const ta = new Date(a.created_at || 0).getTime();
-          const tb = new Date(b.created_at || 0).getTime();
-          return tb - ta;
-        });
+        const sorted = [...list].sort((a, b) =>
+          new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+        );
         const id = sorted[0].id || '';
-        console.log('[Diagnosis] using existing encounter:', id);
         setActiveEncounterId(id);
         return id;
       }
-      // No existing encounter — create one
       const res = await securePost(
         API_ROUTES.doctor.encounters,
         { patient_id: patientId, notes: 'Diagnosis session' },
         user?.token,
       );
       const id = res?.encounter?.id || res?.id || '';
-      console.log('[Diagnosis] created new encounter:', id);
       setActiveEncounterId(id);
       return id;
     } catch (err) {
@@ -75,29 +82,10 @@ export default function DoctorDiagnosisScreen() {
     }
   }, [activeEncounterId, patientId, user?.token]);
 
-  // ── Load existing diagnoses ─────────────────────────────────────────────────
-  const loadDiagnoses = useCallback(async (eid: string) => {
-    if (!eid) return;
-    try {
-      setLoading(true);
-      const res = await secureGet(API_ROUTES.doctor.encounterDiagnoses(eid), user?.token);
-      const list: DiagnosisItem[] = res?.diagnoses || res?.data || [];
-      console.log('[Diagnosis] loaded diagnoses:', list.length, 'for encounter:', eid);
-      setDiagnoses(list);
-    } catch (err) {
-      console.error('[Diagnosis] load diagnoses error:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.token]);
-
   useEffect(() => {
     if (!user) return;
-    (async () => {
-      const eid = await ensureEncounter();
-      if (eid) loadDiagnoses(eid);
-    })();
-  }, [user]);
+    loadDiagnoses();
+  }, [user, patientId]);
 
   // ── Save diagnosis ──────────────────────────────────────────────────────────
   const handleSave = async () => {
@@ -135,7 +123,7 @@ export default function DoctorDiagnosisScreen() {
         },
         user?.token,
       );
-      await loadDiagnoses(eid);
+      await loadDiagnoses();
       setSelectedCode('');
       setSelectedDescription('');
       Alert.alert('', t('diagnosis.saved') || 'Tanı kaydedildi');

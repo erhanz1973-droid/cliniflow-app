@@ -7,6 +7,7 @@ export const API_ROUTES = {
     encountersByPatient: (id: string) => `/api/doctor/encounters/patient/${id}`,
     encounterById: (id: string) => `/api/doctor/encounters/${id}`,
     encounterDiagnoses: (id: string) => `/api/doctor/encounters/${id}/diagnoses`,
+    patientDiagnoses: (id: string) => `/api/doctor/patients/${id}/diagnoses`,
     treatmentPlans: '/api/doctor/treatment-plans',
     patients: '/api/doctor/patients',
   },
