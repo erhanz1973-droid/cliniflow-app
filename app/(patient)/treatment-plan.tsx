@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState, useRef } from "react";
+import React, { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import { useFocusEffect } from "expo-router";
 import {
-  View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, Image, useWindowDimensions,
+  View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, Image,
+  useWindowDimensions, Pressable,
 } from "react-native";
 import { useAuth } from "../../lib/auth";
 import { API_BASE } from "../../lib/api";
@@ -250,10 +251,12 @@ function ProcedureCard({
   proc,
   priceByType,
   pricesVisible,
+  onLayout,
 }: {
   proc: Procedure;
   priceByType: Record<string, PriceEntry>;
   pricesVisible: boolean;
+  onLayout?: (y: number) => void;
 }) {
   const { t, currentLanguage } = useLanguage();
   const locale = useDateLocale();
@@ -305,7 +308,10 @@ function ProcedureCard({
     formatDoctorTitle(proc.doctorName, t("treatment.doctorTitlePrefix")) || doctorNotAssigned;
 
   return (
-    <View style={[styles.card, { borderLeftColor: color, borderLeftWidth: 4 }]}>
+    <View
+      style={[styles.card, { borderLeftColor: color, borderLeftWidth: 4 }]}
+      onLayout={onLayout ? (e) => onLayout(e.nativeEvent.layout.y) : undefined}
+    >
       <View style={styles.cardTop}>
         <View style={{ flex: 1 }} />
         <View style={[styles.badge, { backgroundColor: color + "22" }]}>
@@ -484,11 +490,17 @@ const diagStyles = StyleSheet.create({
   desc: { fontSize: 13, color: "#374151", flex: 1, lineHeight: 18 },
 });
 
-function ToothDiagram({ affectedTeeth }: { affectedTeeth: string[] }) {
+function ToothDiagram({
+  affectedTeeth,
+  onToothPress,
+}: {
+  affectedTeeth: string[];
+  onToothPress: (toothId: string) => void;
+}) {
   const { width } = useWindowDimensions();
   const { t } = useLanguage();
   const imgWidth = width - 32;
-  const imgHeight = imgWidth * (950 / 760); // approximate aspect ratio of the image
+  const imgHeight = imgWidth * (950 / 760);
 
   return (
     <View style={diagramStyles.container}>
@@ -501,10 +513,17 @@ function ToothDiagram({ affectedTeeth }: { affectedTeeth: string[] }) {
         <View style={diagramStyles.chipsRow}>
           <Text style={diagramStyles.chipsLabel}>{t("treatment.treatedTeeth")}</Text>
           <View style={diagramStyles.chips}>
-            {affectedTeeth.map((t) => (
-              <View key={t} style={diagramStyles.chip}>
-                <Text style={diagramStyles.chipText}>{t}</Text>
-              </View>
+            {affectedTeeth.map((tooth) => (
+              <Pressable
+                key={tooth}
+                style={({ pressed }) => [
+                  diagramStyles.chip,
+                  pressed && { opacity: 0.7, transform: [{ scale: 0.95 }] },
+                ]}
+                onPress={() => onToothPress(tooth)}
+              >
+                <Text style={diagramStyles.chipText}>{tooth}</Text>
+              </Pressable>
             ))}
           </View>
         </View>
@@ -540,6 +559,11 @@ export default function TreatmentPlanScreen() {
   const [priceByType, setPriceByType] = useState<Record<string, PriceEntry>>({});
   const [pricesVisible, setPricesVisible] = useState(true);
   const skipFocusPlanReload = useRef(true);
+  const scrollRef = useRef<ScrollView>(null);
+  // toothId → y offset in ScrollView (captured via onLayout of first card per tooth)
+  const toothYRef = useRef<Map<string, number>>(new Map());
+  // Track which teeth already have a registered y (only first card per tooth)
+  const toothYRegistered = useRef<Set<string>>(new Set());
 
   const patientId = String(user?.patientId || user?.id || "").trim();
 
@@ -591,13 +615,6 @@ export default function TreatmentPlanScreen() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         console.warn("[TREATMENT-PLAN] API error:", res.status, json?.error, json?.message);
-      }
-      console.log("[TREATMENT-PLAN] teeth count:", Array.isArray(json.teeth) ? json.teeth.length : 0, "diagnoses:", Array.isArray(json.diagnoses) ? json.diagnoses.length : 0);
-      if (Array.isArray(json.teeth)) {
-        json.teeth.forEach((t: any) => {
-          const procs = Array.isArray(t.procedures) ? t.procedures : [];
-          console.log(`[TREATMENT-PLAN] tooth=${t.toothId} procs=${procs.length}`, procs.map((p: any) => ({ id: p.id, procId: p.procedureId, type: p.type, status: p.status })));
-        });
       }
       const teeth: any[] = Array.isArray(json.teeth) ? json.teeth : [];
 
@@ -723,8 +740,9 @@ export default function TreatmentPlanScreen() {
         });
       }
       const deduped = [...byId.values()];
-      console.log("[TREATMENT-PLAN] all procs:", all.length, "deduped:", deduped.length, "byId skipped (no id):", all.length - deduped.length);
-      deduped.forEach(p => console.log(`[TREATMENT-PLAN] deduped proc id=${p.id} status=${p.status} toothId=${p.toothId} title=${p.title}`));
+      // Reset tooth scroll registry on fresh load
+      toothYRef.current.clear();
+      toothYRegistered.current.clear();
 
       const ACTIVE_STATUSES   = ["IN_PROGRESS", "ACTIVE", "ONGOING"];
       const PLANNED_STATUSES  = ["PLANNED", "SCHEDULED", "PENDING", "WAITING", ""];
@@ -776,6 +794,24 @@ export default function TreatmentPlanScreen() {
     return () => clearInterval(id);
   }, [user?.token, patientId, fetchData]);
 
+  const handleToothPress = useCallback((toothId: string) => {
+    const y = toothYRef.current.get(toothId);
+    if (y != null) {
+      scrollRef.current?.scrollTo({ y: y - 16, animated: true });
+    }
+  }, []);
+
+  const makeOnLayout = useCallback((toothId: string | null | undefined) => {
+    if (!toothId) return undefined;
+    if (toothYRegistered.current.has(toothId)) return undefined;
+    return (y: number) => {
+      if (!toothYRegistered.current.has(toothId)) {
+        toothYRegistered.current.add(toothId);
+        toothYRef.current.set(toothId, y);
+      }
+    };
+  }, []);
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -788,6 +824,7 @@ export default function TreatmentPlanScreen() {
 
   return (
     <ScrollView
+      ref={scrollRef}
       style={styles.container}
       contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
       refreshControl={
@@ -800,7 +837,7 @@ export default function TreatmentPlanScreen() {
     >
       <Text style={styles.pageTitle}>{t("treatment.pageTitle")}</Text>
 
-      <ToothDiagram affectedTeeth={affectedTeeth} />
+      <ToothDiagram affectedTeeth={affectedTeeth} onToothPress={handleToothPress} />
 
       {/* DIAGNOSES — shown above treatments */}
       <DiagnosisSection diagnoses={diagnoses} />
@@ -824,6 +861,7 @@ export default function TreatmentPlanScreen() {
                 proc={p}
                 priceByType={priceByType}
                 pricesVisible={pricesVisible}
+                onLayout={makeOnLayout(p.toothId)}
               />
             ))
           )}
@@ -839,6 +877,7 @@ export default function TreatmentPlanScreen() {
                 proc={p}
                 priceByType={priceByType}
                 pricesVisible={pricesVisible}
+                onLayout={makeOnLayout(p.toothId)}
               />
             ))
           )}
@@ -854,6 +893,7 @@ export default function TreatmentPlanScreen() {
                 proc={p}
                 priceByType={priceByType}
                 pricesVisible={pricesVisible}
+                onLayout={makeOnLayout(p.toothId)}
               />
             ))
           )}

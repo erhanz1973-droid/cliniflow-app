@@ -25,7 +25,7 @@ export default function DoctorPendingScreen() {
           // If approved, redirect to dashboard
           if (status === "APPROVED" || status === "ACTIVE") {
             console.log("[DOCTOR PENDING] Status approved, redirecting to dashboard");
-            router.replace("/doctor/dashboard");
+            router.replace("/doctor");
             return;
           }
         }

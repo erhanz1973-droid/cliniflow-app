@@ -84,7 +84,7 @@ export default function WaitingApprovalScreen() {
         // Redirect based on role
         if (isDoctor) {
           console.log("[WAITING-APPROVAL] Redirecting to doctor dashboard");
-          router.replace("/doctor/dashboard");
+          router.replace("/doctor");
         } else {
           console.log("[WAITING-APPROVAL] Redirecting to patient home");
           router.replace("/(patient)" as any);

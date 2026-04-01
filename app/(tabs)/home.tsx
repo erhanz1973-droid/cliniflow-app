@@ -116,8 +116,8 @@ export default function Home() {
     
     // Prevent infinite redirects
     if (user?.role === "DOCTOR") {
-      console.log('[HOME] Doctor detected, redirecting to doctor-dashboard');
-      router.replace('/doctor-dashboard');
+      console.log('[HOME] Doctor detected, redirecting to /doctor');
+      router.replace('/doctor');
       return;
     }
     

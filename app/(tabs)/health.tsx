@@ -111,7 +111,7 @@ export default function Health() {
     
     // Doctors cannot access health form
     if (isDoctor) {
-      router.replace("/doctor/dashboard");
+      router.replace("/doctor");
       return;
     }
     

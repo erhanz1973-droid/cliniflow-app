@@ -17,6 +17,7 @@ export default function PatientTabsLayout() {
           borderTopColor: "#E5E7EB",
           paddingBottom: 4,
           height: 56,
+          marginBottom: 10,
         },
         tabBarLabelStyle: {
           fontSize: 11,
@@ -57,6 +58,14 @@ export default function PatientTabsLayout() {
       />
       <Tabs.Screen
         name="travel"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="medical-form"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="encounter/[encounterId]"
         options={{ href: null }}
       />
       <Tabs.Screen

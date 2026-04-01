@@ -22,7 +22,7 @@ export default function DoctorTabsLayout() {
       }}
     >
       <Tabs.Screen
-        name="dashboard"
+        name="index"
         options={{
           title: 'Ana Sayfa',
           tabBarIcon: ({ color, size }) => (

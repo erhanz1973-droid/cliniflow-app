@@ -203,7 +203,7 @@ export default function DoctorLogin() {
         router.replace('/doctor/pending');
       } else {
         setTimeout(() => {
-          router.replace('/doctor/dashboard');
+          router.replace('/doctor');
         }, 0);
       }
     } catch (error: unknown) {

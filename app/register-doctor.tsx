@@ -67,7 +67,7 @@ export default function RegisterDoctorScreen() {
               {
                 text: "Tamam",
                 onPress: () => {
-                  router.replace("/doctor/dashboard");
+                  router.replace("/doctor");
                 },
               },
             ]
@@ -80,7 +80,7 @@ export default function RegisterDoctorScreen() {
               {
                 text: "Tamam",
                 onPress: () => {
-                  router.replace("/doctor-login"); // Go to doctor login for pending approval
+                  router.replace("/login/doctor");
                 },
               },
             ]
@@ -101,7 +101,7 @@ export default function RegisterDoctorScreen() {
             {
               text: "Giriş Yap",
               onPress: () => {
-                router.replace("/doctor-login");
+                router.replace("/login/doctor");
               },
             },
             {
