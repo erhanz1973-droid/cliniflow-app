@@ -190,6 +190,38 @@ export default function DoctorDashboard() {
               )}
             </View>
 
+            {/* ── Tomorrow's Appointments ── */}
+            <Text style={styles.sectionTitle}>
+              Tomorrow's Appointments ({data?.tomorrowAppointments?.length ?? 0})
+            </Text>
+            <View style={styles.card}>
+              {!data?.tomorrowAppointments?.length ? (
+                <Text style={styles.emptyText}>No appointments tomorrow.</Text>
+              ) : (
+                data.tomorrowAppointments.map((appt) => (
+                  <View key={appt.appointmentId} style={styles.apptRow}>
+                    <View style={styles.apptTime}>
+                      <Text style={styles.apptTimeText}>{appt.time}</Text>
+                      {appt.chairNumber ? (
+                        <Text style={styles.apptChair}>Koltuk {appt.chairNumber}</Text>
+                      ) : null}
+                    </View>
+                    <View style={styles.apptInfo}>
+                      <Text style={styles.apptName}>{appt.patientName}</Text>
+                      {appt.procedureSummary ? (
+                        <Text style={styles.apptProc} numberOfLines={1}>{appt.procedureSummary}</Text>
+                      ) : null}
+                    </View>
+                    <View style={[styles.apptStatus, { backgroundColor: appt.status === 'completed' ? '#D1FAE5' : appt.status === 'in_progress' ? '#FEF3C7' : '#EFF6FF' }]}>
+                      <Text style={[styles.apptStatusText, { color: appt.status === 'completed' ? '#065F46' : appt.status === 'in_progress' ? '#92400E' : '#1D4ED8' }]}>
+                        {appt.status === 'completed' ? 'Tamamlandı' : appt.status === 'in_progress' ? 'Devam' : 'Planlandı'}
+                      </Text>
+                    </View>
+                  </View>
+                ))
+              )}
+            </View>
+
             {/* ── Recent Patients ── */}
             <Text style={styles.sectionTitle}>Recent Patients</Text>
             <View style={styles.card}>
