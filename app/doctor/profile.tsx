@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
 import { apiGet, apiPut } from '../../lib/api';
+import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES, Language } from '../../lib/i18n';
 
 interface DoctorProfile {
   doctorId: string;
@@ -61,7 +62,7 @@ function SectionCard({ title, children }: { title: string; children: React.React
 export default function DoctorProfileScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, currentLanguage, setLanguage } = useLanguage();
 
   const [profile, setProfile] = useState<DoctorProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -308,6 +309,23 @@ export default function DoctorProfileScreen() {
           </View>
         </SectionCard>
 
+        {/* App Language */}
+        <SectionCard title="Uygulama Dili">
+          <View style={s.langRow}>
+            {SUPPORTED_LANGUAGES.map((lang) => (
+              <TouchableOpacity
+                key={lang}
+                style={[s.langBtn, currentLanguage === lang && s.langBtnActive]}
+                onPress={() => setLanguage(lang as Language)}
+              >
+                <Text style={[s.langBtnText, currentLanguage === lang && s.langBtnTextActive]}>
+                  {LANGUAGE_NAMES[lang as Language]}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </SectionCard>
+
         {editing && (
           <TouchableOpacity style={s.cancelBtn} onPress={() => { setEditing(false); load(); }}>
             <Text style={s.cancelBtnText}>İptal</Text>
@@ -387,4 +405,13 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: '#D1D5DB',
   },
   cancelBtnText: { color: '#6B7280', fontWeight: '600' },
+
+  langRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  langBtn: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+    borderWidth: 1, borderColor: '#D1D5DB', backgroundColor: '#F9FAFB',
+  },
+  langBtnActive: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
+  langBtnText: { fontSize: 13, fontWeight: '600', color: '#374151' },
+  langBtnTextActive: { color: '#fff' },
 });
