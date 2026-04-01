@@ -56,6 +56,7 @@ export default function DoctorDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Auth guard
   useEffect(() => {
@@ -64,11 +65,20 @@ export default function DoctorDashboard() {
   }, [user, isAuthReady, isInitialized, router]);
 
   const load = useCallback(async () => {
+    setLoadError(null);
     try {
       const res = await apiGet<any>('/api/doctor/dashboard');
       if (res?.ok) setData(res as DashboardData);
-    } catch (e) {
+    } catch (e: any) {
       console.error('[Doctor Dashboard] load error:', e);
+      const msg = String(e?.message || '');
+      if (msg.includes('502') || msg.includes('503') || msg.includes('504')) {
+        setLoadError('warmingUp');
+      } else if (msg.includes('timeout') || msg.includes('Network request failed')) {
+        setLoadError('timeout');
+      } else {
+        setLoadError('generic');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -76,6 +86,13 @@ export default function DoctorDashboard() {
   }, []);
 
   useEffect(() => { if (isAuthReady && user?.type === 'doctor') load(); }, [isAuthReady, user, load]);
+
+  // Auto-retry once after 6s when server is warming up
+  useEffect(() => {
+    if (loadError !== 'warmingUp') return;
+    const timer = setTimeout(() => { setLoading(true); load(); }, 6000);
+    return () => clearTimeout(timer);
+  }, [loadError, load]);
 
   const onRefresh = () => { setRefreshing(true); load(); };
 
@@ -87,6 +104,26 @@ export default function DoctorDashboard() {
     return (
       <SafeAreaView style={styles.center}>
         <ActivityIndicator size="large" color="#2563EB" />
+      </SafeAreaView>
+    );
+  }
+
+  if (!loading && loadError && !data) {
+    const isWarmup = loadError === 'warmingUp';
+    return (
+      <SafeAreaView style={styles.center}>
+        <Text style={styles.errIcon}>{isWarmup ? '⏳' : '⚠️'}</Text>
+        <Text style={styles.errTitle}>
+          {isWarmup ? t('login.warmingUp') : t('common.error')}
+        </Text>
+        <Text style={styles.errSub}>
+          {isWarmup
+            ? t('login.timeout')
+            : t('common.pleaseRetry')}
+        </Text>
+        <Pressable style={styles.retryBtn} onPress={() => { setLoading(true); load(); }}>
+          <Text style={styles.retryBtnText}>{t('common.retry')}</Text>
+        </Pressable>
       </SafeAreaView>
     );
   }
@@ -283,7 +320,12 @@ export default function DoctorDashboard() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#F3F4F6' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F3F4F6' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F3F4F6', padding: 24 },
+  errIcon: { fontSize: 48, marginBottom: 12 },
+  errTitle: { fontSize: 16, fontWeight: '700', color: '#111827', textAlign: 'center', marginBottom: 6 },
+  errSub: { fontSize: 13, color: '#6B7280', textAlign: 'center', marginBottom: 20 },
+  retryBtn: { backgroundColor: '#2563EB', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10 },
+  retryBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   scroll: { flex: 1 },
 
   // Header
