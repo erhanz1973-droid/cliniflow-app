@@ -2,6 +2,7 @@
 export const API_ROUTES = {
   // Doctor endpoints
   doctor: {
+    login: '/api/doctor/login',
     encounters: '/api/doctor/encounters',
     encountersByPatient: (id: string) => `/api/doctor/encounters/patient/${id}`,
     encounterById: (id: string) => `/api/doctor/encounters/${id}`,
