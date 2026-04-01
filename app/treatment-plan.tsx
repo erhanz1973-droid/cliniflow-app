@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
   ActivityIndicator, SafeAreaView, RefreshControl, Modal,
-  TextInput, Alert, KeyboardAvoidingView, Platform, FlatList,
+  Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../lib/auth';
 import { API_ROUTES } from '../lib/api-routes';
@@ -73,6 +74,113 @@ function fmt(iso: string | null) {
   catch { return null; }
 }
 
+function fmtDateTime(date: Date | null) {
+  if (!date) return null;
+  const d = date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const t = date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+  return `${d}  ${t}`;
+}
+
+// ── Native date+time picker field ─────────────────────────────────────────
+function DateTimeField({
+  value, onChange,
+}: {
+  value: Date | null;
+  onChange: (d: Date) => void;
+}) {
+  const [showDate, setShowDate] = useState(false);
+  const [showTime, setShowTime] = useState(false);
+
+  const current = value ?? new Date();
+
+  const onDateChange = (_: any, selected?: Date) => {
+    if (Platform.OS === 'android') setShowDate(false);
+    if (selected) {
+      // Merge new date with existing time
+      const merged = new Date(value ?? new Date());
+      merged.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
+      onChange(merged);
+      if (Platform.OS === 'android') setShowTime(true); // auto open time on Android
+    }
+  };
+
+  const onTimeChange = (_: any, selected?: Date) => {
+    if (Platform.OS === 'android') setShowTime(false);
+    if (selected) {
+      const merged = new Date(value ?? new Date());
+      merged.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+      onChange(merged);
+    }
+  };
+
+  return (
+    <View>
+      {/* Display row */}
+      <View style={styles.dtRow}>
+        <TouchableOpacity style={styles.dtBtn} onPress={() => setShowDate(true)}>
+          <Text style={styles.dtBtnIcon}>📅</Text>
+          <Text style={styles.dtBtnText}>
+            {value
+              ? value.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+              : 'Tarih seç'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.dtBtn} onPress={() => setShowTime(true)}>
+          <Text style={styles.dtBtnIcon}>🕐</Text>
+          <Text style={styles.dtBtnText}>
+            {value
+              ? value.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+              : 'Saat seç'}
+          </Text>
+        </TouchableOpacity>
+
+        {value && (
+          <TouchableOpacity style={styles.dtClear} onPress={() => onChange(null as any)}>
+            <Text style={styles.dtClearText}>✕</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* iOS inline pickers inside modal */}
+      {showDate && (
+        <View style={styles.pickerWrap}>
+          <DateTimePicker
+            value={current}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            minimumDate={new Date()}
+            onChange={onDateChange}
+            locale="tr-TR"
+          />
+          {Platform.OS === 'ios' && (
+            <TouchableOpacity style={styles.dtDoneBtn} onPress={() => setShowDate(false)}>
+              <Text style={styles.dtDoneBtnText}>Tamam</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {showTime && (
+        <View style={styles.pickerWrap}>
+          <DateTimePicker
+            value={current}
+            mode="time"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={onTimeChange}
+            locale="tr-TR"
+          />
+          {Platform.OS === 'ios' && (
+            <TouchableOpacity style={styles.dtDoneBtn} onPress={() => setShowTime(false)}>
+              <Text style={styles.dtDoneBtnText}>Tamam</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
+
 // ── Add Treatment Modal ────────────────────────────────────────────────────
 function AddModal({
   visible, diagnoses, doctors, token, patientId,
@@ -85,7 +193,7 @@ function AddModal({
   const [toothInput, setToothInput] = useState('');
   const [selectedProc, setSelectedProc] = useState<typeof PROCEDURES[0] | null>(null);
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
-  const [dateInput, setDateInput] = useState('');
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [chair, setChair] = useState('');
   const [saving, setSaving] = useState(false);
   const [showProcList, setShowProcList] = useState(false);
@@ -95,7 +203,7 @@ function AddModal({
 
   const reset = () => {
     setToothInput(''); setSelectedProc(null); setSelectedDoctor(null);
-    setDateInput(''); setChair(''); setShowProcList(false); setShowDoctorList(false);
+    setSelectedDate(null); setChair(''); setShowProcList(false); setShowDoctorList(false);
   };
 
   const save = async () => {
@@ -105,21 +213,12 @@ function AddModal({
     }
     if (!selectedProc) { Alert.alert('Hata', 'İşlem seçin'); return; }
 
-    let scheduledIso: string | null = null;
-    if (dateInput.trim()) {
-      const parts = dateInput.trim().split(/[.\-/]/);
-      if (parts.length === 3) {
-        const [d, m, y] = parts;
-        scheduledIso = new Date(`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T12:00:00.000Z`).toISOString();
-      }
-    }
-
     try {
       setSaving(true);
       const body: any = {
         tooth_number: toothNum,
         procedure_type: selectedProc.type,
-        scheduled_at: scheduledIso,
+        scheduled_at: selectedDate ? selectedDate.toISOString() : null,
         chair: chair.trim() || null,
         assigned_doctor_id: selectedDoctor?.id || null,
       };
@@ -226,26 +325,25 @@ function AddModal({
               </View>
             )}
 
-            {/* Date */}
-            <Text style={styles.fieldLabel}>Tarih (GG.AA.YYYY)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="01.06.2026"
-              value={dateInput}
-              onChangeText={setDateInput}
-              keyboardType="numbers-and-punctuation"
-            />
+            {/* Date + Time */}
+            <Text style={styles.fieldLabel}>Tarih ve Saat</Text>
+            <DateTimeField value={selectedDate} onChange={d => setSelectedDate(d)} />
 
             {/* Chair */}
             <Text style={styles.fieldLabel}>Koltuk No</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="1"
-              value={chair}
-              onChangeText={setChair}
-              keyboardType="numeric"
-              maxLength={2}
-            />
+            <View style={styles.inputRow}>
+              {['1','2','3','4'].map(n => (
+                <TouchableOpacity
+                  key={n}
+                  style={[styles.chairChip, chair === n && styles.chairChipActive]}
+                  onPress={() => setChair(chair === n ? '' : n)}
+                >
+                  <Text style={[styles.chairChipText, chair === n && styles.chairChipTextActive]}>
+                    {n}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
 
             <TouchableOpacity style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={save} disabled={saving}>
               {saving
@@ -272,7 +370,7 @@ function EditModal({
 }) {
   const [status, setStatus] = useState(treatment?.status || 'planned');
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
-  const [dateInput, setDateInput] = useState('');
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [chair, setChair] = useState(treatment?.chair || '');
   const [saving, setSaving] = useState(false);
   const [showStatusList, setShowStatusList] = useState(false);
@@ -282,12 +380,7 @@ function EditModal({
     if (!treatment) return;
     setStatus(treatment.status || 'planned');
     setChair(treatment.chair || '');
-    if (treatment.scheduled_at) {
-      const d = new Date(treatment.scheduled_at);
-      setDateInput(`${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`);
-    } else {
-      setDateInput('');
-    }
+    setSelectedDate(treatment.scheduled_at ? new Date(treatment.scheduled_at) : null);
     if (treatment.assigned_doctor_id) {
       const doc = doctors.find(d => d.id === treatment.assigned_doctor_id);
       setSelectedDoctor(doc || null);
@@ -299,20 +392,12 @@ function EditModal({
   if (!treatment) return null;
 
   const save = async () => {
-    let scheduledIso: string | null = null;
-    if (dateInput.trim()) {
-      const parts = dateInput.trim().split(/[.\-/]/);
-      if (parts.length === 3) {
-        const [d, m, y] = parts;
-        scheduledIso = new Date(`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T12:00:00.000Z`).toISOString();
-      }
-    }
     try {
       setSaving(true);
       const body: any = {
         status,
         assigned_doctor_id: selectedDoctor?.id || null,
-        scheduled_at: scheduledIso,
+        scheduled_at: selectedDate ? selectedDate.toISOString() : null,
         chair: chair.trim() || null,
       };
       const res = await fetch(`${API_BASE}${API_ROUTES.doctor.updateTreatment(treatment.id)}`, {
@@ -399,26 +484,25 @@ function EditModal({
               </View>
             )}
 
-            {/* Date */}
-            <Text style={styles.fieldLabel}>Tarih (GG.AA.YYYY)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="01.06.2026"
-              value={dateInput}
-              onChangeText={setDateInput}
-              keyboardType="numbers-and-punctuation"
-            />
+            {/* Date + Time */}
+            <Text style={styles.fieldLabel}>Tarih ve Saat</Text>
+            <DateTimeField value={selectedDate} onChange={d => setSelectedDate(d)} />
 
-            {/* Chair */}
+            {/* Chair chips */}
             <Text style={styles.fieldLabel}>Koltuk No</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="1"
-              value={chair}
-              onChangeText={setChair}
-              keyboardType="numeric"
-              maxLength={2}
-            />
+            <View style={styles.inputRow}>
+              {['1','2','3','4'].map(n => (
+                <TouchableOpacity
+                  key={n}
+                  style={[styles.chairChip, chair === n && styles.chairChipActive]}
+                  onPress={() => setChair(chair === n ? '' : n)}
+                >
+                  <Text style={[styles.chairChipText, chair === n && styles.chairChipTextActive]}>
+                    {n}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
 
             <TouchableOpacity style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={save} disabled={saving}>
               {saving
@@ -732,4 +816,39 @@ const styles = StyleSheet.create({
   },
   saveBtnDisabled: { opacity: 0.6 },
   saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+  // DateTimeField
+  dtRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  dtBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 11, backgroundColor: '#FAFAFA',
+  },
+  dtBtnIcon: { fontSize: 16 },
+  dtBtnText: { fontSize: 14, color: '#111827', flex: 1 },
+  dtClear: {
+    width: 34, height: 34, borderRadius: 17, backgroundColor: '#F3F4F6',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  dtClearText: { fontSize: 14, color: '#6B7280' },
+  pickerWrap: {
+    backgroundColor: '#F9FAFB', borderRadius: 12,
+    borderWidth: 1, borderColor: '#E5E7EB', marginTop: 8, overflow: 'hidden',
+  },
+  dtDoneBtn: {
+    backgroundColor: '#2563EB', marginHorizontal: 16, marginBottom: 12,
+    borderRadius: 8, paddingVertical: 10, alignItems: 'center',
+  },
+  dtDoneBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+
+  // Chair chips
+  inputRow: { flexDirection: 'row', gap: 8 },
+  chairChip: {
+    width: 48, height: 48, borderRadius: 12, borderWidth: 1.5,
+    borderColor: '#D1D5DB', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FAFAFA',
+  },
+  chairChipActive: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
+  chairChipText: { fontSize: 16, fontWeight: '700', color: '#374151' },
+  chairChipTextActive: { color: '#fff' },
 });
