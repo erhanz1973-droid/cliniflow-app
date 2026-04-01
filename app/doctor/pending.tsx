@@ -45,9 +45,9 @@ export default function DoctorPendingScreen() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleRefresh = () => {
+    const handleRefresh = () => {
     setLoading(true);
-    router.replace("/doctor-login");
+    router.replace("/login/doctor");
   };
 
   return (
@@ -95,7 +95,7 @@ export default function DoctorPendingScreen() {
             
             <Pressable 
               style={styles.logoutButton} 
-              onPress={() => router.replace("/doctor-login")}
+              onPress={() => router.replace("/login/doctor")}
             >
               <Text style={styles.logoutButtonText}>Çıkış Yap</Text>
             </Pressable>

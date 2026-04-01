@@ -200,7 +200,7 @@ export default function DoctorLogin() {
       });
 
       if (res.pending || doctor.status === 'PENDING') {
-        router.replace('/doctor-pending');
+        router.replace('/doctor/pending');
       } else {
         setTimeout(() => {
           router.replace('/doctor/dashboard');
