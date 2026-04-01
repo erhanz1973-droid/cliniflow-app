@@ -23,6 +23,7 @@ export default function RegisterPatientScreen() {
   const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [netError, setNetError] = useState<"network" | "warmingUp" | null>(null);
+  const [infoMsg, setInfoMsg] = useState<{ text: string; goToLogin?: boolean } | null>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [formData, setFormData] = useState({
@@ -40,6 +41,7 @@ export default function RegisterPatientScreen() {
     }
 
     setNetError(null);
+    setInfoMsg(null);
     setLoading(true);
 
     if (retryTimerRef.current) {
@@ -66,13 +68,19 @@ export default function RegisterPatientScreen() {
         }
       } else {
         const msg = error.message || "";
-        let friendlyMsg = t("common.serverError");
-        if (msg.includes("phone_already_exists")) friendlyMsg = t("register.patientAlreadyExists");
-        else if (msg.includes("email_already_exists")) friendlyMsg = t("register.patientEmailExists");
-        else if (msg.includes("missing_required_fields")) friendlyMsg = t("register.patientFillRequired");
-        else if (msg.includes("invalid_clinic")) friendlyMsg = "Geçersiz klinik kodu";
-        else if (msg.includes("email_required")) friendlyMsg = "E-posta zorunludur";
-        Alert.alert(t("common.error"), friendlyMsg);
+        // "Soft" conflicts — show as info notice, not a blocking error
+        if (msg.includes("phone_already_exists")) {
+          setInfoMsg({ text: t("register.patientAlreadyExists"), goToLogin: true });
+        } else if (msg.includes("email_already_exists")) {
+          setInfoMsg({ text: t("register.patientEmailExists"), goToLogin: true });
+        } else {
+          // Real errors — alert
+          let friendlyMsg = t("common.serverError");
+          if (msg.includes("missing_required_fields")) friendlyMsg = t("register.patientFillRequired");
+          else if (msg.includes("invalid_clinic")) friendlyMsg = t("register.invalidClinic");
+          else if (msg.includes("email_required")) friendlyMsg = t("register.emailRequired");
+          Alert.alert(t("common.error"), friendlyMsg);
+        }
       }
     } finally {
       setLoading(false);
@@ -89,6 +97,21 @@ export default function RegisterPatientScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.title}>{t("register.patientTitle")}</Text>
+
+        {/* Soft info notice (phone/email already registered) */}
+        {infoMsg && (
+          <View style={styles.infoBanner}>
+            <Text style={styles.infoIcon}>ℹ️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoText}>{infoMsg.text}</Text>
+              {infoMsg.goToLogin && (
+                <TouchableOpacity onPress={() => router.push("/login/patient" as any)}>
+                  <Text style={styles.infoLink}>{t("register.goToLogin")} →</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
 
         {/* Cold-start / network error banner */}
         {netError && (
@@ -260,5 +283,29 @@ const styles = StyleSheet.create({
   errorSub: {
     fontSize: 12,
     color: "#6B7280",
+  },
+  infoBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 16,
+    gap: 10,
+  },
+  infoIcon: {
+    fontSize: 18,
+  },
+  infoText: {
+    fontSize: 13,
+    color: "#374151",
+    marginBottom: 6,
+  },
+  infoLink: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#2563EB",
   },
 });
