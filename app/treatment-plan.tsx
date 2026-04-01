@@ -74,13 +74,24 @@ export default function TreatmentPlanScreen() {
     try {
       setError(null);
 
-      const [txData, dxData] = await Promise.all([
+      const [txResult, dxResult] = await Promise.allSettled([
         secureGet(API_ROUTES.doctor.patientTreatments(patientId as string), user?.token),
         secureGet(API_ROUTES.doctor.patientDiagnoses(patientId as string), user?.token),
       ]);
 
-      setTreatments(txData?.treatments || []);
-      setDiagnoses(dxData?.diagnoses || []);
+      if (txResult.status === 'fulfilled') {
+        setTreatments(txResult.value?.treatments || []);
+      } else {
+        console.warn('[TreatmentPlan] treatments fetch failed:', txResult.reason?.message);
+        setTreatments([]);
+      }
+
+      if (dxResult.status === 'fulfilled') {
+        setDiagnoses(dxResult.value?.diagnoses || []);
+      } else {
+        console.warn('[TreatmentPlan] diagnoses fetch failed:', dxResult.reason?.message);
+        setDiagnoses([]);
+      }
     } catch (e: any) {
       console.error('[TreatmentPlan] load error:', e.message);
       setError('Veriler yüklenemedi');
