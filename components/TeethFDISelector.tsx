@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import { View, Text, Pressable, ScrollView, Dimensions } from "react-native";
+import { useLanguage } from "../lib/language-context";
 
 const SCREEN_W = Dimensions.get("window").width;
 
@@ -31,6 +32,7 @@ export default function TeethFDISelector({
   title = "Dental Chart (FDI)"
 }: Props){
 
+  const { t } = useLanguage();
   const [selectedTooth, setSelectedTooth] = useState(value)
 
   // Responsive tooth size: fit 8 teeth per row with 4px gap
@@ -81,7 +83,7 @@ export default function TeethFDISelector({
         fontSize:12,
         color:"rgba(0,0,0,0.55)"
       }}>
-        Upper: 11–18 / 21–28 • Lower: 31–38 / 41–48
+        {t('diagnosis.upper')}: 11–18 / 21–28 • {t('diagnosis.lower')}: 31–38 / 41–48
       </Text>
 
       <View style={{ marginTop: 12, gap: 4 }}>

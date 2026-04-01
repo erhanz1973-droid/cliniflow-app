@@ -644,6 +644,8 @@ export const translations: Record<Language, Record<string, string>> = {
 
     // Diagnosis (Doctor)
     "diagnosis.addNew": "Diş Tanısı",
+    "diagnosis.upper": "Üst",
+    "diagnosis.lower": "Alt",
     "diagnosis.toothChart": "Diş Haritası (FDI)",
     "diagnosis.selectICD10": "ICD-10 Tanı Seç",
     "diagnosis.selectToothFirst": "Önce bir diş seçin",
@@ -1448,6 +1450,8 @@ export const translations: Record<Language, Record<string, string>> = {
 
     // Diagnosis (Doctor)
     "diagnosis.addNew": "Dental Diagnosis",
+    "diagnosis.upper": "Upper",
+    "diagnosis.lower": "Lower",
     "diagnosis.toothChart": "Tooth Chart (FDI)",
     "diagnosis.selectICD10": "Select ICD-10 Diagnosis",
     "diagnosis.selectToothFirst": "Select a tooth first",
@@ -2253,6 +2257,8 @@ export const translations: Record<Language, Record<string, string>> = {
 
     // Diagnosis (Doctor)
     "diagnosis.addNew": "კბილის დიაგნოზი",
+    "diagnosis.upper": "ზედა",
+    "diagnosis.lower": "ქვედა",
     "diagnosis.toothChart": "კბილის რუქა (FDI)",
     "diagnosis.selectICD10": "ICD-10 დიაგნოზის არჩევა",
     "diagnosis.selectToothFirst": "ჯერ კბილი აირჩიეთ",
@@ -2737,6 +2743,8 @@ export const translations: Record<Language, Record<string, string>> = {
 
     // Diagnosis (Doctor)
     "diagnosis.addNew": "Диагноз зуба",
+    "diagnosis.upper": "Верхний",
+    "diagnosis.lower": "Нижний",
     "diagnosis.toothChart": "Карта зубов (FDI)",
     "diagnosis.selectICD10": "Выбрать диагноз МКБ-10",
     "diagnosis.selectToothFirst": "Сначала выберите зуб",
