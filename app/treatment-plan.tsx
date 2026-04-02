@@ -571,7 +571,7 @@ function EditModal({
 // ── Main screen ────────────────────────────────────────────────────────────
 export default function TreatmentPlanScreen() {
   const router = useRouter();
-  const { patientId } = useLocalSearchParams();
+  const { patientId, patientName } = useLocalSearchParams();
   const { user } = useAuth();
   const { t } = useLanguage();
 
@@ -633,7 +633,10 @@ export default function TreatmentPlanScreen() {
         }}>
           <Text style={styles.backBtnText}>← {t('common.back')}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{t('treatmentPlan.title')}</Text>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={styles.headerTitle}>{t('treatmentPlan.title')}</Text>
+          {patientName ? <Text style={styles.headerSub}>{decodeURIComponent(patientName as string)}</Text> : null}
+        </View>
         <TouchableOpacity style={styles.dashBtn} onPress={() => router.replace('/doctor')}>
           <Text style={styles.dashBtnText}>△ {t('nav.dashboard')}</Text>
         </TouchableOpacity>
@@ -784,6 +787,7 @@ const styles = StyleSheet.create({
   backBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: '#F3F4F6' },
   backBtnText: { color: '#374151', fontWeight: '600', fontSize: 13 },
   headerTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
+  headerSub:   { fontSize: 12, color: '#6B7280', marginTop: 1 },
   dashBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: '#2563EB' },
   dashBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   scroll: { flex: 1 },

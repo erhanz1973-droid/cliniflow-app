@@ -24,7 +24,7 @@ interface DiagnosisItem {
 
 export default function DoctorDiagnosisScreen() {
   const router = useRouter();
-  const { patientId, encounterId } = useLocalSearchParams<{ patientId?: string; encounterId?: string }>();
+  const { patientId, encounterId, patientName } = useLocalSearchParams<{ patientId?: string; encounterId?: string; patientName?: string }>();
   const { user } = useAuth();
   const { t } = useLanguage();
 
@@ -167,7 +167,7 @@ export default function DoctorDiagnosisScreen() {
       }
       router.replace({
         pathname: '/treatment-plan',
-        params: { patientId: patientId || '', encounterId: eid },
+        params: { patientId: patientId || '', encounterId: eid, patientName: patientName || '' },
       });
     } finally {
       setProceeding(false);
@@ -192,9 +192,10 @@ export default function DoctorDiagnosisScreen() {
         }}>
           <Text style={styles.backBtnText}>←</Text>
         </Pressable>
-        <Text style={styles.headerTitle}>
-          {t('diagnosis.addNew')}
-        </Text>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={styles.headerTitle}>{t('diagnosis.addNew')}</Text>
+          {patientName ? <Text style={styles.headerSub}>{decodeURIComponent(patientName)}</Text> : null}
+        </View>
         <View style={{ width: 40 }} />
       </View>
 
@@ -322,6 +323,7 @@ const styles = StyleSheet.create({
   backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
   backBtnText: { fontSize: 22, color: '#111827' },
   headerTitle: { fontSize: 17, fontWeight: '700', color: '#111827' },
+  headerSub: { fontSize: 12, color: '#6B7280', marginTop: 1 },
 
   scroll: { flex: 1 },
   scrollContent: { padding: 14, gap: 14 },

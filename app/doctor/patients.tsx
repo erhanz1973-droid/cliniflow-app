@@ -266,13 +266,13 @@ export default function DoctorPatientsScreen() {
                   <View style={styles.cardActions}>
                     <Pressable
                       style={[styles.actionBtn, styles.actionBtnGreen]}
-                      onPress={() => router.push(`/doctor/diagnosis?patientId=${p.id}`)}
+                      onPress={() => router.push(`/doctor/diagnosis?patientId=${p.id}&patientName=${encodeURIComponent(p.name || '')}`)}
                     >
                       <Text style={styles.actionBtnText}>{t('doctor.patients.newTreatment')}</Text>
                     </Pressable>
                     <Pressable
                       style={[styles.actionBtn, styles.actionBtnGray]}
-                      onPress={() => router.push(`/doctor/diagnosis?patientId=${p.id}`)}
+                      onPress={() => router.push(`/doctor/diagnosis?patientId=${p.id}&patientName=${encodeURIComponent(p.name || '')}`)}
                     >
                       <Text style={[styles.actionBtnText, { color: '#fff' }]}>{t('doctor.patients.history')}</Text>
                     </Pressable>
