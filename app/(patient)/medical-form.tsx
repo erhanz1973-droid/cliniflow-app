@@ -142,7 +142,7 @@ export default function MedicalFormScreen() {
       });
       if (!res.ok) { setLoading(false); return; }
       const json = await res.json().catch(() => ({}));
-      const d = json.form;
+      const d = json.formData || json.form;
       if (!d) { setLoading(false); return; }
 
       if (d.allergies) setAllergies(d.allergies);
@@ -198,6 +198,8 @@ export default function MedicalFormScreen() {
         },
         body: JSON.stringify(body),
       });
+      const json = await res.json().catch(() => ({}));
+      console.log("[MEDICAL FORM] save response:", JSON.stringify(json));
       if (!res.ok) throw new Error("Save failed");
       setSaved(true);
       Alert.alert("Kaydedildi", "Sağlık formunuz başarıyla gönderildi.", [
