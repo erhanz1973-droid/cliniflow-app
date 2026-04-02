@@ -9,7 +9,7 @@ import { apiPost, API_BASE } from '../../lib/api';
 import { API_ROUTES } from '../../lib/api-routes';
 import { useLanguage } from '../../lib/language-context';
 import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES, Language } from '../../lib/i18n';
-import { ROLE_STORAGE_KEY } from '../onboarding';
+import { ROLE_KEY } from '../(auth)/role-select';
 
 interface DoctorLoginResponse {
   ok: boolean;
@@ -302,8 +302,8 @@ export default function DoctorLogin() {
         <Pressable
           style={styles.changeRoleBtn}
           onPress={async () => {
-            await AsyncStorage.removeItem(ROLE_STORAGE_KEY).catch(() => {});
-            router.replace('/onboarding');
+            await AsyncStorage.removeItem(ROLE_KEY).catch(() => {});
+            router.replace('/role-select');
           }}
         >
           <Text style={styles.changeRoleText}>⇄ {t('onboarding.changeRole')}</Text>

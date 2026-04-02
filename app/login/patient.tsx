@@ -6,7 +6,7 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLanguage } from '../../lib/language-context';
 import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES, Language } from '../../lib/i18n';
-import { ROLE_STORAGE_KEY } from '../onboarding';
+import { ROLE_KEY } from '../(auth)/role-select';
 
 const WARMUP_TIMEOUT_MS = 75_000;
 const LOGIN_TIMEOUT_MS  = 15_000;
@@ -173,8 +173,8 @@ export default function PatientLogin() {
         <Pressable
           style={styles.changeRoleBtn}
           onPress={async () => {
-            await AsyncStorage.removeItem(ROLE_STORAGE_KEY).catch(() => {});
-            router.replace('/onboarding');
+            await AsyncStorage.removeItem(ROLE_KEY).catch(() => {});
+            router.replace('/role-select');
           }}
         >
           <Text style={styles.changeRoleText}>⇄ {t('onboarding.changeRole')}</Text>
