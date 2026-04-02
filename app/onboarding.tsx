@@ -1,119 +1,274 @@
-// app/onboarding.tsx
-import React from "react";
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  ActivityIndicator,
+  SafeAreaView,
+  StatusBar,
+} from "react-native";
 import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useLanguage } from "../lib/language-context";
+import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES, Language } from "../lib/i18n";
 
-function OptionCard({
-  icon,
-  title,
-  subtitle,
-  cta,
-  onPress,
-}: {
-  icon: string;
-  title: string;
-  subtitle: string;
-  cta: string;
-  onPress: () => void;
-}) {
-  return (
-    <View style={styles.card}>
-      <Text style={styles.cardIcon}>{icon}</Text>
-
-      <Text style={styles.cardTitle}>{title}</Text>
-      <Text style={styles.cardSub}>{subtitle}</Text>
-
-      <Pressable style={styles.cardBtn} onPress={onPress}>
-        <Text style={styles.cardBtnText}>{cta}</Text>
-      </Pressable>
-    </View>
-  );
-}
+export const ROLE_STORAGE_KEY = "@cliniflow:userRole";
 
 export default function OnboardingScreen() {
   const router = useRouter();
+  const { t, currentLanguage, setLanguage } = useLanguage();
+  const [saving, setSaving] = useState(false);
+
+  const pickRole = async (role: "doctor" | "patient") => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await AsyncStorage.setItem(ROLE_STORAGE_KEY, role);
+    } catch {
+      /* ignore storage failures, still navigate */
+    }
+    if (role === "doctor") {
+      router.replace("/login/doctor");
+    } else {
+      router.replace("/login/patient");
+    }
+  };
 
   return (
-    <View style={styles.page}>
-      <View style={styles.wrap}>
-        <Text style={styles.head}>How would you like{"\n"}to continue?</Text>
+    <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="dark-content" backgroundColor="#f8faff" />
 
-        <OptionCard
-          icon="🏥"
-          title="Clinic gave me a code"
-          subtitle="I already have access"
-          cta="Continue with Code"
-          onPress={() => router.push("/access")}
-        />
+      {/* Language selector */}
+      <View style={styles.langBar}>
+        {SUPPORTED_LANGUAGES.map((lang) => (
+          <Pressable
+            key={lang}
+            onPress={() => setLanguage(lang as Language)}
+            style={[styles.langBtn, currentLanguage === lang && styles.langBtnActive]}
+          >
+            <Text style={[styles.langText, currentLanguage === lang && styles.langTextActive]}>
+              {LANGUAGE_NAMES[lang as Language]}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
 
-        <OptionCard
-          icon="🔍"
-          title="I don't have a clinic"
-          subtitle="I want to explore clinics"
-          cta="Find Clinics"
-          onPress={() => router.push("/clinics")}
-        />
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.logoBubble}>
+          <Text style={styles.logoMark}>✚</Text>
+        </View>
+        <Text style={styles.appName}>CliniFlow</Text>
+        <Text style={styles.subtitle}>{t("onboarding.subtitle")}</Text>
+      </View>
 
-        <OptionCard
-          icon="ℹ️"
-          title="Just exploring"
-          subtitle="Learn how it works"
-          cta="View Demo"
-          onPress={() => router.push("/demo")}
-        />
+      {/* Role cards */}
+      <View style={styles.cards}>
+        {/* Doctor card */}
+        <Pressable
+          style={({ pressed }) => [styles.card, styles.cardDoctor, pressed && styles.cardPressed]}
+          onPress={() => pickRole("doctor")}
+          disabled={saving}
+        >
+          <View style={[styles.iconWrap, styles.iconWrapDoctor]}>
+            <Text style={styles.iconEmoji}>🩺</Text>
+          </View>
+          <Text style={[styles.cardTitle, styles.cardTitleDoctor]}>
+            {t("onboarding.doctorTitle")}
+          </Text>
+          <Text style={styles.cardDesc}>{t("onboarding.doctorDesc")}</Text>
+          <View style={[styles.cardArrow, styles.cardArrowDoctor]}>
+            <Text style={[styles.cardArrowText, { color: "#2563eb" }]}>→</Text>
+          </View>
+        </Pressable>
 
-        <Pressable onPress={() => router.back()} style={{ marginTop: 14 }} hitSlop={10}>
-          <Text style={styles.back}>← Back</Text>
+        {/* Patient card */}
+        <Pressable
+          style={({ pressed }) => [styles.card, styles.cardPatient, pressed && styles.cardPressed]}
+          onPress={() => pickRole("patient")}
+          disabled={saving}
+        >
+          <View style={[styles.iconWrap, styles.iconWrapPatient]}>
+            <Text style={styles.iconEmoji}>🧑‍⚕️</Text>
+          </View>
+          <Text style={[styles.cardTitle, styles.cardTitlePatient]}>
+            {t("onboarding.patientTitle")}
+          </Text>
+          <Text style={styles.cardDesc}>{t("onboarding.patientDesc")}</Text>
+          <View style={[styles.cardArrow, styles.cardArrowPatient]}>
+            <Text style={[styles.cardArrowText, { color: "#0891b2" }]}>→</Text>
+          </View>
         </Pressable>
       </View>
-    </View>
+
+      {saving && (
+        <View style={styles.savingOverlay}>
+          <ActivityIndicator size="large" color="#2563eb" />
+        </View>
+      )}
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  page: {
+  safe: {
     flex: 1,
-    backgroundColor: "#F3F4F6",
-    padding: 16,
+    backgroundColor: "#f8faff",
+  },
+  langBar: {
+    flexDirection: "row",
     justifyContent: "center",
+    gap: 6,
+    paddingTop: 14,
+    paddingHorizontal: 16,
   },
-  wrap: {
-    width: "100%",
-    maxWidth: 520,
-    alignSelf: "center",
+  langBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    backgroundColor: "#fff",
   },
-  head: {
-    fontSize: 22,
-    fontWeight: "900",
+  langBtnActive: {
+    backgroundColor: "#2563eb",
+    borderColor: "#2563eb",
+  },
+  langText: {
+    fontSize: 12,
+    color: "#6b7280",
+    fontWeight: "500",
+  },
+  langTextActive: {
+    color: "#fff",
+    fontWeight: "700",
+  },
+  header: {
+    alignItems: "center",
+    paddingTop: 40,
+    paddingBottom: 36,
+    paddingHorizontal: 24,
+  },
+  logoBubble: {
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    backgroundColor: "#2563eb",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+    shadowColor: "#2563eb",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  logoMark: {
+    fontSize: 32,
+    color: "#fff",
+    fontWeight: "700",
+  },
+  appName: {
+    fontSize: 30,
+    fontWeight: "800",
     color: "#111827",
-    marginBottom: 12,
+    letterSpacing: -0.5,
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 15,
+    color: "#6b7280",
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  cards: {
+    flex: 1,
+    paddingHorizontal: 20,
+    gap: 16,
   },
   card: {
-    backgroundColor: "white",
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+    borderWidth: 2,
+    borderColor: "transparent",
+    position: "relative",
+  },
+  cardDoctor: {
+    borderColor: "#dbeafe",
+  },
+  cardPatient: {
+    borderColor: "#cffafe",
+  },
+  cardPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.98 }],
+  },
+  iconWrap: {
+    width: 60,
+    height: 60,
     borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.10)",
-    marginBottom: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
   },
-  cardIcon: { fontSize: 26, marginBottom: 6 },
-  cardTitle: { fontSize: 16, fontWeight: "900", color: "#111827" },
-  cardSub: {
-    marginTop: 4,
-    fontSize: 13,
-    fontWeight: "700",
-    color: "rgba(0,0,0,0.55)",
+  iconWrapDoctor: {
+    backgroundColor: "#eff6ff",
   },
-  cardBtn: {
-    marginTop: 12,
-    backgroundColor: "#111827",
-    paddingVertical: 12,
+  iconWrapPatient: {
+    backgroundColor: "#ecfeff",
+  },
+  iconEmoji: {
+    fontSize: 28,
+  },
+  cardTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    marginBottom: 6,
+    letterSpacing: -0.3,
+  },
+  cardTitleDoctor: {
+    color: "#1d4ed8",
+  },
+  cardTitlePatient: {
+    color: "#0e7490",
+  },
+  cardDesc: {
+    fontSize: 14,
+    color: "#6b7280",
+    lineHeight: 20,
+    paddingRight: 32,
+  },
+  cardArrow: {
+    position: "absolute",
+    right: 20,
+    bottom: 24,
+    width: 36,
+    height: 36,
     borderRadius: 12,
     alignItems: "center",
+    justifyContent: "center",
   },
-  cardBtnText: { color: "white", fontWeight: "900" },
-  back: {
-    fontWeight: "900",
-    color: "rgba(0,0,0,0.65)",
+  cardArrowDoctor: {
+    backgroundColor: "#eff6ff",
+  },
+  cardArrowPatient: {
+    backgroundColor: "#ecfeff",
+  },
+  cardArrowText: {
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  savingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(255,255,255,0.7)",
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

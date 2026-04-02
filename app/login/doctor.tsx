@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../lib/auth';
 import { setAuthToken } from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
@@ -8,6 +9,7 @@ import { apiPost, API_BASE } from '../../lib/api';
 import { API_ROUTES } from '../../lib/api-routes';
 import { useLanguage } from '../../lib/language-context';
 import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES, Language } from '../../lib/i18n';
+import { ROLE_STORAGE_KEY } from '../onboarding';
 
 interface DoctorLoginResponse {
   ok: boolean;
@@ -296,6 +298,16 @@ export default function DoctorLogin() {
         >
           <Text style={styles.altButtonText}>{t('login.registerDoctor')}</Text>
         </Pressable>
+
+        <Pressable
+          style={styles.changeRoleBtn}
+          onPress={async () => {
+            await AsyncStorage.removeItem(ROLE_STORAGE_KEY).catch(() => {});
+            router.replace('/onboarding');
+          }}
+        >
+          <Text style={styles.changeRoleText}>⇄ {t('onboarding.changeRole')}</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -388,5 +400,14 @@ const styles = StyleSheet.create({
   altButtonText: {
     color: "#2563EB",
     fontSize: 15,
+  },
+  changeRoleBtn: {
+    alignItems: "center",
+    paddingVertical: 14,
+    marginTop: 4,
+  },
+  changeRoleText: {
+    fontSize: 13,
+    color: "#9ca3af",
   },
 });

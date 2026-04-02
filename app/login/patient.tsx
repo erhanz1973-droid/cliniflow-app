@@ -3,8 +3,10 @@ import { View, Text, TextInput, Pressable, StyleSheet, Alert, ActivityIndicator 
 import { useAuth } from '../../lib/auth';
 import { API_BASE } from '../../lib/api';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLanguage } from '../../lib/language-context';
 import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES, Language } from '../../lib/i18n';
+import { ROLE_STORAGE_KEY } from '../onboarding';
 
 const WARMUP_TIMEOUT_MS = 75_000;
 const LOGIN_TIMEOUT_MS  = 15_000;
@@ -167,6 +169,16 @@ export default function PatientLogin() {
         >
           <Text style={styles.backButtonText}>{t('login.back')}</Text>
         </Pressable>
+
+        <Pressable
+          style={styles.changeRoleBtn}
+          onPress={async () => {
+            await AsyncStorage.removeItem(ROLE_STORAGE_KEY).catch(() => {});
+            router.replace('/onboarding');
+          }}
+        >
+          <Text style={styles.changeRoleText}>⇄ {t('onboarding.changeRole')}</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -248,6 +260,15 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: "#2563EB",
     fontSize: 16,
+  },
+  changeRoleBtn: {
+    alignItems: "center",
+    paddingVertical: 14,
+    marginTop: 4,
+  },
+  changeRoleText: {
+    fontSize: 13,
+    color: "#9ca3af",
   },
   loadingRow: {
     flexDirection: 'row',
