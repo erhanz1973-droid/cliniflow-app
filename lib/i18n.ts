@@ -670,7 +670,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.networkError": "Bağlantı kurulamadı",
     "register.networkErrorMsg": "İnternet bağlantınızı kontrol edin ve tekrar deneyin.",
     "register.invalidClinic": "Geçersiz klinik kodu. Lütfen kontrol edin.",
-    "register.emailRequired": "E-posta adresi zorunludur.",
+    "register.emailRequired": "Email (zorunlu)",
 
     // Diagnosis (Doctor)
     "diagnosis.addNew": "Diş Tanısı",
@@ -1507,7 +1507,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.networkError": "Connection failed",
     "register.networkErrorMsg": "Please check your internet connection and try again.",
     "register.invalidClinic": "Invalid clinic code. Please check and try again.",
-    "register.emailRequired": "An email address is required.",
+    "register.emailRequired": "Email (required)",
 
     // Diagnosis (Doctor)
     "diagnosis.addNew": "Dental Diagnosis",
@@ -2162,7 +2162,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.networkError": "კავშირი ვერ დამყარდა",
     "register.networkErrorMsg": "შეამოწმეთ ინტერნეტი და სცადეთ თავიდან.",
     "register.invalidClinic": "კლინიკის კოდი არასწორია. გთხოვთ შეამოწმოთ.",
-    "register.emailRequired": "ელ-ფოსტა სავალდებულოა.",
+    "register.emailRequired": "ელ-ფოსტა (სავალდებულო)",
     "register.fillRequired": "შეავსეთ ყველა სავალდებულო ველი",
     "register.ok": "კარგი",
     
@@ -2696,7 +2696,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.networkError": "Не удалось подключиться",
     "register.networkErrorMsg": "Проверьте интернет-соединение и повторите попытку.",
     "register.invalidClinic": "Неверный код клиники. Пожалуйста, проверьте.",
-    "register.emailRequired": "Требуется адрес электронной почты.",
+    "register.emailRequired": "Email (обязательно)",
     "register.fillRequired": "Пожалуйста, заполните все обязательные поля",
     "register.ok": "OK",
 

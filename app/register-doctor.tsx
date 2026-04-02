@@ -21,10 +21,11 @@ export default function RegisterDoctorScreen() {
     specialties: "General", // ✅ Add missing field
   });
   
-  // Check if all required fields are filled
-  const isFormValid = formData.fullName.trim() && 
-                    formData.phone.trim() && 
-                    formData.clinicCode.trim() && 
+  // Check if all required fields are filled (email is required — it's the login credential)
+  const isFormValid = formData.fullName.trim() &&
+                    formData.phone.trim() &&
+                    formData.email.trim().includes("@") &&
+                    formData.clinicCode.trim() &&
                     formData.licenseNumber.trim();
 
   const handleRegister = async () => {
@@ -139,7 +140,7 @@ export default function RegisterDoctorScreen() {
       />
 
       <TextInput
-        placeholder={t('register.emailOptional')}
+        placeholder={t('register.emailRequired')}
         value={formData.email}
         onChangeText={(text) => setFormData({ ...formData, email: text })}
         keyboardType="email-address"
