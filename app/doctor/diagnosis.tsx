@@ -95,6 +95,7 @@ export default function DoctorDiagnosisScreen() {
 
   // ── Save diagnosis ──────────────────────────────────────────────────────────
   const handleSave = async () => {
+    if (saving) return; // guard against multiple taps
     if (!selectedTooth) {
       Alert.alert('', t('diagnosis.selectToothFirst'));
       return;
@@ -104,35 +105,44 @@ export default function DoctorDiagnosisScreen() {
       return;
     }
 
-    const eid = await ensureEncounter();
-    if (!eid) {
-      Alert.alert(t('common.error'), t('diagnosis.encounterError'));
-      return;
-    }
-
-    const alreadyHasPrimary = diagnoses.some(
-      (d) => String(d.tooth_number) === selectedTooth && d.is_primary,
-    );
+    // Lock immediately — before any async work so rapid taps are ignored
+    setSaving(true);
 
     try {
-      setSaving(true);
+      const eid = await ensureEncounter();
+      if (!eid) {
+        Alert.alert(t('common.error'), t('diagnosis.encounterError'));
+        return;
+      }
+
+      const alreadyHasPrimary = diagnoses.some(
+        (d) => String(d.tooth_number) === selectedTooth && d.is_primary,
+      );
+
+      const newItem: DiagnosisItem = {
+        icd10_code: selectedCode,
+        icd10_description: selectedDescription,
+        is_primary: !alreadyHasPrimary,
+        tooth_number: selectedTooth,
+      };
+
       await securePost(
         API_ROUTES.doctor.encounterDiagnoses(eid),
         {
-          diagnoses: [{
-            icd10_code: selectedCode,
-            icd10_description: selectedDescription,
-            is_primary: !alreadyHasPrimary,
-            tooth_number: selectedTooth,
-          }],
+          diagnoses: [newItem],
           toothNumbers: [selectedTooth],
         },
         user?.token,
       );
-      await loadDiagnoses();
+
+      // Optimistic update — no second network round-trip needed
+      setDiagnoses((prev) => [...prev, newItem]);
       setSelectedCode('');
       setSelectedDescription('');
       Alert.alert('', t('diagnosis.saved'));
+
+      // Sync in background to pick up server-assigned id / dedup
+      loadDiagnoses();
     } catch (err) {
       console.error('[Diagnosis] save error:', err);
       Alert.alert(t('common.error'), t('diagnosis.saveError'));
