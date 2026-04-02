@@ -1,6 +1,6 @@
 // lib/timelineIcons.ts
 // Timeline event type → icon mapping
-// Cliniflow Mobile (Expo / React Native)
+// Clinifly Mobile (Expo / React Native)
 
 export type TimelineEventType =
   | "TAKEOFF"

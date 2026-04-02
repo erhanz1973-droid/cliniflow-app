@@ -74,7 +74,7 @@ export default function RoleSelectScreen() {
         <View style={styles.logoBubble}>
           <Text style={styles.logoMark}>CF</Text>
         </View>
-        <Text style={styles.appName}>CliniFlow</Text>
+        <Text style={styles.appName}>Clinifly</Text>
         <Text style={styles.subtitle}>{t("onboarding.subtitle")}</Text>
       </View>
 

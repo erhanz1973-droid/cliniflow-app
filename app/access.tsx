@@ -54,7 +54,7 @@ export default function AccessScreen() {
 
   return (
     <View style={{ flex: 1, padding: 22, justifyContent: "center", gap: 12 }}>
-      <Text style={{ fontSize: 26, fontWeight: "800" }}>Cliniflow</Text>
+      <Text style={{ fontSize: 26, fontWeight: "800" }}>Clinifly</Text>
 
       <Text style={{ opacity: 0.75 }}>
         Kliniğin sana verdiği erişim kodunu gir.

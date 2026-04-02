@@ -54,7 +54,7 @@ export default function InviteScreen() {
   const approvedCount = referrals.filter((r) => r.status === "APPROVED").length;
 
   const inviteMessage =
-    `Cliniflow ile tedavi planımı takip ediyorum.\n` +
+    `Clinifly ile tedavi planımı takip ediyorum.\n` +
     `Uygulamayı indirip kayıt olurken davet kodunu gir:\n\n` +
     `Davet kodum: ${myCode}\n\n` +
     `Not: İndirim oranını klinik/admin belirliyor.`;
