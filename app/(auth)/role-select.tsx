@@ -72,7 +72,7 @@ export default function RoleSelectScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.logoBubble}>
-          <Text style={styles.logoMark}>✚</Text>
+          <Text style={styles.logoMark}>CF</Text>
         </View>
         <Text style={styles.appName}>CliniFlow</Text>
         <Text style={styles.subtitle}>{t("onboarding.subtitle")}</Text>
@@ -200,9 +200,10 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   logoMark: {
-    fontSize: 30,
+    fontSize: 20,
     color: "#fff",
-    fontWeight: "700",
+    fontWeight: "800",
+    letterSpacing: 0.5,
   },
   appName: {
     fontSize: 28,
