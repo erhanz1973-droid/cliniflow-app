@@ -12,7 +12,8 @@ import { useLanguage } from '../../lib/language-context';
 interface Appointment {
   appointmentId: string;
   date: string;
-  time: string;
+  time: string;          // UTC HH:MM fallback from server
+  scheduledAt?: string;  // raw ISO — use this for local-timezone display
   chairNumber: string;
   patientId: string;
   patientName: string;
@@ -59,6 +60,19 @@ function useProcLabel() {
 function fmtDate(iso: string | null) {
   if (!iso) return '-';
   try { return new Date(iso).toLocaleDateString('tr-TR'); } catch { return iso; }
+}
+
+// Display time in device-local timezone. Uses scheduledAt (ISO) when present,
+// falls back to the pre-formatted UTC string from older API responses.
+function fmtApptTime(appt: Appointment): string {
+  if (appt.scheduledAt) {
+    try {
+      return new Date(appt.scheduledAt).toLocaleTimeString('tr-TR', {
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      });
+    } catch { /* fall through */ }
+  }
+  return appt.time || '';
 }
 
 export default function DoctorDashboard() {
@@ -220,7 +234,7 @@ export default function DoctorDashboard() {
                 data.todayAppointments.map((appt) => (
                   <View key={appt.appointmentId} style={styles.apptRow}>
                     <View style={styles.apptTime}>
-                      <Text style={styles.apptTimeText}>{appt.time}</Text>
+                      <Text style={styles.apptTimeText}>{fmtApptTime(appt)}</Text>
                       {appt.chairNumber ? (
                         <Text style={styles.apptChair}>{t('doctor.chair')} {appt.chairNumber}</Text>
                       ) : null}
@@ -252,7 +266,7 @@ export default function DoctorDashboard() {
                 data.tomorrowAppointments.map((appt) => (
                   <View key={appt.appointmentId} style={styles.apptRow}>
                     <View style={styles.apptTime}>
-                      <Text style={styles.apptTimeText}>{appt.time}</Text>
+                      <Text style={styles.apptTimeText}>{fmtApptTime(appt)}</Text>
                       {appt.chairNumber ? (
                         <Text style={styles.apptChair}>{t('doctor.chair')} {appt.chairNumber}</Text>
                       ) : null}
