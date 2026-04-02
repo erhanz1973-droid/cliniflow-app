@@ -178,7 +178,7 @@ export default function DoctorDashboard() {
               onPress={() =>
                 Alert.alert(t('doctor.logout'), t('doctor.logoutConfirm'), [
                   { text: t('doctor.logoutCancel'), style: 'cancel' },
-                  { text: t('doctor.logout'), onPress: () => { signOut(); router.replace('/'); } },
+                  { text: t('doctor.logout'), onPress: () => { signOut(); router.replace('/role-select'); } },
                 ])
               }
             >

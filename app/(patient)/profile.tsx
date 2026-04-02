@@ -153,7 +153,7 @@ export default function ProfileScreen() {
         style: "destructive",
         onPress: async () => {
           await signOut();
-          router.replace("/login/patient" as any);
+          router.replace("/role-select" as any);
         },
       },
     ]);
