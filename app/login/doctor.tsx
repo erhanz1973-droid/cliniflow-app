@@ -277,21 +277,6 @@ export default function DoctorLogin() {
           </Text>
         )}
 
-        <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 8 }}>
-          <Pressable
-            style={[styles.altButton, { marginRight: 8 }]}
-            onPress={() => router.replace('/login/patient')}
-          >
-            <Text style={styles.altButtonText}>{t('login.switchToPatient')}</Text>
-          </Pressable>
-          <Pressable
-            style={styles.altButton}
-            onPress={() => router.replace('/register-patient')}
-          >
-            <Text style={styles.altButtonText}>{t('login.registerPatient')}</Text>
-          </Pressable>
-        </View>
-
         <Pressable
           style={[styles.altButton, { alignSelf: 'center', marginTop: 8, minWidth: 200 }]}
           onPress={() => router.push('/register-doctor')}
