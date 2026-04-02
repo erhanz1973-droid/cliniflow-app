@@ -1,9 +1,15 @@
 import { Tabs } from "expo-router";
 import { Text } from "react-native";
 import { useLanguage } from "../../lib/language-context";
+import { useAuth } from "../../lib/auth";
+import { useUnreadMessages } from "../../lib/useUnreadMessages";
 
 export default function PatientTabsLayout() {
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const patientId = user?.id as string | undefined;
+  const token = user?.token as string | undefined;
+  const { badgeLabel } = useUnreadMessages(patientId, token);
 
   return (
     <Tabs
@@ -75,6 +81,8 @@ export default function PatientTabsLayout() {
           tabBarIcon: ({ color, size }) => (
             <Text style={{ color, fontSize: size - 2 }}>💬</Text>
           ),
+          tabBarBadge: badgeLabel,
+          tabBarBadgeStyle: { fontSize: 10, minWidth: 18, height: 18, lineHeight: 17 },
         }}
       />
       <Tabs.Screen

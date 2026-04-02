@@ -10,6 +10,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { useAuth } from "../../lib/auth";
 import { API_BASE } from "../../lib/api";
 import { useDateLocale } from "../../lib/date-locale";
+import { useUnreadMessages } from "../../lib/useUnreadMessages";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,7 @@ export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
 
   const patientId = String(user?.patientId || "").trim();
   const token     = user?.token;
+  const { markRead } = useUnreadMessages(patientId || undefined, token || undefined);
 
   const authHeaders = useCallback(() => ({
     Authorization: `Bearer ${token}`,
@@ -93,10 +95,11 @@ export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
   }, [token, patientId, authHeaders]);
 
   useEffect(() => {
+    markRead(); // clear badge when screen opens
     fetchMessages();
     pollRef.current = setInterval(() => fetchMessages(true), 12_000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [fetchMessages]);
+  }, [fetchMessages, markRead]);
 
   // ── Send text ──────────────────────────────────────────────────────────────
 
