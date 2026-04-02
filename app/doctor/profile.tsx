@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  Alert, ActivityIndicator, StyleSheet, SafeAreaView, Switch,
+  Alert, ActivityIndicator, StyleSheet, SafeAreaView, Switch, Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
-import { apiGet, apiPut } from '../../lib/api';
+import { apiGet, apiPut, API_BASE } from '../../lib/api';
 import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES, Language } from '../../lib/i18n';
 
 interface DoctorProfile {
@@ -70,6 +71,7 @@ export default function DoctorProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const [form, setForm] = useState({
     name: '', phone: '', title: '', bio: '', department: '',
@@ -137,6 +139,85 @@ export default function DoctorProfileScreen() {
     }
   };
 
+  const handleChangePhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        t('common.permissionRequired') || 'İzin Gerekli',
+        'Fotoğraf seçmek için galeri izni gerekiyor.',
+      );
+      return;
+    }
+
+    Alert.alert(
+      t('doctor.profile.changePhoto') || 'Fotoğraf Değiştir',
+      '',
+      [
+        {
+          text: t('doctor.profile.takePhoto') || 'Kamera',
+          onPress: async () => {
+            const cam = await ImagePicker.requestCameraPermissionsAsync();
+            if (cam.status !== 'granted') return;
+            const result = await ImagePicker.launchCameraAsync({
+              mediaTypes: ['images'],
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.8,
+            });
+            if (!result.canceled) uploadPhoto(result.assets[0]);
+          },
+        },
+        {
+          text: t('doctor.profile.chooseFromGallery') || 'Galeriden Seç',
+          onPress: async () => {
+            const result = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ['images'],
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.8,
+            });
+            if (!result.canceled) uploadPhoto(result.assets[0]);
+          },
+        },
+        { text: t('common.cancel') || 'İptal', style: 'cancel' },
+      ],
+    );
+  };
+
+  const uploadPhoto = async (asset: ImagePicker.ImagePickerAsset) => {
+    if (!user?.token) return;
+    setUploadingPhoto(true);
+    try {
+      const ext = asset.uri.split('.').pop()?.toLowerCase() || 'jpg';
+      const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+
+      const formData = new FormData();
+      formData.append('photo', {
+        uri: asset.uri,
+        name: `photo.${ext}`,
+        type: mime,
+      } as any);
+
+      const response = await fetch(`${API_BASE}/api/doctor/upload-photo`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user.token}` },
+        body: formData,
+      });
+      const json = await response.json();
+
+      if (json.ok && json.profilePhotoUrl) {
+        setProfile(prev => prev ? { ...prev, profile_photo_url: json.profilePhotoUrl } : prev);
+        Alert.alert('', t('doctor.profile.photoUpdated') || 'Fotoğraf güncellendi.');
+      } else {
+        Alert.alert(t('common.error') || 'Hata', json.error || 'Yükleme başarısız.');
+      }
+    } catch (e: any) {
+      Alert.alert(t('common.error') || 'Hata', e?.message || 'Yükleme başarısız.');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   const statusColor = STATUS_COLORS[profile?.status?.toUpperCase() || ''] || '#9CA3AF';
   const statusLabel = t(STATUS_LABEL_KEYS[profile?.status?.toUpperCase() || ''] || '') || profile?.status || '';
 
@@ -176,11 +257,23 @@ export default function DoctorProfileScreen() {
 
         {/* Identity card */}
         <View style={s.heroCard}>
-          <View style={s.heroAvatar}>
-            <Text style={s.heroAvatarText}>
-              {(profile?.name || 'D').charAt(0).toUpperCase()}
-            </Text>
-          </View>
+          <TouchableOpacity onPress={handleChangePhoto} disabled={uploadingPhoto} style={s.avatarWrap}>
+            {profile?.profile_photo_url ? (
+              <Image source={{ uri: profile.profile_photo_url }} style={s.heroAvatarImg} />
+            ) : (
+              <View style={s.heroAvatar}>
+                <Text style={s.heroAvatarText}>
+                  {(profile?.name || 'D').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
+            <View style={s.cameraBadge}>
+              {uploadingPhoto
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={s.cameraBadgeText}>📷</Text>
+              }
+            </View>
+          </TouchableOpacity>
           <View style={s.heroInfo}>
             {editing ? (
               <TextInput style={[s.input, { fontSize: 17, fontWeight: '700' }]}
@@ -365,11 +458,23 @@ const s = StyleSheet.create({
     backgroundColor: '#fff', borderRadius: 14, padding: 16,
     flexDirection: 'row', alignItems: 'flex-start', gap: 14,
   },
+  avatarWrap: { position: 'relative', width: 68, height: 68 },
   heroAvatar: {
-    width: 60, height: 60, borderRadius: 30,
+    width: 68, height: 68, borderRadius: 34,
     backgroundColor: '#2563EB', justifyContent: 'center', alignItems: 'center',
   },
-  heroAvatarText: { color: '#fff', fontSize: 26, fontWeight: '700' },
+  heroAvatarImg: {
+    width: 68, height: 68, borderRadius: 34,
+    backgroundColor: '#E5E7EB',
+  },
+  heroAvatarText: { color: '#fff', fontSize: 28, fontWeight: '700' },
+  cameraBadge: {
+    position: 'absolute', bottom: 0, right: 0,
+    width: 24, height: 24, borderRadius: 12,
+    backgroundColor: '#2563EB', borderWidth: 2, borderColor: '#fff',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  cameraBadgeText: { fontSize: 11 },
   heroInfo: { flex: 1, gap: 4 },
   heroName: { fontSize: 17, fontWeight: '700', color: '#111827' },
   heroTitle: { fontSize: 13, color: '#6B7280' },
