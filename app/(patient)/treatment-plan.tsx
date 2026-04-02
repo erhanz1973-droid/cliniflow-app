@@ -560,10 +560,8 @@ export default function TreatmentPlanScreen() {
   const [pricesVisible, setPricesVisible] = useState(true);
   const skipFocusPlanReload = useRef(true);
   const scrollRef = useRef<ScrollView>(null);
-  // toothId → y offset in ScrollView (captured via onLayout of first card per tooth)
+  // toothId → y offset in ScrollView (updated on every render via onLayout)
   const toothYRef = useRef<Map<string, number>>(new Map());
-  // Track which teeth already have a registered y (only first card per tooth)
-  const toothYRegistered = useRef<Set<string>>(new Set());
 
   const patientId = String(user?.patientId || user?.id || "").trim();
 
@@ -740,9 +738,7 @@ export default function TreatmentPlanScreen() {
         });
       }
       const deduped = [...byId.values()];
-      // Reset tooth scroll registry on fresh load
-      toothYRef.current.clear();
-      toothYRegistered.current.clear();
+
 
       const ACTIVE_STATUSES   = ["IN_PROGRESS", "ACTIVE", "ONGOING"];
       const PLANNED_STATUSES  = ["PLANNED", "SCHEDULED", "PENDING", "WAITING", ""];
@@ -797,19 +793,8 @@ export default function TreatmentPlanScreen() {
   const handleToothPress = useCallback((toothId: string) => {
     const y = toothYRef.current.get(toothId);
     if (y != null) {
-      scrollRef.current?.scrollTo({ y: y - 16, animated: true });
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 16), animated: true });
     }
-  }, []);
-
-  const makeOnLayout = useCallback((toothId: string | null | undefined) => {
-    if (!toothId) return undefined;
-    if (toothYRegistered.current.has(toothId)) return undefined;
-    return (y: number) => {
-      if (!toothYRegistered.current.has(toothId)) {
-        toothYRegistered.current.add(toothId);
-        toothYRef.current.set(toothId, y);
-      }
-    };
   }, []);
 
   if (loading) {
@@ -821,6 +806,15 @@ export default function TreatmentPlanScreen() {
   }
 
   const totalCount = active.length + planned.length + completed.length;
+
+  // Per-render tracker so each tooth's first card always gets an onLayout callback.
+  // Using a local Set (not a ref) resets it on every render, ensuring y values stay fresh.
+  const toothSeenThisRender = new Set<string>();
+  const makeOnLayout = (toothId: string | null | undefined) => {
+    if (!toothId || toothSeenThisRender.has(toothId)) return undefined;
+    toothSeenThisRender.add(toothId);
+    return (y: number) => { toothYRef.current.set(toothId, y); };
+  };
 
   return (
     <ScrollView
