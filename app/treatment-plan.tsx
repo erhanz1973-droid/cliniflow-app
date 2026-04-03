@@ -86,6 +86,7 @@ type Treatment = {
   assigned_doctor_name?: string;
   scheduled_at: string | null;
   chair: string | null;
+  notes: string | null;
 };
 type Doctor = { id: string; full_name?: string; name?: string; doctor_id?: string };
 type Diagnosis = {
@@ -419,6 +420,7 @@ function EditModal({
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [chair, setChair] = useState(treatment?.chair || '');
+  const [notes, setNotes] = useState(treatment?.notes || '');
   const [saving, setSaving] = useState(false);
   const [showStatusList, setShowStatusList] = useState(false);
   const [showDoctorList, setShowDoctorList] = useState(false);
@@ -427,6 +429,7 @@ function EditModal({
     if (!treatment) return;
     setStatus(treatment.status || 'planned');
     setChair(treatment.chair || '');
+    setNotes(treatment.notes || '');
     setSelectedDate(treatment.scheduled_at ? new Date(treatment.scheduled_at) : null);
     if (treatment.assigned_doctor_id) {
       const doc = doctors.find(d => d.id === treatment.assigned_doctor_id);
@@ -446,6 +449,7 @@ function EditModal({
         assigned_doctor_id: selectedDoctor?.id || null,
         scheduled_at: selectedDate ? selectedDate.toISOString() : null,
         chair: chair.trim() || null,
+        notes: notes.trim() || null,
       };
       const res = await fetch(`${API_BASE}${API_ROUTES.doctor.updateTreatment(treatment.id)}`, {
         method: 'PATCH',
@@ -554,6 +558,20 @@ function EditModal({
               ))}
             </View>
 
+            {/* Notes */}
+            <Text style={styles.fieldLabel}>{t('treatmentPlan.notes')}</Text>
+            <TextInput
+              style={styles.notesInput}
+              placeholder={t('treatmentPlan.notesPlaceholder')}
+              value={notes}
+              onChangeText={setNotes}
+              multiline
+              numberOfLines={3}
+              maxLength={500}
+              textAlignVertical="top"
+            />
+            <Text style={styles.notesCounter}>{notes.length}/500</Text>
+
             <TouchableOpacity style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={save} disabled={saving}>
               {saving
                 ? <ActivityIndicator color="#fff" size="small" />
@@ -582,6 +600,9 @@ export default function TreatmentPlanScreen() {
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [editTarget, setEditTarget] = useState<Treatment | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [noteEditId, setNoteEditId] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
 
   const load = useCallback(async () => {
     if (!patientId) return;
@@ -605,6 +626,28 @@ export default function TreatmentPlanScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true); await load(); setRefreshing(false);
   }, [load]);
+
+  const saveNote = useCallback(async (txId: string, noteText: string) => {
+    if (!user?.token) return;
+    setNoteSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}${API_ROUTES.doctor.updateTreatment(txId)}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${user.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: noteText.trim() || null }),
+      });
+      const data = await res.json();
+      if (!data?.ok) throw new Error(data?.error || 'error');
+      setTreatments(prev => prev.map(tx =>
+        tx.id === txId ? { ...tx, notes: data.treatment?.notes ?? null } : tx
+      ));
+      setNoteEditId(null);
+    } catch {
+      Alert.alert(t('common.error'), t('treatmentPlan.noteSaveError'));
+    } finally {
+      setNoteSaving(false);
+    }
+  }, [user?.token, t]);
 
   if (loading) {
     return (
@@ -683,31 +726,83 @@ export default function TreatmentPlanScreen() {
             const docName = tx.assigned_doctor_name
               || doctors.find(d => d.id === tx.assigned_doctor_id)?.full_name
               || doctors.find(d => d.id === tx.assigned_doctor_id)?.name;
+            const isEditingNote = noteEditId === tx.id;
             return (
-              <TouchableOpacity
-                key={tx.id}
-                style={styles.card}
-                activeOpacity={0.75}
-                onPress={() => setEditTarget(tx)}
-              >
-                <View style={styles.cardRow}>
-                  <View style={styles.toothBadge}>
-                    <Text style={styles.toothBadgeText}>
-                      {tx.tooth_number ? `${t('diagnosis.tooth')} ${tx.tooth_number}` : '—'}
-                    </Text>
+              <View key={tx.id} style={styles.card}>
+                <TouchableOpacity
+                  activeOpacity={0.75}
+                  onPress={() => setEditTarget(tx)}
+                >
+                  <View style={styles.cardRow}>
+                    <View style={styles.toothBadge}>
+                      <Text style={styles.toothBadgeText}>
+                        {tx.tooth_number ? `${t('diagnosis.tooth')} ${tx.tooth_number}` : '—'}
+                      </Text>
+                    </View>
+                    <View style={[styles.statusPill, { backgroundColor: si.bg }]}>
+                      <Text style={[styles.statusPillText, { color: si.color }]}>{t(si.labelKey) || si.value}</Text>
+                    </View>
+                    <Text style={styles.editHint}>›</Text>
                   </View>
-                  <View style={[styles.statusPill, { backgroundColor: si.bg }]}>
-                    <Text style={[styles.statusPillText, { color: si.color }]}>{t(si.labelKey) || si.value}</Text>
+                  <Text style={styles.procName}>{t(`treatmentPlan.proc.${tx.procedure_type}`) || procLabel(tx.procedure_type)}</Text>
+                  <View style={styles.cardMeta}>
+                    {date && <Text style={styles.metaText}>📅 {date}</Text>}
+                    {tx.chair && <Text style={styles.metaText}>💺 {t('treatmentPlan.chairNo')} {tx.chair}</Text>}
+                    {docName && <Text style={styles.metaText}>👨‍⚕️ {docName}</Text>}
                   </View>
-                  <Text style={styles.editHint}>›</Text>
+                </TouchableOpacity>
+
+                {/* Inline note area */}
+                <View style={styles.noteArea}>
+                  {isEditingNote ? (
+                    <View>
+                      <TextInput
+                        style={styles.noteInput}
+                        value={noteDraft}
+                        onChangeText={setNoteDraft}
+                        multiline
+                        numberOfLines={3}
+                        maxLength={500}
+                        textAlignVertical="top"
+                        autoFocus
+                        placeholder={t('treatmentPlan.notesPlaceholder')}
+                        placeholderTextColor="#9CA3AF"
+                      />
+                      <View style={styles.noteActions}>
+                        <TouchableOpacity
+                          style={styles.noteCancelBtn}
+                          onPress={() => setNoteEditId(null)}
+                        >
+                          <Text style={styles.noteCancelText}>{t('common.cancel')}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.noteSaveBtn, noteSaving && { opacity: 0.6 }]}
+                          onPress={() => saveNote(tx.id, noteDraft)}
+                          disabled={noteSaving}
+                        >
+                          {noteSaving
+                            ? <ActivityIndicator size="small" color="#fff" />
+                            : <Text style={styles.noteSaveText}>{t('treatmentPlan.save')}</Text>
+                          }
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => {
+                        setNoteDraft(tx.notes || '');
+                        setNoteEditId(tx.id);
+                      }}
+                    >
+                      {tx.notes ? (
+                        <Text style={styles.noteText} numberOfLines={3}>📝 {tx.notes}</Text>
+                      ) : (
+                        <Text style={styles.notePlaceholder}>+ {t('treatmentPlan.addNote')}</Text>
+                      )}
+                    </TouchableOpacity>
+                  )}
                 </View>
-                <Text style={styles.procName}>{t(`treatmentPlan.proc.${tx.procedure_type}`) || procLabel(tx.procedure_type)}</Text>
-                <View style={styles.cardMeta}>
-                  {date && <Text style={styles.metaText}>📅 {date}</Text>}
-                  {tx.chair && <Text style={styles.metaText}>💺 {t('treatmentPlan.chairNo')} {tx.chair}</Text>}
-                  {docName && <Text style={styles.metaText}>👨‍⚕️ {docName}</Text>}
-                </View>
-              </TouchableOpacity>
+              </View>
             );
           })
         )}
@@ -919,4 +1014,36 @@ const styles = StyleSheet.create({
   chairChipActive: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
   chairChipText: { fontSize: 16, fontWeight: '700', color: '#374151' },
   chairChipTextActive: { color: '#fff' },
+
+  // Modal notes field
+  notesInput: {
+    borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: '#111827',
+    backgroundColor: '#FAFAFA', minHeight: 80, textAlignVertical: 'top',
+  },
+  notesCounter: { fontSize: 11, color: '#9CA3AF', textAlign: 'right', marginTop: 4 },
+
+  // Inline card note
+  noteArea: {
+    marginTop: 8, paddingTop: 8,
+    borderTopWidth: 1, borderTopColor: '#F3F4F6',
+  },
+  noteText: { fontSize: 12, color: '#374151', lineHeight: 18 },
+  notePlaceholder: { fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' },
+  noteInput: {
+    borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 8, fontSize: 13, color: '#111827',
+    backgroundColor: '#F9FAFB', minHeight: 72, textAlignVertical: 'top',
+  },
+  noteActions: { flexDirection: 'row', gap: 8, marginTop: 6, justifyContent: 'flex-end' },
+  noteCancelBtn: {
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8,
+    borderWidth: 1, borderColor: '#D1D5DB',
+  },
+  noteCancelText: { fontSize: 13, color: '#374151', fontWeight: '600' },
+  noteSaveBtn: {
+    paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, backgroundColor: '#2563EB',
+    minWidth: 60, alignItems: 'center',
+  },
+  noteSaveText: { fontSize: 13, color: '#fff', fontWeight: '700' },
 });
