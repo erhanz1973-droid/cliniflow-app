@@ -8,7 +8,9 @@ import { useAuth } from "../../lib/auth";
 import { API_BASE } from "../../lib/api";
 import { useLanguage } from "../../lib/language-context";
 import { useDateLocale } from "../../lib/date-locale";
+import { translateProcedureDisplay } from "../../lib/procedureLabels";
 import { getIcd10Tr } from "../../lib/icd10-tr";
+import { getIcd10En } from "../../lib/icd10-en";
 import { getIcd10Ru } from "../../lib/icd10-ru";
 import { getIcd10Ka } from "../../lib/icd10-ka";
 
@@ -264,10 +266,7 @@ function ProcedureCard({
   const color = statusColor(proc.status);
   const whenIso = pickProcedureWhenIso(proc);
   const { dateStr, timeStr } = formatDateTimeParts(whenIso || undefined, locale);
-  const normalized = proc.rawType ? String(proc.rawType).trim().toUpperCase().replace(/\s+/g, "_") : null;
-  const typeKey = normalized ? `treatment.type.${normalized}` : null;
-  const typeLabel = typeKey ? t(typeKey) : null;
-  const displayTitle = (typeLabel && typeLabel !== typeKey) ? typeLabel : (proc.title || proc.rawType || "—");
+  const displayTitle = translateProcedureDisplay(t, proc.rawType, proc.title) || "—";
 
   const typeForPrice = proc.rawType ? String(proc.rawType).trim().toUpperCase() : "";
   const rawLine = proc.price ?? undefined;
@@ -279,28 +278,16 @@ function ProcedureCard({
   const fromMap = typeForPrice && priceByType[typeForPrice] ? priceByType[typeForPrice] : null;
   const priceEntry = fromLine || fromMap;
 
-  const L =
-    currentLanguage === "tr"
-      ? {
-          procedure: "İşlem",
-          estPrice: "Tahmini fiyat",
-          toothNo: "Diş no",
-          date: "Tarih",
-          time: "Saat",
-          chair: "Sandalye",
-          doctor: "Hekim",
-          approxHint: "(tahmini)",
-        }
-      : {
-          procedure: "Procedure",
-          estPrice: "Est. price (approx.)",
-          toothNo: "Tooth",
-          date: "Date",
-          time: "Time",
-          chair: "Chair",
-          doctor: "Doctor",
-          approxHint: "(approx.)",
-        };
+  const L = {
+    procedure: t("treatment.cardProcedure"),
+    estPrice: t("treatment.cardEstPrice"),
+    toothNo: t("treatment.cardToothNo"),
+    date: t("treatment.cardDate"),
+    time: t("treatment.cardTime"),
+    chair: t("treatment.cardChair"),
+    doctor: t("treatment.cardDoctor"),
+    approxHint: t("treatment.cardApprox"),
+  };
 
   const dash = "—";
   const doctorNotAssigned = t("treatment.doctorNotAssigned");
@@ -419,7 +406,7 @@ function DiagnosisSection({ diagnoses }: { diagnoses: Diagnosis[] }) {
                   ? getIcd10Ru(d.icd10_code, d.icd10_description)
                   : currentLanguage === "ka"
                   ? getIcd10Ka(d.icd10_code, d.icd10_description)
-                  : (d.icd10_description || d.notes || "—")}
+                  : getIcd10En(d.icd10_code, d.icd10_description)}
               </Text>
             </View>
           ))}
@@ -766,10 +753,6 @@ export default function TreatmentPlanScreen() {
       setRefreshing(false);
     }
   }, [user?.token, patientId]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
 
   useFocusEffect(
     useCallback(() => {
