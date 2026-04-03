@@ -33,9 +33,18 @@ export function translateProcedureCodeRaw(
   let norm = normalizeProcedureCode(code);
   if (!norm) return null;
   norm = CODE_ALIASES[norm] || norm;
-  const key = treatmentTypeKey(norm);
-  const label = t(key);
-  return label === key ? null : label;
+
+  // 1) treatment.type.* (primary namespace)
+  const key1 = treatmentTypeKey(norm);
+  const label1 = t(key1);
+  if (label1 !== key1) return label1;
+
+  // 2) treatmentPlan.proc.* (fallback — has BONE_GRAFT, SINUS_LIFT, CLEANING etc.)
+  const key2 = `treatmentPlan.proc.${norm}`;
+  const label2 = t(key2);
+  if (label2 !== key2) return label2;
+
+  return null;
 }
 
 function translateOneProcedureFragment(t: (key: string) => string, frag: string): string {
