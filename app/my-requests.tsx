@@ -220,6 +220,22 @@ export default function MyRequestsScreen() {
                               ⚠️ {offer.disclaimer || DISCLAIMER}
                             </Text>
                           </View>
+                          {/* Message Doctor button */}
+                          <TouchableOpacity
+                            style={styles.msgBtn}
+                            onPress={() =>
+                              router.push({
+                                pathname: '/offer-chat',
+                                params: {
+                                  offerId: offer.id,
+                                  otherName: encodeURIComponent(offer.doctor_name || t('treatReq.doctor')),
+                                  treatmentType: offer.treatment_type,
+                                },
+                              })
+                            }
+                          >
+                            <Text style={styles.msgBtnText}>💬 {t('offerChat.messageDoctor')}</Text>
+                          </TouchableOpacity>
                         </View>
                       ))}
                     </>
@@ -310,4 +326,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF9C3', borderRadius: 6, padding: 8, marginTop: 6,
   },
   disclaimerText: { fontSize: 11, color: '#92400E', lineHeight: 16 },
+  msgBtn: {
+    marginTop: 8, backgroundColor: '#EFF6FF', borderRadius: 8, borderWidth: 1,
+    borderColor: '#BFDBFE', paddingVertical: 8, alignItems: 'center',
+  },
+  msgBtnText: { fontSize: 13, fontWeight: '700', color: '#2563EB' },
 });

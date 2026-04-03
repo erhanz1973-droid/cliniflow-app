@@ -35,6 +35,7 @@ type TreatmentRequest = {
   status: 'pending' | 'answered' | 'closed';
   created_at: string;
   offer_count: number;
+  my_offer_id: string | null;
 };
 
 function fmtDate(iso: string) {
@@ -365,13 +366,30 @@ export default function DoctorRequestsScreen() {
                 {/* Action row */}
                 <View style={styles.actionRow}>
                   <TouchableOpacity
-                    style={styles.offerBtn}
+                    style={[styles.offerBtn, req.my_offer_id ? styles.offerBtnSecondary : null]}
                     onPress={() => setOfferTarget(req)}
                   >
-                    <Text style={styles.offerBtnText}>
-                      {req.offer_count > 0 ? t('treatReq.offer.sendAnother') : t('treatReq.offer.makeOffer')}
+                    <Text style={[styles.offerBtnText, req.my_offer_id ? styles.offerBtnTextSecondary : null]}>
+                      {req.my_offer_id ? t('treatReq.offer.sendAnother') : t('treatReq.offer.makeOffer')}
                     </Text>
                   </TouchableOpacity>
+                  {req.my_offer_id && (
+                    <TouchableOpacity
+                      style={styles.msgBtn}
+                      onPress={() =>
+                        router.push({
+                          pathname: '/offer-chat',
+                          params: {
+                            offerId: req.my_offer_id!,
+                            otherName: encodeURIComponent(req.patient_name),
+                            treatmentType: req.preferred_treatment || '',
+                          },
+                        })
+                      }
+                    >
+                      <Text style={styles.msgBtnText}>💬 {t('offerChat.viewMessages')}</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
             );
@@ -461,12 +479,19 @@ const styles = StyleSheet.create({
   details: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
   detailRow: { fontSize: 13, color: '#6B7280', marginBottom: 4 },
 
-  actionRow: { marginTop: 12, flexDirection: 'row' },
+  actionRow: { marginTop: 12, flexDirection: 'row', gap: 8 },
   offerBtn: {
     flex: 1, backgroundColor: '#2563EB', borderRadius: 10,
     paddingVertical: 10, alignItems: 'center',
   },
+  offerBtnSecondary: { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#D1D5DB' },
   offerBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  offerBtnTextSecondary: { color: '#374151' },
+  msgBtn: {
+    flex: 1, backgroundColor: '#EFF6FF', borderRadius: 10, borderWidth: 1,
+    borderColor: '#BFDBFE', paddingVertical: 10, alignItems: 'center',
+  },
+  msgBtnText: { color: '#2563EB', fontWeight: '700', fontSize: 13 },
 
   // Modal
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
