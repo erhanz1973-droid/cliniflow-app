@@ -70,7 +70,15 @@ function pickToken(input: any): string | null {
 }
 
 function pickId(input: any): string {
-  const raw = input?.id ?? input?.userId ?? input?.user?.id ?? input?.data?.id ?? null;
+  const raw =
+    input?.id ??
+    input?.userId ??
+    input?.patientId ??
+    input?.doctorId ??
+    input?.clinicId ??
+    input?.user?.id ??
+    input?.data?.id ??
+    null;
   const id = typeof raw === "string" ? raw.trim() : raw != null ? String(raw) : "";
   if (!id) throw new Error("signIn failed: id missing");
   return id;
