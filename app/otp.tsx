@@ -4,7 +4,6 @@ import { View, Text, TextInput, Pressable, StyleSheet, Alert, Platform, ScrollVi
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../lib/auth";
 import { API_BASE, ADMIN_API_BASE } from "../lib/api";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // ✅ hard timeout (sonsuz verifying olmasın)
 const VERIFY_TIMEOUT_MS = 8000;
@@ -35,50 +34,21 @@ export default function OtpScreen() {
   const hardResetDoneRef = useRef(false);
 
   async function verifyWithServer(code: string, phoneToVerify: string) {
-    // 🔥 CRITICAL: Prevent multiple verification calls
     if (isVerifying || otpVerifiedRef.current) {
-      console.log('[OTP] 🔥 Verification already in progress or completed - skipping');
-      // Don't silently return - provide user feedback
-      Alert.alert("Bilgi", "OTP doğrulaması zaten devam ediyor veya tamamlandı. Lütfen bekleyin.");
+      setMsg("Doğrulama devam ediyor, lütfen bekleyin.");
       return;
     }
-
-    // Final validation before sending request
     if (!code || code.length !== 6 || !phoneToVerify) {
-      throw new Error("Missing required parameters for OTP verification");
+      throw new Error("Geçersiz parametreler. Lütfen tekrar deneyin.");
     }
 
     setIsVerifying(true);
     otpVerifiedRef.current = true;
 
-    // Add small delay to prevent server overload
-    await new Promise(resolve => setTimeout(resolve, 500));
-
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS);
 
     try {
-      // 🔥 CRITICAL: Send type parameter for proper routing
-      const requestBody = {
-        otp: code,
-        email: email || undefined,
-        phone: phoneToVerify,
-        type: userType, // 🔥 CRITICAL: "doctor", "patient", or "admin"
-      };
-
-      console.log("[OTP] Sending verification request:", {
-        userType,
-        endpoint: `${ADMIN_API_BASE}/auth/verify-otp`,
-        API_BASE: "https://cliniflow-backend.onrender.com",
-        ADMIN_API_BASE: "https://cliniflow-backend.onrender.com",
-        otp: code,
-        phone: phoneToVerify,
-        email: email || undefined,
-        type: "patient", // 🔥 CRITICAL: ONLY patient type allowed
-      });
-
-      console.log("VERIFY URL:", `${ADMIN_API_BASE}/auth/verify-otp`);
-
       const res = await fetch(`${ADMIN_API_BASE}/auth/verify-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -86,33 +56,17 @@ export default function OtpScreen() {
           otp: code,
           email: email || undefined,
           phone: phoneToVerify,
-          type: "patient", // 🔥 CRITICAL: ONLY patient type allowed
+          type: "patient",
         }),
         signal: controller.signal,
       });
 
-      console.log("[OTP] Full request details:", {
-        method: "POST",
-        url: `${ADMIN_API_BASE}/auth/verify-otp`,
-        headers: { "Content-Type": "application/json" },
-        body: {
-          otp: code,
-          email: email || undefined,
-          phone: phoneToVerify,
-          type: "patient"
-        }
-      });
-
-      // Safe JSON parsing
       const text = await res.text();
-      console.log("RAW VERIFY RESPONSE:", text);
-      
-      let json;
+      let json: any;
       try {
         json = text ? JSON.parse(text) : null;
       } catch {
-        console.log("VERIFY RAW RESPONSE:", text);
-        throw new Error("Server returned non-JSON response.");
+        throw new Error("Sunucu geçersiz yanıt döndürdü.");
       }
 
       if (!res.ok) {
@@ -136,11 +90,6 @@ export default function OtpScreen() {
       }
 
       if (json.ok && json.token) {
-        console.log("VERIFY OTP RESPONSE:", json); // 🔥 DEBUG: Log full response
-        
-        // 🔥 CRITICAL: signIn() ONLY after successful OTP verification
-        // Use the EXACT backend response structure
-        
         if (json.type === "doctor") {
           await signIn({
             token: json.token,
@@ -270,52 +219,15 @@ export default function OtpScreen() {
   }
 
   useEffect(() => {
-    // 🔥 CRITICAL: Doctors bypass OTP entirely
     if (source === "doctor") {
-      console.log('[OTP] 🔥 Doctor source detected - redirecting away from OTP');
       Alert.alert(
-        "Hata", 
-        "Doktorlar OTP doğrulaması kullanamaz. Lütfen kayıt ekranına dönün.",
-        [
-          {
-            text: "Tamam",
-            onPress: () => router.replace("/register-doctor")
-          }
-        ]
+        "Hata",
+        "Doktorlar OTP doğrulaması kullanamaz.",
+        [{ text: "Tamam", onPress: () => router.replace("/register-doctor") }]
       );
       return;
     }
-
-    // 🔥 CRITICAL: HARD RESET AUTH BEFORE OTP (only once on mount)
-    // OTP screen MUST start with ZERO auth state
-    if (!hardResetDoneRef.current) {
-      const hardResetAuth = async () => {
-        try {
-          console.log('[OTP] 🔥 HARD RESET: Clearing all auth storage');
-          await signOut();
-          
-          // Clear all storage
-          if (Platform.OS === "web") {
-            if (typeof window !== "undefined") {
-              localStorage.clear();
-              sessionStorage.clear();
-            }
-          } else {
-            await AsyncStorage.clear();
-          }
-          
-          console.log('[OTP] 🔥 HARD RESET: All auth storage cleared');
-        } catch (error) {
-          console.error('[OTP] 🔥 HARD RESET: Error clearing storage:', error);
-        }
-      };
-      
-      hardResetAuth();
-      hardResetDoneRef.current = true;
-    }
-
     if (!phone && !phoneInput && !patientId) {
-      // Redirect to register if no phone/patientId provided
       router.replace("/");
     }
   }, [phone, phoneInput, patientId, source]);

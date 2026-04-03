@@ -73,12 +73,26 @@ export function usePatientRegistration() {
     });
 
     if (!result.ok) {
-      // Preserve the error code so the caller can show a specific message
       const err = new Error(result.error || 'registration_failed') as any;
       err.code = result.error;
       throw err;
     }
 
+    // If OTP is required, go to verification screen
+    if ((result as any).requiresOTP) {
+      router.replace({
+        pathname: '/otp' as any,
+        params: {
+          phone: data.phone,
+          email: data.email || '',
+          patientId: (result as any).patientId || '',
+          source: 'patient',
+        },
+      });
+      return result;
+    }
+
+    // No OTP required (e.g. reviewer bypass) → go directly to login
     Alert.alert(
       'Başarılı',
       'Kayıt başarılı! Giriş yapabilirsiniz.',

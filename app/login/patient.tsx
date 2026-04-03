@@ -25,6 +25,8 @@ export default function PatientLogin() {
   const [statusMsg, setStatusMsg] = useState('');
   const [errorMsg, setErrorMsg]   = useState('');
   const [phone, setPhone]         = useState("");
+  const [email, setEmail]         = useState("");
+  const [password, setPassword]   = useState("");
   const [clinicCode, setClinicCode] = useState("");
   const warmupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -36,25 +38,21 @@ export default function PatientLogin() {
   };
 
   const handlePatientLogin = async () => {
-    if (!phone.trim()) {
+    const trimPhone = phone.trim();
+    const trimEmail = email.trim().toLowerCase();
+    if (!trimPhone && !trimEmail) {
       Alert.alert(t('login.error'), t('login.phoneRequired'));
-      return;
-    }
-    if (!clinicCode.trim()) {
-      Alert.alert(t('login.error'), t('login.clinicCode') + ' ' + t('login.phoneRequired'));
       return;
     }
     setLoading(true);
     setErrorMsg('');
     setStatusMsg(t('login.connecting'));
 
-    // Show "warming up" hint after 4 s
     warmupTimerRef.current = setTimeout(() => {
       setStatusMsg(t('login.warmingUp'));
     }, 4000);
 
     try {
-      // Step 1: wake the server (30 s max — down from 75 s)
       try {
         await fetchWithTimeout(`${API_BASE}/api/health`, {}, WARMUP_TIMEOUT_MS);
       } catch {
@@ -64,22 +62,45 @@ export default function PatientLogin() {
       clearWarmup();
       setStatusMsg(t('login.loggingIn'));
 
-      // Step 2: actual login
       const res = await fetchWithTimeout(
         `${API_BASE}/api/patient/login`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone: phone.trim(), clinicCode: clinicCode.trim() }),
+          body: JSON.stringify({
+            phone: trimPhone || undefined,
+            email: trimEmail || undefined,
+            password: password.trim() || undefined,
+            clinicCode: clinicCode.trim() || undefined,
+          }),
         },
         LOGIN_TIMEOUT_MS,
       );
 
       const json = await res.json();
-      const payload = json?.user ?? json;
 
+      // PENDING → OTP verification required
+      if (json?.requiresOTP || json?.error === 'email_verification_required') {
+        router.replace({
+          pathname: '/otp' as any,
+          params: {
+            phone: json.phone || trimPhone,
+            email: json.email || trimEmail,
+            patientId: json.patientId || '',
+            source: 'patient',
+          },
+        });
+        return;
+      }
+
+      const payload = json?.user ?? json;
       if (!res.ok || !payload?.token) {
-        throw new Error(payload?.message || payload?.error || t('login.loginFailed'));
+        const errCode = payload?.error || '';
+        let msg = payload?.message || t('login.loginFailed');
+        if (errCode === 'patient_not_found') msg = 'Bu telefon/e-posta ile kayıt bulunamadı.';
+        else if (errCode === 'wrong_password') msg = 'Şifre hatalı.';
+        else if (errCode === 'password_required') msg = 'Bu hesap şifre gerektiriyor.';
+        throw new Error(msg);
       }
 
       await signIn({
@@ -88,7 +109,7 @@ export default function PatientLogin() {
         patientId:    payload.patientId || payload.id,
         type:         "patient",
         role:         payload.role || "PATIENT",
-        phone:        phone.trim(),
+        phone:        trimPhone || payload.phone || "",
         name:         payload.name || "",
         clinicId:     payload.clinicId,
         clinicCode:   payload.clinicCode,
@@ -130,20 +151,41 @@ export default function PatientLogin() {
       <View style={styles.form}>
         <TextInput
           style={styles.input}
-          placeholder={t('login.clinicCodePlaceholder')}
-          value={clinicCode}
-          onChangeText={v => { setClinicCode(v.toUpperCase()); setErrorMsg(''); }}
-          autoCapitalize="characters"
-          editable={!loading}
-        />
-
-        <TextInput
-          style={styles.input}
           placeholder={t('login.phonePlaceholder')}
           value={phone}
           onChangeText={v => { setPhone(v); setErrorMsg(''); }}
           keyboardType="phone-pad"
           autoCapitalize="none"
+          editable={!loading}
+        />
+
+        <TextInput
+          style={styles.input}
+          placeholder={t('login.emailPlaceholder') ?? 'E-posta (opsiyonel)'}
+          value={email}
+          onChangeText={v => { setEmail(v); setErrorMsg(''); }}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!loading}
+        />
+
+        <TextInput
+          style={styles.input}
+          placeholder={t('login.passwordPlaceholder') ?? 'Şifre (opsiyonel)'}
+          value={password}
+          onChangeText={v => { setPassword(v); setErrorMsg(''); }}
+          secureTextEntry
+          autoCapitalize="none"
+          editable={!loading}
+        />
+
+        <TextInput
+          style={styles.input}
+          placeholder={t('login.clinicCodePlaceholder')}
+          value={clinicCode}
+          onChangeText={v => { setClinicCode(v.toUpperCase()); setErrorMsg(''); }}
+          autoCapitalize="characters"
           editable={!loading}
         />
 
