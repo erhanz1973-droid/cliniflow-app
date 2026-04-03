@@ -24,6 +24,25 @@ const OFFER_TREATMENT_TYPES = [
   { value: 'OTHER',      labelKey: 'treatmentPlan.proc.OTHER' },
 ];
 
+// Price control — mirrors backend constants
+const MIN_PRICE: Record<string, number> = {
+  IMPLANT: 600, CROWN: 150, BRIDGE: 300, VENEER: 200,
+  ALL_ON_4: 4000, ALL_ON_6: 5000, WHITENING: 100,
+  EXTRACTION: 50, ROOT_CANAL: 200, CONSULT: 30,
+};
+const RECOMMENDED_RANGE: Record<string, string> = {
+  IMPLANT: '$600–$1,500', CROWN: '$150–$400', BRIDGE: '$300–$800',
+  VENEER: '$200–$600', ALL_ON_4: '$4,000–$10,000', ALL_ON_6: '$5,000–$12,000',
+  WHITENING: '$100–$500', EXTRACTION: '$50–$200', ROOT_CANAL: '$200–$800',
+  CONSULT: '$30–$150',
+};
+
+function parsePriceMin(str: string): number | null {
+  const nums = str.replace(/[^\d.]/g, ' ').trim().split(/\s+/)
+    .map(Number).filter(n => !isNaN(n) && n > 0);
+  return nums.length > 0 ? Math.min(...nums) : null;
+}
+
 const DISCLAIMER = 'This is a preliminary estimate. Final diagnosis requires clinical examination.';
 
 type TreatmentRequest = {
@@ -65,9 +84,23 @@ function OfferModal({
 
   const selectedType = OFFER_TREATMENT_TYPES.find(o => o.value === treatmentType);
 
+  // Price control derived state
+  const minAllowed   = treatmentType ? (MIN_PRICE[treatmentType] ?? null) : null;
+  const recommended  = treatmentType ? (RECOMMENDED_RANGE[treatmentType] ?? null) : null;
+  const parsedMin    = priceRange.trim() ? parsePriceMin(priceRange) : null;
+  const isBelowMin   = minAllowed !== null && parsedMin !== null && parsedMin < minAllowed;
+  const isLowWarning = minAllowed !== null && parsedMin !== null && parsedMin < minAllowed * 1.2;
+
   const submit = async () => {
     if (!treatmentType) {
       Alert.alert(t('common.error'), t('treatReq.offer.typeRequired'));
+      return;
+    }
+    if (isBelowMin) {
+      Alert.alert(
+        'Price too low',
+        `The minimum allowed price for this treatment is $${minAllowed}. Please enter a higher price.`
+      );
       return;
     }
     setSaving(true);
@@ -153,12 +186,43 @@ function OfferModal({
             {/* Price range */}
             <Text style={styles.fieldLabel}>{t('treatReq.offer.priceRange')}</Text>
             <TextInput
-              style={styles.input}
-              placeholder={t('treatReq.offer.priceRangePlaceholder')}
+              style={[styles.input, isBelowMin && styles.inputError]}
+              placeholder={recommended ? `e.g. ${recommended}` : t('treatReq.offer.priceRangePlaceholder')}
               value={priceRange}
               onChangeText={setPriceRange}
+              keyboardType="default"
               maxLength={100}
             />
+            {/* Price guidance box */}
+            {treatmentType && (recommended || minAllowed !== null) && (
+              <View style={styles.priceHintBox}>
+                {recommended && (
+                  <Text style={styles.priceHintRow}>
+                    📊 <Text style={{ fontWeight: '700' }}>Recommended:</Text> {recommended}
+                  </Text>
+                )}
+                {minAllowed !== null && (
+                  <Text style={styles.priceHintRow}>
+                    🔻 <Text style={{ fontWeight: '700' }}>Minimum allowed:</Text> ${minAllowed}
+                  </Text>
+                )}
+              </View>
+            )}
+            {/* Live warnings */}
+            {isBelowMin && (
+              <View style={styles.priceErrorBox}>
+                <Text style={styles.priceErrorText}>
+                  ⛔  Price is below the minimum allowed (${minAllowed}). Please increase your price.
+                </Text>
+              </View>
+            )}
+            {!isBelowMin && isLowWarning && (
+              <View style={styles.priceWarnBox}>
+                <Text style={styles.priceWarnText}>
+                  ⚠️  Price is lower than the recommended range. Double-check before submitting.
+                </Text>
+              </View>
+            )}
 
             {/* Duration */}
             <Text style={styles.fieldLabel}>{t('treatReq.offer.duration')}</Text>
@@ -540,6 +604,26 @@ const styles = StyleSheet.create({
   dropItemActive: { backgroundColor: '#EFF6FF' },
   dropItemText: { fontSize: 14, color: '#374151' },
   dropItemTextActive: { color: '#2563EB', fontWeight: '700' },
+
+  inputError: { borderColor: '#EF4444', borderWidth: 1.5 },
+
+  priceHintBox: {
+    backgroundColor: '#F0FDF4', borderRadius: 8, padding: 10, marginTop: 6,
+    borderLeftWidth: 3, borderLeftColor: '#10B981',
+  },
+  priceHintRow: { fontSize: 12, color: '#065F46', lineHeight: 19 },
+
+  priceWarnBox: {
+    backgroundColor: '#FFFBEB', borderRadius: 8, padding: 10, marginTop: 6,
+    borderLeftWidth: 3, borderLeftColor: '#F59E0B',
+  },
+  priceWarnText: { fontSize: 12, color: '#92400E', lineHeight: 18 },
+
+  priceErrorBox: {
+    backgroundColor: '#FEF2F2', borderRadius: 8, padding: 10, marginTop: 6,
+    borderLeftWidth: 3, borderLeftColor: '#EF4444',
+  },
+  priceErrorText: { fontSize: 12, color: '#991B1B', lineHeight: 18, fontWeight: '600' },
 
   disclaimerBox: {
     backgroundColor: '#FEF3C7', borderRadius: 10, padding: 12, marginTop: 16,

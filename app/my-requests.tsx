@@ -11,6 +11,60 @@ import { API_BASE } from '../lib/api';
 
 const DISCLAIMER = 'This is a preliminary estimate. Final diagnosis requires clinical examination.';
 
+// Price minimums — used for offer scoring
+const MIN_PRICE: Record<string, number> = {
+  IMPLANT: 600, CROWN: 150, BRIDGE: 300, VENEER: 200,
+  ALL_ON_4: 4000, ALL_ON_6: 5000, WHITENING: 100,
+  EXTRACTION: 50, ROOT_CANAL: 200, CONSULT: 30,
+};
+
+function parsePriceMin(str: string): number | null {
+  const nums = str.replace(/[^\d.]/g, ' ').trim().split(/\s+/)
+    .map(Number).filter(n => !isNaN(n) && n > 0);
+  return nums.length > 0 ? Math.min(...nums) : null;
+}
+
+// Parse a duration string to an approximate number of days for sorting.
+// e.g. "3-5 days" → 4, "2 weeks" → 14, "1 month" → 30, "3-4 nights" → 3.5
+function parseDurationDays(str: string): number {
+  if (!str) return 999;
+  const s = str.toLowerCase();
+  const nums = s.replace(/[^\d.]/g, ' ').trim().split(/\s+/).map(Number).filter(n => !isNaN(n) && n > 0);
+  const avg  = nums.length > 0 ? nums.reduce((a, b) => a + b, 0) / nums.length : 999;
+  if (s.includes('month')) return avg * 30;
+  if (s.includes('week'))  return avg * 7;
+  return avg; // assume days / nights
+}
+
+/**
+ * Score an offer for sorting — lower is better.
+ * Penalise suspiciously low prices (below min), reward shorter duration.
+ */
+function scoreOffer(offer: Offer): number {
+  const key      = offer.treatment_type?.toUpperCase() || '';
+  const minAllow = MIN_PRICE[key] ?? 0;
+  const priceMin = offer.price_range ? parsePriceMin(offer.price_range) : null;
+  const duration = offer.duration    ? parseDurationDays(offer.duration) : 999;
+
+  let score = 0;
+
+  // Price component (50%): normalise price; below minimum → heavy penalty
+  if (priceMin !== null && minAllow > 0) {
+    if (priceMin < minAllow) {
+      score += 200; // suspicious — bump to bottom
+    } else {
+      // Prefer lower price within a reasonable band (cap at 3× min)
+      const normalised = Math.min(priceMin / minAllow, 3);
+      score += normalised * 50;
+    }
+  }
+
+  // Duration component (50%): shorter treatment = better
+  score += Math.min(duration / 30, 3) * 50;
+
+  return score;
+}
+
 type Offer = {
   id: string;
   treatment_type: string;
@@ -194,13 +248,26 @@ export default function MyRequestsScreen() {
                     </View>
                   ) : (
                     <>
-                      <Text style={styles.offersTitle}>{t('treatReq.doctorOffers')}</Text>
-                      {req.offers.map(offer => (
-                        <View key={offer.id} style={styles.offerCard}>
+                      <Text style={styles.offersTitle}>
+                        {t('treatReq.doctorOffers')} · sorted by best match
+                      </Text>
+                      {[...req.offers]
+                        .sort((a, b) => scoreOffer(a) - scoreOffer(b))
+                        .map((offer, idx) => {
+                        const isBest = idx === 0 && req.offers.length > 1;
+                        return (
+                        <View key={offer.id} style={[styles.offerCard, isBest && styles.offerCardBest]}>
                           <View style={styles.offerHeader}>
-                            <Text style={styles.offerDoctor}>
-                              👨‍⚕️ {offer.doctor_name || t('treatReq.doctor')}
-                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                              <Text style={styles.offerDoctor}>
+                                👨‍⚕️ {offer.doctor_name || t('treatReq.doctor')}
+                              </Text>
+                              {isBest && (
+                                <View style={styles.bestBadge}>
+                                  <Text style={styles.bestBadgeText}>⭐ Best Match</Text>
+                                </View>
+                              )}
+                            </View>
                             <Text style={styles.offerDate}>{fmtDate(offer.created_at)}</Text>
                           </View>
                           <Text style={styles.offerType}>
@@ -237,7 +304,8 @@ export default function MyRequestsScreen() {
                             <Text style={styles.msgBtnText}>💬 {t('offerChat.messageDoctor')}</Text>
                           </TouchableOpacity>
                         </View>
-                      ))}
+                        );
+                      })}
                     </>
                   )}
                 </View>
@@ -316,6 +384,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB', borderRadius: 10, padding: 12, marginBottom: 8,
     borderWidth: 1, borderColor: '#E5E7EB',
   },
+  offerCardBest: {
+    borderColor: '#2563EB', borderWidth: 1.5,
+    backgroundColor: '#EFF6FF',
+  },
+  bestBadge: {
+    backgroundColor: '#2563EB', borderRadius: 6,
+    paddingHorizontal: 7, paddingVertical: 2,
+  },
+  bestBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
   offerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   offerDoctor: { fontSize: 13, fontWeight: '700', color: '#111827' },
   offerDate: { fontSize: 11, color: '#9CA3AF' },
