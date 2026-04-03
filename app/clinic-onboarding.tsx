@@ -23,7 +23,7 @@ type Clinic = {
 
 export default function ClinicOnboardingScreen() {
   const router          = useRouter();
-  const { user, signIn } = useAuth();
+  const { user } = useAuth();
   const { t }           = useLanguage();
 
   const [query, setQuery]               = useState('');
@@ -31,7 +31,7 @@ export default function ClinicOnboardingScreen() {
   const [cities, setCities]             = useState<string[]>([]);
   const [selectedCity, setSelectedCity] = useState<string>(ALL);
   const [loading, setLoading]           = useState(true);
-  const [submitting, setSubmitting]     = useState(false);
+  const [submitting]     = useState(false); // kept for footer btn style reuse
   const [cityModal, setCityModal]       = useState(false);
 
   // Multi-select state
@@ -117,44 +117,15 @@ export default function ClinicOnboardingScreen() {
     });
   };
 
-  // ── Submit: register with first selected clinic, then go to patient home ──
-  const handleGetQuotes = async () => {
+  // ── Submit: navigate to quote-request screen with selected clinics ──
+  const handleGetQuotes = () => {
     if (selected.size === 0) {
       Alert.alert('No clinic selected', 'Please select at least 1 clinic.');
       return;
     }
-    if (!user?.token) { router.replace('/(patient)' as any); return; }
-
-    setSubmitting(true);
-    try {
-      // Register patient with the first selected clinic
-      const firstClinic = clinics.find(c => selected.has(c.id));
-      if (firstClinic) {
-        const res  = await fetch(`${API_BASE}/api/patient/clinic`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
-          body: JSON.stringify({ clinic_code: firstClinic.clinic_code }),
-        });
-        const data = await res.json();
-        if (data?.token) {
-          await signIn({
-            token: data.token,
-            patientId: user.patientId,
-            name: user.name,
-            phone: user.phone,
-            email: user.email,
-            type: 'patient',
-            role: 'PATIENT',
-            otpVerified: true,
-          });
-        }
-      }
-      router.replace('/(patient)' as any);
-    } catch (e: any) {
-      Alert.alert('Error', e.message || 'Something went wrong. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
+    const selectedClinics = clinics.filter(c => selected.has(c.id));
+    const clinicsParam    = encodeURIComponent(JSON.stringify(selectedClinics));
+    router.push(`/quote-request?clinics=${clinicsParam}` as any);
   };
 
   const skipAndContinue = () => router.replace('/(patient)' as any);
