@@ -71,7 +71,10 @@ function isValidEmail(value: string) {
 function doctorLoginErrorMessage(code: string, t: (key: string) => string): string {
   switch (String(code || "").trim()) {
     case "doctor_not_found":
+    case "doctor_not_found_or_not_approved":
       return t("login.doctorCredentialsInvalid");
+    case "invalid_credentials":
+      return t("login.wrongPassword") ?? "E-posta veya şifre hatalı.";
     case "invalid_clinic_code":
       return t("login.doctorClinicCodeMismatch");
     case "email_required":
@@ -102,11 +105,13 @@ export default function DoctorLogin() {
   const [statusMsg, setStatusMsg] = useState('');
 
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [clinicCode, setClinicCode] = useState('');
 
   const handleDoctorLogin = async () => {
     const normalizedEmail = normalizeDoctorEmail(email);
     const normalizedClinicCode = clinicCode.trim().toUpperCase();
+    const trimPassword = password.trim();
 
     if (!normalizedEmail || !normalizedClinicCode) {
       Alert.alert(t('login.error'), t('login.email') + ' ' + t('login.clinicCode'));
@@ -118,10 +123,14 @@ export default function DoctorLogin() {
       return;
     }
 
+    if (!trimPassword) {
+      Alert.alert(t('login.error'), t('login.passwordRequired') ?? 'Şifre zorunludur.');
+      return;
+    }
+
     setLoading(true);
     setStatusMsg(t('login.connecting') || 'Sunucuya bağlanılıyor...');
 
-    // Warm up the server first (handles Render cold starts)
     await warmUpServer();
     setStatusMsg(t('login.loggingIn') || 'Giriş yapılıyor...');
 
@@ -134,6 +143,7 @@ export default function DoctorLogin() {
         res = await apiPost<DoctorLoginResponse>(loginUrl, {
           email: normalizedEmail,
           clinicCode: normalizedClinicCode,
+          password: trimPassword,
         });
         lastError = null;
         break;
@@ -237,16 +247,23 @@ export default function DoctorLogin() {
       <Text style={styles.title}>{t('login.doctorTitle')}</Text>
 
       <View style={styles.form}>
-        <Text style={styles.description}>
-          {t('login.devModeNote')}
-        </Text>
-
         <TextInput
           style={styles.input}
           placeholder={t('login.emailPlaceholder')}
           value={email}
           onChangeText={setEmail}
           keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!loading}
+        />
+
+        <TextInput
+          style={styles.input}
+          placeholder={t('login.passwordPlaceholder') ?? 'Şifre'}
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
           autoCapitalize="none"
           editable={!loading}
         />

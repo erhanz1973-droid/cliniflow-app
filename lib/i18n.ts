@@ -681,6 +681,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "login.doctorCredentialsInvalid": "E-posta veya klinik kodu hatalı",
     "login.doctorClinicCodeMismatch": "Klinik kodu eşleşmiyor",
     "login.doctorAccountInactive": "Hesabınız aktif değil",
+    "login.passwordRequired": "Şifre zorunludur.",
+    "login.wrongPassword": "E-posta veya şifre hatalı.",
     "login.loginButton": "Giriş Yap",
     // Doctor register
     "register.doctorTitle": "Doktor Kayıt",
@@ -1651,6 +1653,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "login.doctorCredentialsInvalid": "Invalid email or clinic code",
     "login.doctorClinicCodeMismatch": "Clinic code does not match",
     "login.doctorAccountInactive": "Your account is not active",
+    "login.passwordRequired": "Password is required.",
+    "login.wrongPassword": "Email or password is incorrect.",
     "login.loginButton": "Login",
     // Doctor register
     "register.doctorTitle": "Doctor Registration",
@@ -2441,6 +2445,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "login.doctorCredentialsInvalid": "არასწორი ელ-ფოსტა ან კლინიკის კოდი",
     "login.doctorClinicCodeMismatch": "კლინიკის კოდი არ ემთხვევა",
     "login.doctorAccountInactive": "თქვენი ანგარიში არ არის აქტიური",
+    "login.passwordRequired": "პაროლი სავალდებულოა.",
+    "login.wrongPassword": "ელ-ფოსტა ან პაროლი არასწორია.",
     "login.loginButton": "შესვლა",
     // Doctor register
     "register.doctorTitle": "ექიმის რეგისტრაცია",
@@ -3106,6 +3112,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "login.doctorCredentialsInvalid": "Неверный email или код клиники",
     "login.doctorClinicCodeMismatch": "Код клиники не совпадает",
     "login.doctorAccountInactive": "Ваш аккаунт неактивен",
+    "login.passwordRequired": "Пароль обязателен.",
+    "login.wrongPassword": "Неверный email или пароль.",
     "login.loginButton": "Войти",
     "login.noAccount": "Нет аккаунта? Зарегистрируйтесь",
     // Doctor register
