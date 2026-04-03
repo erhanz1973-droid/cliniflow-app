@@ -5,10 +5,11 @@ export interface DoctorRegisterRequest {
   name: string;
   email: string;
   phone: string;
+  password: string;
   clinicCode: string;
-  licenseNumber: string; // ✅ Backend requires license number
+  licenseNumber: string;
   department?: string;
-  specialties?: string; // ✅ Database might expect string
+  specialties?: string;
   title?: string;
   experienceYears?: string;
   languages?: string;
@@ -37,10 +38,11 @@ export async function registerDoctor(data: DoctorRegisterRequest): Promise<Docto
     name: data.name,
     email: data.email,
     phone: data.phone,
+    password: data.password,
     clinicCode: data.clinicCode,
     licenseNumber: data.licenseNumber,
-    department: data.department || 'General',    // ✅ Add department
-    specialties: data.specialties || 'General'    // ✅ Add specialties
+    department: data.department || 'General',
+    specialties: data.specialties || 'General',
   };
   
   return apiPost<DoctorResponse>('/api/register/doctor', payload);

@@ -1,6 +1,6 @@
 // app/register-doctor.tsx
 import React, { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator, StyleSheet } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator, StyleSheet, Pressable } from "react-native";
 import { useRouter } from "expo-router";
 import { handleDoctorRegistration } from "../lib/doctor/register";
 import { useAuth } from "../lib/auth";
@@ -15,16 +15,18 @@ export default function RegisterDoctorScreen() {
     fullName: "",
     phone: "",
     email: "",
+    password: "",
     clinicCode: "",
     licenseNumber: "",
-    department: "Dentistry", // ✅ Add missing field
-    specialties: "General", // ✅ Add missing field
+    department: "Dentistry",
+    specialties: "General",
   });
-  
-  // Check if all required fields are filled (email is required — it's the login credential)
+  const [showPassword, setShowPassword] = useState(false);
+
   const isFormValid = formData.fullName.trim() &&
                     formData.phone.trim() &&
                     formData.email.trim().includes("@") &&
+                    formData.password.trim().length >= 6 &&
                     formData.clinicCode.trim() &&
                     formData.licenseNumber.trim();
 
@@ -43,10 +45,11 @@ export default function RegisterDoctorScreen() {
         name: formData.fullName.trim(),
         email: formData.email.trim(),
         phone: formData.phone.trim(),
+        password: formData.password.trim(),
         clinicCode: formData.clinicCode.trim(),
         licenseNumber: formData.licenseNumber.trim(),
         department: formData.department.trim(),
-        specialties: formData.specialties.trim()
+        specialties: formData.specialties.trim(),
       });
 
       if (result.ok) {
@@ -147,6 +150,20 @@ export default function RegisterDoctorScreen() {
         style={styles.input}
       />
 
+      <View style={styles.passwordWrapper}>
+        <TextInput
+          placeholder={t('register.password') || "Şifre (en az 6 karakter)"}
+          value={formData.password}
+          onChangeText={(text) => setFormData({ ...formData, password: text })}
+          secureTextEntry={!showPassword}
+          autoCapitalize="none"
+          style={styles.passwordInput}
+        />
+        <Pressable onPress={() => setShowPassword(p => !p)} style={styles.eyeBtn}>
+          <Text style={styles.eyeText}>{showPassword ? "🙈" : "👁"}</Text>
+        </Pressable>
+      </View>
+
       <TextInput
         placeholder={t('register.clinicCodeRequired')}
         value={formData.clinicCode}
@@ -227,5 +244,24 @@ const styles = StyleSheet.create({
   },
   linkText: {
     color: "#2563eb",
+  },
+  passwordWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    marginBottom: 15,
+    backgroundColor: "#fff",
+  },
+  passwordInput: {
+    flex: 1,
+    padding: 15,
+  },
+  eyeBtn: {
+    paddingHorizontal: 12,
+  },
+  eyeText: {
+    fontSize: 18,
   },
 });
