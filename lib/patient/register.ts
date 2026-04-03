@@ -6,12 +6,13 @@ import { apiGet, apiPost } from '../api';
 
 export interface PatientRegisterRequest {
   name: string;
-  patientName: string; // ✅ Add patientName field
+  patientName: string;
   email: string;
   phone: string;
   clinicCode?: string;
-  inviterReferralCode?: string; // Add referral code field
-  userType: string; // ✅ Add userType field
+  password?: string;
+  inviterReferralCode?: string;
+  userType: string;
 }
 
 export interface PatientLoginRequest {
@@ -60,6 +61,7 @@ export function usePatientRegistration() {
     email?: string;
     phone: string;
     clinicCode?: string;
+    password?: string;
     inviterReferralCode?: string;
   }) => {
     const result = await registerPatient({
@@ -68,6 +70,7 @@ export function usePatientRegistration() {
       email: data.email || '',
       phone: data.phone,
       clinicCode: data.clinicCode,
+      password: data.password,
       inviterReferralCode: data.inviterReferralCode,
       userType: 'PATIENT',
     });
@@ -87,6 +90,7 @@ export function usePatientRegistration() {
           email: data.email || '',
           patientId: (result as any).patientId || '',
           source: 'patient',
+          emailSent: (result as any).emailSent === false ? '0' : '1',
         },
       });
       return result;

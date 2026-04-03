@@ -11,6 +11,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { usePatientRegistration } from "../lib/patient/register";
@@ -31,12 +32,24 @@ export default function RegisterPatientScreen() {
     phone: "",
     patientName: "",
     email: "",
+    password: "",
+    confirmPassword: "",
     referralCode: "",
   });
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const doRegister = async () => {
     if (!formData.phone || !formData.patientName) {
       Alert.alert(t("common.error"), t("register.patientFillRequired"));
+      return;
+    }
+    if (!formData.password || formData.password.length < 6) {
+      Alert.alert(t("common.error"), t("register.passwordTooShort"));
+      return;
+    }
+    if (formData.password !== formData.confirmPassword) {
+      Alert.alert(t("common.error"), t("register.passwordMismatch"));
       return;
     }
 
@@ -56,6 +69,7 @@ export default function RegisterPatientScreen() {
         email: formData.email,
         phone: formData.phone,
         clinicCode: formData.clinicCode,
+        password: formData.password,
         inviterReferralCode: normalizedReferral || undefined,
       });
     } catch (error: any) {
@@ -74,7 +88,7 @@ export default function RegisterPatientScreen() {
           setInfoMsg({ text: t("register.patientEmailExists"), goToLogin: true });
         } else {
           let friendlyMsg = t("common.serverError");
-          if (msg.includes("missing_required_fields")) friendlyMsg = t("register.patientFillRequired");
+          if (msg.includes("missing_required_fields")) friendlyMsg = t("register.patientFillRequired2");
           else if (msg.includes("invalid_clinic")) friendlyMsg = t("register.invalidClinic");
           else if (msg.includes("email_required")) friendlyMsg = t("register.emailRequired");
           else if (msg.includes("invalid_referral")) friendlyMsg = t("register.invalidReferralCode");
@@ -166,6 +180,44 @@ export default function RegisterPatientScreen() {
           keyboardType="email-address"
           autoCapitalize="none"
         />
+
+        {/* ── Password ─────────────────────────────────────────────────── */}
+        <View style={styles.passwordWrapper}>
+          <TextInput
+            style={styles.passwordInput}
+            placeholder={t("register.password")}
+            placeholderTextColor="#9CA3AF"
+            value={formData.password}
+            onChangeText={(text) => setFormData({ ...formData, password: text })}
+            secureTextEntry={!showPassword}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="next"
+          />
+          <Pressable onPress={() => setShowPassword(v => !v)} style={styles.eyeBtn}>
+            <Text style={styles.eyeIcon}>{showPassword ? "🙈" : "👁️"}</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.passwordWrapper}>
+          <TextInput
+            style={styles.passwordInput}
+            placeholder={t("register.confirmPassword")}
+            placeholderTextColor="#9CA3AF"
+            value={formData.confirmPassword}
+            onChangeText={(text) => setFormData({ ...formData, confirmPassword: text })}
+            secureTextEntry={!showConfirm}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="next"
+          />
+          <Pressable onPress={() => setShowConfirm(v => !v)} style={styles.eyeBtn}>
+            <Text style={styles.eyeIcon}>{showConfirm ? "🙈" : "👁️"}</Text>
+          </Pressable>
+        </View>
+        {formData.confirmPassword.length > 0 && formData.password !== formData.confirmPassword && (
+          <Text style={styles.passwordHint}>{t("register.passwordMismatch")}</Text>
+        )}
 
         {/* ── Referral Code (optional) ─────────────────────────────────── */}
         <View style={styles.referralWrapper}>
@@ -319,6 +371,19 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#2563EB",
   },
+
+  // ── Password fields ───────────────────────────────────────────────────
+  passwordWrapper: {
+    flexDirection: "row", alignItems: "center",
+    borderWidth: 1, borderColor: "#D1D5DB", backgroundColor: "#F9FAFB",
+    borderRadius: 10, marginBottom: 14, paddingRight: 12,
+  },
+  passwordInput: {
+    flex: 1, padding: 14, fontSize: 15, color: "#111827",
+  },
+  eyeBtn: { padding: 4 },
+  eyeIcon: { fontSize: 18 },
+  passwordHint: { color: "#DC2626", fontSize: 12, marginTop: -10, marginBottom: 10, marginLeft: 4 },
 
   // ── Referral code field ───────────────────────────────────────────────
   referralWrapper: {
