@@ -35,7 +35,7 @@ export default function RegisterPatientScreen() {
   });
 
   const doRegister = async () => {
-    if (!formData.clinicCode || !formData.phone || !formData.patientName) {
+    if (!formData.phone || !formData.patientName) {
       Alert.alert(t("common.error"), t("register.patientFillRequired"));
       return;
     }
@@ -50,35 +50,34 @@ export default function RegisterPatientScreen() {
     }
 
     try {
+      const normalizedReferral = formData.referralCode.trim().toUpperCase();
       await handlePatientRegistration({
         name: formData.patientName,
         email: formData.email,
         phone: formData.phone,
         clinicCode: formData.clinicCode,
-        inviterReferralCode: formData.referralCode,
+        inviterReferralCode: normalizedReferral || undefined,
       });
     } catch (error: any) {
       const kind = classifyApiError(error);
 
       if (kind === "network" || kind === "warmingUp") {
         setNetError(kind === "warmingUp" ? "warmingUp" : "network");
-        // Auto-retry after 30 s for cold-start; don't auto-retry for plain network errors
         if (kind === "warmingUp") {
           retryTimerRef.current = setTimeout(() => doRegister(), 30_000);
         }
       } else {
         const msg = error.message || "";
-        // "Soft" conflicts — show as info notice, not a blocking error
         if (msg.includes("phone_already_exists")) {
           setInfoMsg({ text: t("register.patientAlreadyExists"), goToLogin: true });
         } else if (msg.includes("email_already_exists")) {
           setInfoMsg({ text: t("register.patientEmailExists"), goToLogin: true });
         } else {
-          // Real errors — alert
           let friendlyMsg = t("common.serverError");
           if (msg.includes("missing_required_fields")) friendlyMsg = t("register.patientFillRequired");
           else if (msg.includes("invalid_clinic")) friendlyMsg = t("register.invalidClinic");
           else if (msg.includes("email_required")) friendlyMsg = t("register.emailRequired");
+          else if (msg.includes("invalid_referral")) friendlyMsg = t("register.invalidReferralCode");
           Alert.alert(t("common.error"), friendlyMsg);
         }
       }
@@ -134,7 +133,7 @@ export default function RegisterPatientScreen() {
 
         <TextInput
           style={styles.input}
-          placeholder={t("register.patientClinicCode")}
+          placeholder={`${t("register.patientClinicCode")} (${t("common.optional")})`}
           placeholderTextColor="#9CA3AF"
           value={formData.clinicCode}
           onChangeText={(text) => setFormData({ ...formData, clinicCode: text.toUpperCase() })}
@@ -168,14 +167,26 @@ export default function RegisterPatientScreen() {
           autoCapitalize="none"
         />
 
-        <TextInput
-          style={styles.input}
-          placeholder={t("register.referralCode")}
-          placeholderTextColor="#9CA3AF"
-          value={formData.referralCode}
-          onChangeText={(text) => setFormData({ ...formData, referralCode: text })}
-          autoCapitalize="none"
-        />
+        {/* ── Referral Code (optional) ─────────────────────────────────── */}
+        <View style={styles.referralWrapper}>
+          <View style={styles.referralLabelRow}>
+            <Text style={styles.referralLabel}>{t("register.referralCode")}</Text>
+            <View style={styles.optionalBadge}>
+              <Text style={styles.optionalBadgeText}>Optional</Text>
+            </View>
+          </View>
+          <TextInput
+            style={styles.referralInput}
+            placeholder="e.g. ABC123"
+            placeholderTextColor="#9CA3AF"
+            value={formData.referralCode}
+            onChangeText={(text) => setFormData({ ...formData, referralCode: text })}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            returnKeyType="done"
+          />
+          <Text style={styles.referralHint}>{t("register.referralCodeHint")}</Text>
+        </View>
 
         <TouchableOpacity
           style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
@@ -307,5 +318,55 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: "#2563EB",
+  },
+
+  // ── Referral code field ───────────────────────────────────────────────
+  referralWrapper: {
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderStyle: "dashed",
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 14,
+    backgroundColor: "#F9FAFB",
+  },
+  referralLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  referralLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  optionalBadge: {
+    backgroundColor: "#E5E7EB",
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  optionalBadgeText: {
+    fontSize: 11,
+    color: "#6B7280",
+    fontWeight: "500",
+  },
+  referralInput: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    fontSize: 15,
+    color: "#111827",
+    letterSpacing: 1.5,
+    marginBottom: 8,
+  },
+  referralHint: {
+    fontSize: 12,
+    color: "#9CA3AF",
+    lineHeight: 17,
   },
 });
