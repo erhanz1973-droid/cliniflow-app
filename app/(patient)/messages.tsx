@@ -11,6 +11,7 @@ import { useAuth } from "../../lib/auth";
 import { API_BASE } from "../../lib/api";
 import { useDateLocale } from "../../lib/date-locale";
 import { useUnreadMessages } from "../../lib/useUnreadMessages";
+import { useLanguage } from "../../lib/language-context";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,14 +26,14 @@ type Message = {
   createdAt: number;
 };
 
-// ─── Intraoral photo steps ────────────────────────────────────────────────────
+// ─── Intraoral photo steps (keys only; labels resolved at render time) ────────
 
-const PHOTO_STEPS = [
-  { key: "upper", label: "Üst Dişler",  icon: "⬆️", instruction: "Ağzınızı açın ve üst dişlerinizi gösterin" },
-  { key: "lower", label: "Alt Dişler",  icon: "⬇️", instruction: "Ağzınızı açın ve alt dişlerinizi gösterin" },
-  { key: "front", label: "Ön Görünüm",  icon: "😁", instruction: "Gülümseyin ve ön dişlerinizi tam gösterin" },
-  { key: "left",  label: "Sol Taraf",   icon: "◀️", instruction: "Sol yan dişlerinizi gösterin" },
-  { key: "right", label: "Sağ Taraf",   icon: "▶️", instruction: "Sağ yan dişlerinizi gösterin" },
+const PHOTO_STEP_KEYS = [
+  { key: "upper", icon: "⬆️" },
+  { key: "lower", icon: "⬇️" },
+  { key: "front", icon: "😁" },
+  { key: "left",  icon: "◀️" },
+  { key: "right", icon: "▶️" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -46,8 +47,9 @@ function fmtDay(ts: number, locale: string) {
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
+export default function MessagesScreen() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const locale = useDateLocale();
   const router = useRouter();
   const [messages, setMessages]             = useState<Message[]>([]);
@@ -117,16 +119,16 @@ export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
         const err = await res.json().catch(() => ({}));
         setText(msg);
         if (err.error === "CHAT_LOCKED") {
-          Alert.alert("Mesajlaşma Kilitli", "Klinik onayı bekleniyor. Onaylandıktan sonra mesaj gönderebilirsiniz.");
+          Alert.alert(t("messages.lockedTitle"), t("messages.lockedMsg"));
         } else {
-          Alert.alert("Hata", "Mesaj gönderilemedi. Tekrar deneyin.");
+          Alert.alert(t("common.error"), t("messages.sendFailed"));
         }
       } else {
         fetchMessages(true);
       }
     } catch {
       setText(msg);
-      Alert.alert("Hata", "Bağlantı hatası.");
+      Alert.alert(t("common.error"), t("messages.connectionError"));
     } finally { setSending(false); }
   };
 
@@ -147,12 +149,12 @@ export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        Alert.alert("Yükleme Hatası", json.message || json.error || "Dosya yüklenemedi.");
+        Alert.alert(t("chat.uploadError"), json.message || json.error || t("messages.uploadFailed"));
       } else {
         fetchMessages(true);
       }
     } catch {
-      Alert.alert("Hata", "Dosya yüklenemedi.");
+      Alert.alert(t("common.error"), t("messages.uploadFailed"));
     } finally { setUploading(false); }
   };
 
@@ -161,7 +163,7 @@ export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("İzin Gerekli", "Fotoğraf kitaplığına erişim izni gerekli.");
+      Alert.alert(t("messages.permissionRequired"), t("messages.galleryPermission"));
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -193,15 +195,18 @@ export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
   const showAttachMenu = () => {
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
-        { options: ["İptal", "Fotoğraf Seç", "Dosya Seç (PDF)", "Ağız İçi Fotoğraf Çek"], cancelButtonIndex: 0 },
+        {
+          options: [t("common.cancel"), t("chat.selectImage"), t("chat.selectFile"), t("chat.intraoralPhoto")],
+          cancelButtonIndex: 0,
+        },
         (i) => { if (i === 1) pickImage(); else if (i === 2) pickDocument(); else if (i === 3) openGuidedCamera(); }
       );
     } else {
-      Alert.alert("Dosya Ekle", "Kaynak seçin", [
-        { text: "Fotoğraf Seç",         onPress: pickImage },
-        { text: "Dosya Seç (PDF)",       onPress: pickDocument },
-        { text: "Ağız İçi Fotoğraf",    onPress: openGuidedCamera },
-        { text: "İptal",                 style: "cancel" },
+      Alert.alert(t("messages.addFile"), t("messages.selectSource"), [
+        { text: t("chat.selectImage"),   onPress: pickImage },
+        { text: t("chat.selectFile"),    onPress: pickDocument },
+        { text: t("chat.intraoralPhoto"), onPress: openGuidedCamera },
+        { text: t("common.cancel"),      style: "cancel" },
       ]);
     }
   };
@@ -211,7 +216,7 @@ export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
   const captureIntraoralStep = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("İzin Gerekli", "Kamera erişim izni gerekli.");
+      Alert.alert(t("messages.permissionRequired"), t("messages.cameraPermission"));
       return;
     }
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: "images", quality: 0.85 });
@@ -223,7 +228,7 @@ export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
 
   const submitIntraoralPhotos = async () => {
     const entries = Object.entries(intraoralPhotos);
-    if (entries.length === 0) { Alert.alert("Hata", "En az bir fotoğraf çekin."); return; }
+    if (entries.length === 0) { Alert.alert(t("common.error"), t("messages.intraoral.noPhotoError")); return; }
     setIntraoralVisible(false);
     setUploading(true);
     for (const [key, asset] of entries) {
@@ -248,8 +253,8 @@ export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
       <View style={s.container}>
         {/* Header */}
         <View style={s.header}>
-          <Text style={s.headerTitle}>Mesajlar</Text>
-          <Text style={s.headerSub}>Kliniğinizle iletişim</Text>
+          <Text style={s.headerTitle}>{t("messages.title")}</Text>
+          <Text style={s.headerSub}>{t("messages.subtitle")}</Text>
         </View>
 
         {/* Message list */}
@@ -278,10 +283,8 @@ export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
           ListEmptyComponent={
             <View style={s.empty}>
               <Text style={s.emptyIcon}>💬</Text>
-              <Text style={s.emptyTitle}>Henüz mesaj yok</Text>
-              <Text style={s.emptySub}>
-                Klinikle iletişime geçmek için bir mesaj gönderin.
-              </Text>
+              <Text style={s.emptyTitle}>{t("chat.noMessages")}</Text>
+              <Text style={s.emptySub}>{t("messages.emptySub")}</Text>
             </View>
           }
         />
@@ -290,7 +293,7 @@ export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
         {uploading && (
           <View style={s.uploadBanner}>
             <ActivityIndicator size="small" color="#fff" />
-            <Text style={s.uploadBannerText}>Dosya yükleniyor...</Text>
+            <Text style={s.uploadBannerText}>{t("messages.uploading")}</Text>
           </View>
         )}
 
@@ -306,7 +309,7 @@ export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
           </TouchableOpacity>
           <TextInput
             style={s.input}
-            placeholder="Mesaj yazın..."
+            placeholder={t("chat.typeMessage")}
             placeholderTextColor="#9ca3af"
             value={text}
             onChangeText={setText}
@@ -345,6 +348,7 @@ export default function MessagesScreen() {  // ← BURASI EKSİKTİ!
 
 function MessageBubble({ msg }: { msg: Message }) {
   const locale = useDateLocale();
+  const { t } = useLanguage();
   const isPatient = msg.from === "PATIENT";
   const att = msg.attachment;
   const isImage = att?.fileType === "image" || att?.mimeType?.startsWith("image/");
@@ -352,7 +356,7 @@ function MessageBubble({ msg }: { msg: Message }) {
 
   return (
     <View style={[s.bubbleWrap, isPatient ? s.bubbleRight : s.bubbleLeft]}>
-      {!isPatient && <Text style={s.bubbleFrom}>Klinik</Text>}
+      {!isPatient && <Text style={s.bubbleFrom}>{t("messages.clinic")}</Text>}
       <View style={[s.bubble, isPatient ? s.bubblePatient : s.bubbleClinic]}>
         {!!msg.text && (
           <Text style={[s.bubbleText, isPatient && s.bubbleTextWhite]}>
@@ -373,7 +377,7 @@ function MessageBubble({ msg }: { msg: Message }) {
             <Text style={s.pdfEmoji}>📄</Text>
             <View style={{ flex: 1 }}>
               <Text style={[s.pdfName, isPatient && { color: "#dbeafe" }]} numberOfLines={2}>
-                {att.name || "Dosya"}
+                {att.name || t("chat.file")}
               </Text>
               {att.size ? (
                 <Text style={[s.pdfSize, isPatient && { color: "rgba(255,255,255,0.5)" }]}>
@@ -381,7 +385,7 @@ function MessageBubble({ msg }: { msg: Message }) {
                 </Text>
               ) : null}
             </View>
-            <Text style={[s.pdfOpen, isPatient && { color: "#93c5fd" }]}>Aç</Text>
+            <Text style={[s.pdfOpen, isPatient && { color: "#93c5fd" }]}>{t("messages.open")}</Text>
           </TouchableOpacity>
         ) : null}
         <Text style={[s.bubbleTime, isPatient && s.bubbleTimeWhite]}>
@@ -395,9 +399,10 @@ function MessageBubble({ msg }: { msg: Message }) {
 // ─── IntraoralModal ───────────────────────────────────────────────────────────
 
 function IntraoralModal({ visible, step, photos, onClose, onCapture, onNext, onPrev, onSubmit }: any) {
-  const current = PHOTO_STEPS[step];
-  const photo   = photos[current?.key];
-  const doneCount = Object.keys(photos).length;
+  const { t } = useLanguage();
+  const currentKey = PHOTO_STEP_KEYS[step];
+  const photo      = photos[currentKey?.key];
+  const doneCount  = Object.keys(photos).length;
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -407,13 +412,13 @@ function IntraoralModal({ visible, step, photos, onClose, onCapture, onNext, onP
           <TouchableOpacity onPress={onClose} style={im.closeBtn}>
             <Text style={im.closeText}>✕</Text>
           </TouchableOpacity>
-          <Text style={im.title}>Ağız İçi Fotoğraf</Text>
-          <Text style={im.badge}>{doneCount}/{PHOTO_STEPS.length}</Text>
+          <Text style={im.title}>{t("messages.intraoral.title")}</Text>
+          <Text style={im.badge}>{doneCount}/{PHOTO_STEP_KEYS.length}</Text>
         </View>
 
         {/* Progress dots */}
         <View style={im.dots}>
-          {PHOTO_STEPS.map((st, i) => (
+          {PHOTO_STEP_KEYS.map((st, i) => (
             <View
               key={st.key}
               style={[
@@ -430,22 +435,22 @@ function IntraoralModal({ visible, step, photos, onClose, onCapture, onNext, onP
         </View>
 
         <ScrollView contentContainerStyle={im.body} showsVerticalScrollIndicator={false}>
-          <Text style={im.stepIcon}>{current.icon}</Text>
-          <Text style={im.stepLabel}>{current.label}</Text>
-          <Text style={im.stepInstruction}>{current.instruction}</Text>
+          <Text style={im.stepIcon}>{currentKey.icon}</Text>
+          <Text style={im.stepLabel}>{t(`messages.intraoral.${currentKey.key}.label`)}</Text>
+          <Text style={im.stepInstruction}>{t(`messages.intraoral.${currentKey.key}.instruction`)}</Text>
 
           {photo ? (
             <Image source={{ uri: photo.uri }} style={im.preview} resizeMode="cover" />
           ) : (
             <View style={im.placeholder}>
               <Text style={im.placeholderIcon}>📷</Text>
-              <Text style={im.placeholderText}>Fotoğraf henüz çekilmedi</Text>
+              <Text style={im.placeholderText}>{t("messages.intraoral.noPhoto")}</Text>
             </View>
           )}
 
           <TouchableOpacity style={im.cameraBtn} onPress={onCapture} activeOpacity={0.85}>
             <Text style={im.cameraBtnText}>
-              {photo ? "📷  Yeniden Çek" : "📷  Fotoğraf Çek"}
+              {photo ? t("messages.intraoral.retake") : t("messages.intraoral.capture")}
             </Text>
           </TouchableOpacity>
 
@@ -456,12 +461,12 @@ function IntraoralModal({ visible, step, photos, onClose, onCapture, onNext, onP
               disabled={step === 0}
               activeOpacity={0.8}
             >
-              <Text style={im.navBtnText}>◀  Önceki</Text>
+              <Text style={im.navBtnText}>{t("messages.intraoral.prev")}</Text>
             </TouchableOpacity>
 
-            {step < PHOTO_STEPS.length - 1 ? (
+            {step < PHOTO_STEP_KEYS.length - 1 ? (
               <TouchableOpacity style={im.navBtn} onPress={onNext} activeOpacity={0.8}>
-                <Text style={im.navBtnText}>Sonraki  ▶</Text>
+                <Text style={im.navBtnText}>{t("messages.intraoral.next")}</Text>
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
@@ -471,15 +476,13 @@ function IntraoralModal({ visible, step, photos, onClose, onCapture, onNext, onP
                 activeOpacity={0.85}
               >
                 <Text style={[im.navBtnText, im.submitBtnText]}>
-                  Gönder ({doneCount}) ✓
+                  {t("messages.intraoral.submit").replace("{count}", String(doneCount))}
                 </Text>
               </TouchableOpacity>
             )}
           </View>
 
-          <Text style={im.hint}>
-            Tüm adımları tamamlamak zorunda değilsiniz. İstediğiniz fotoğrafları çektikten sonra "Gönder"e basın.
-          </Text>
+          <Text style={im.hint}>{t("messages.intraoral.hint")}</Text>
         </ScrollView>
       </View>
     </Modal>
