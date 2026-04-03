@@ -67,6 +67,8 @@ function scoreOffer(offer: Offer): number {
 
 type Offer = {
   id: string;
+  clinic_id: string | null;
+  clinic_name: string | null;
   treatment_type: string;
   price_range: string | null;
   duration: string | null;
@@ -75,6 +77,8 @@ type Offer = {
   created_at: string;
   doctor_name: string | null;
 };
+
+type RatingKey = string; // `${offerId}:${type}`
 
 type Request = {
   id: string;
@@ -99,22 +103,35 @@ export default function MyRequestsScreen() {
   const { user } = useAuth();
   const { t } = useLanguage();
 
-  const [requests, setRequests] = useState<Request[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [requests, setRequests]     = useState<Request[]>([]);
+  const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError]           = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Set of "offerId:type" keys the patient has already rated
+  const [ratedKeys, setRatedKeys]   = useState<Set<RatingKey>>(new Set());
 
   const load = useCallback(async () => {
     if (!user?.token) return;
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/patient/treatment-requests`, {
-        headers: { Authorization: `Bearer ${user.token}` },
-      });
-      const data = await res.json();
-      if (!data?.ok) throw new Error(data?.error || 'error');
-      setRequests(data.requests || []);
+      const [reqRes, ratRes] = await Promise.all([
+        fetch(`${API_BASE}/api/patient/treatment-requests`, {
+          headers: { Authorization: `Bearer ${user.token}` },
+        }),
+        fetch(`${API_BASE}/api/patient/ratings`, {
+          headers: { Authorization: `Bearer ${user.token}` },
+        }),
+      ]);
+      const reqData = await reqRes.json();
+      const ratData = await ratRes.json();
+      if (!reqData?.ok) throw new Error(reqData?.error || 'error');
+      setRequests(reqData.requests || []);
+      // Build a set of already-rated keys
+      const keys = new Set<RatingKey>(
+        (ratData?.ratings || []).map((r: any) => `${r.offer_id}:${r.type}`)
+      );
+      setRatedKeys(keys);
     } catch (e: any) {
       setError(e.message || t('common.error'));
     } finally {
@@ -287,22 +304,81 @@ export default function MyRequestsScreen() {
                               ⚠️ {offer.disclaimer || DISCLAIMER}
                             </Text>
                           </View>
-                          {/* Message Doctor button */}
-                          <TouchableOpacity
-                            style={styles.msgBtn}
-                            onPress={() =>
-                              router.push({
-                                pathname: '/offer-chat',
-                                params: {
-                                  offerId: offer.id,
-                                  otherName: encodeURIComponent(offer.doctor_name || t('treatReq.doctor')),
-                                  treatmentType: offer.treatment_type,
-                                },
-                              })
-                            }
-                          >
-                            <Text style={styles.msgBtnText}>💬 {t('offerChat.messageDoctor')}</Text>
-                          </TouchableOpacity>
+
+                          {/* Rating badges */}
+                          <View style={styles.ratingBadgeRow}>
+                            {ratedKeys.has(`${offer.id}:experience`) && (
+                              <View style={styles.ratingBadge}>
+                                <Text style={styles.ratingBadgeText}>✓ Visited clinic</Text>
+                              </View>
+                            )}
+                            {ratedKeys.has(`${offer.id}:treatment`) && (
+                              <View style={[styles.ratingBadge, styles.ratingBadgeTrt]}>
+                                <Text style={[styles.ratingBadgeText, styles.ratingBadgeTextTrt]}>✓ Completed treatment</Text>
+                              </View>
+                            )}
+                          </View>
+
+                          {/* Action buttons row */}
+                          <View style={styles.actionRow}>
+                            {/* Message Doctor */}
+                            <TouchableOpacity
+                              style={[styles.msgBtn, styles.actionBtn]}
+                              onPress={() =>
+                                router.push({
+                                  pathname: '/offer-chat',
+                                  params: {
+                                    offerId: offer.id,
+                                    otherName: encodeURIComponent(offer.doctor_name || t('treatReq.doctor')),
+                                    treatmentType: offer.treatment_type,
+                                  },
+                                })
+                              }
+                            >
+                              <Text style={styles.msgBtnText}>💬 {t('offerChat.messageDoctor')}</Text>
+                            </TouchableOpacity>
+
+                            {/* Rate Experience (if not yet rated) */}
+                            {!ratedKeys.has(`${offer.id}:experience`) && (
+                              <TouchableOpacity
+                                style={[styles.rateBtn, styles.actionBtn]}
+                                onPress={() =>
+                                  router.push({
+                                    pathname: '/rate',
+                                    params: {
+                                      offerId:    offer.id,
+                                      type:       'experience',
+                                      clinicName: encodeURIComponent(offer.clinic_name || 'Clinic'),
+                                      doctorName: encodeURIComponent(offer.doctor_name || ''),
+                                    },
+                                  })
+                                }
+                              >
+                                <Text style={styles.rateBtnText}>⭐ Rate</Text>
+                              </TouchableOpacity>
+                            )}
+
+                            {/* Rate Treatment (only if experience already given) */}
+                            {ratedKeys.has(`${offer.id}:experience`) &&
+                             !ratedKeys.has(`${offer.id}:treatment`) && (
+                              <TouchableOpacity
+                                style={[styles.rateBtnTrt, styles.actionBtn]}
+                                onPress={() =>
+                                  router.push({
+                                    pathname: '/rate',
+                                    params: {
+                                      offerId:    offer.id,
+                                      type:       'treatment',
+                                      clinicName: encodeURIComponent(offer.clinic_name || 'Clinic'),
+                                      doctorName: encodeURIComponent(offer.doctor_name || ''),
+                                    },
+                                  })
+                                }
+                              >
+                                <Text style={styles.rateBtnTrtText}>🦷 Rate Treatment</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
                         </View>
                         );
                       })}
@@ -403,9 +479,36 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF9C3', borderRadius: 6, padding: 8, marginTop: 6,
   },
   disclaimerText: { fontSize: 11, color: '#92400E', lineHeight: 16 },
+  // Action row
+  actionRow: { flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' },
+  actionBtn: { flex: 1, minWidth: 80 },
+
   msgBtn: {
-    marginTop: 8, backgroundColor: '#EFF6FF', borderRadius: 8, borderWidth: 1,
+    backgroundColor: '#EFF6FF', borderRadius: 8, borderWidth: 1,
     borderColor: '#BFDBFE', paddingVertical: 8, alignItems: 'center',
   },
-  msgBtnText: { fontSize: 13, fontWeight: '700', color: '#2563EB' },
+  msgBtnText: { fontSize: 12, fontWeight: '700', color: '#2563EB' },
+
+  // Rate buttons
+  rateBtn: {
+    backgroundColor: '#FEF9C3', borderRadius: 8, borderWidth: 1,
+    borderColor: '#FDE68A', paddingVertical: 8, alignItems: 'center',
+  },
+  rateBtnText: { fontSize: 12, fontWeight: '700', color: '#92400E' },
+
+  rateBtnTrt: {
+    backgroundColor: '#F0FDF4', borderRadius: 8, borderWidth: 1,
+    borderColor: '#BBF7D0', paddingVertical: 8, alignItems: 'center',
+  },
+  rateBtnTrtText: { fontSize: 12, fontWeight: '700', color: '#15803D' },
+
+  // Rating badges
+  ratingBadgeRow: { flexDirection: 'row', gap: 6, marginTop: 8, flexWrap: 'wrap' },
+  ratingBadge: {
+    backgroundColor: '#DBEAFE', borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 3,
+  },
+  ratingBadgeText: { fontSize: 11, fontWeight: '700', color: '#1D4ED8' },
+  ratingBadgeTrt: { backgroundColor: '#D1FAE5' },
+  ratingBadgeTextTrt: { color: '#065F46' },
 });
