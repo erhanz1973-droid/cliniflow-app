@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, Image, ActivityIndicator, Platform, Modal,
+  Alert, Image, ActivityIndicator, Platform, Modal, Linking,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../../lib/auth";
@@ -273,11 +273,11 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* PRIVACY POLICY MODAL */}
+      {/* PRIVACY POLICY MODAL — transparent overlay avoids new native view controller */}
       <Modal
         visible={privacyVisible}
         animationType="slide"
-        presentationStyle="pageSheet"
+        transparent={false}
         onRequestClose={() => setPrivacyVisible(false)}
       >
         <View style={styles.modalContainer}>
@@ -289,6 +289,12 @@ export default function ProfileScreen() {
           </View>
           <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
             <Text style={styles.modalBodyText}>{t("profile.privacyPolicyBody")}</Text>
+            <TouchableOpacity
+              style={styles.privacyLinkBtn}
+              onPress={() => Linking.openURL("https://www.clinifly.net/privacy-policy")}
+            >
+              <Text style={styles.privacyLinkText}>🌐 www.clinifly.net/privacy-policy</Text>
+            </TouchableOpacity>
           </ScrollView>
           <TouchableOpacity style={styles.modalDoneBtn} onPress={() => setPrivacyVisible(false)}>
             <Text style={styles.modalDoneBtnText}>{t("profile.close")}</Text>
@@ -392,4 +398,10 @@ const styles = StyleSheet.create({
     margin: 20, backgroundColor: "#2563eb", borderRadius: 12, paddingVertical: 14, alignItems: "center",
   },
   modalDoneBtnText: { fontSize: 15, fontWeight: "700", color: "#fff" },
+  privacyLinkBtn: {
+    marginTop: 20, marginBottom: 8, paddingVertical: 12, paddingHorizontal: 16,
+    backgroundColor: "#EFF6FF", borderRadius: 10, borderWidth: 1, borderColor: "#BFDBFE",
+    alignItems: "center",
+  },
+  privacyLinkText: { fontSize: 13, color: "#2563EB", fontWeight: "600" },
 });
