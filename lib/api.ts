@@ -144,7 +144,6 @@ export async function apiPost<T>(path: string, body: any): Promise<T> {
     if (err.name === "AbortError") {
       throw new Error(`POST timeout: ${url}`);
     }
-    console.error("[API] POST error:", err.message);
     throw err;
   }
 }
