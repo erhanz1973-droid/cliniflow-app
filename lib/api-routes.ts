@@ -14,6 +14,12 @@ export const API_ROUTES = {
     doctors: '/api/doctor/doctors',
     treatmentPlans: '/api/doctor/treatment-plans',
     patients: '/api/doctor/patients',
+    treatmentRequests: '/api/doctor/treatment-requests',
+    submitOffer: (requestId: string) => `/api/doctor/treatment-requests/${requestId}/offer`,
+  },
+  // Patient treatment request endpoints
+  patient: {
+    treatmentRequests: '/api/patient/treatment-requests',
   },
   
   // Treatment endpoints (legacy - to be phased out)

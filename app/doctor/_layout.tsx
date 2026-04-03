@@ -9,6 +9,7 @@ export default function DoctorLayout() {
       <Stack.Screen name="profile" />
       <Stack.Screen name="diagnosis" />
       <Stack.Screen name="pending" />
+      <Stack.Screen name="requests" />
     </Stack>
   );
 }

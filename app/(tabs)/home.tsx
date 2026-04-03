@@ -1173,6 +1173,24 @@ export default function Home() {
       </Pressable>
       )}
 
+      {/* 7b. Get Quote / My Requests */}
+      <View style={styles.quoteRow}>
+        <Pressable
+          style={[styles.quoteCard, { backgroundColor: '#2563EB' }]}
+          onPress={() => router.push('/request-treatment')}
+        >
+          <Text style={styles.quoteCardIcon}>💬</Text>
+          <Text style={styles.quoteCardLabel}>{t('home.getQuote')}</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.quoteCard, { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' }]}
+          onPress={() => router.push('/my-requests')}
+        >
+          <Text style={styles.quoteCardIcon}>📋</Text>
+          <Text style={[styles.quoteCardLabel, { color: '#374151' }]}>{t('home.myRequests')}</Text>
+        </Pressable>
+      </View>
+
       {/* 8. Messages */}
       <Pressable
         style={styles.messageCard}
@@ -1508,6 +1526,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#6B7280",
     marginTop: 4,
+  },
+  quoteRow: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginBottom: 16,
+    gap: 10,
+  },
+  quoteCard: {
+    flex: 1,
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 72,
+  },
+  quoteCardIcon: { fontSize: 22, marginBottom: 4 },
+  quoteCardLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#fff',
+    textAlign: 'center',
   },
   messageCard: {
     backgroundColor: "#FFFFFF",

@@ -213,9 +213,9 @@ export default function DoctorDashboard() {
             <Text style={styles.quickIcon}>🦷</Text>
             <Text style={styles.quickLabel}>{t('doctor.quickActions.xray')}</Text>
           </Pressable>
-          <Pressable style={styles.quickCard} onPress={() => router.push('/doctor/patients')}>
-            <Text style={styles.quickIcon}>📋</Text>
-            <Text style={styles.quickLabel}>{t('doctor.quickActions.tasks')}</Text>
+          <Pressable style={styles.quickCard} onPress={() => router.push('/doctor/requests')}>
+            <Text style={styles.quickIcon}>📨</Text>
+            <Text style={styles.quickLabel}>{t('doctor.quickActions.requests')}</Text>
           </Pressable>
         </View>
 
