@@ -7,11 +7,14 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../../lib/auth";
 import { API_BASE } from "../../lib/api";
 import { useDateLocale } from "../../lib/date-locale";
 import { useUnreadMessages } from "../../lib/useUnreadMessages";
 import { useLanguage } from "../../lib/language-context";
+
+const UPLOAD_CONSENT_KEY = "@clinifly:upload_consent_accepted";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -132,6 +135,28 @@ export default function MessagesScreen() {
     } finally { setSending(false); }
   };
 
+  // ── Upload consent gate ────────────────────────────────────────────────────
+
+  const checkUploadConsent = (): Promise<boolean> =>
+    new Promise(async (resolve) => {
+      const accepted = await AsyncStorage.getItem(UPLOAD_CONSENT_KEY).catch(() => null);
+      if (accepted === "1") { resolve(true); return; }
+      Alert.alert(
+        t("upload.consentTitle"),
+        t("upload.consentMessage"),
+        [
+          { text: t("common.cancel"), style: "cancel", onPress: () => resolve(false) },
+          {
+            text: t("upload.consentConfirm"),
+            onPress: async () => {
+              await AsyncStorage.setItem(UPLOAD_CONSENT_KEY, "1").catch(() => {});
+              resolve(true);
+            },
+          },
+        ]
+      );
+    });
+
   // ── Upload file ────────────────────────────────────────────────────────────
 
   const uploadFile = async (uri: string, name: string, mimeType: string) => {
@@ -149,18 +174,25 @@ export default function MessagesScreen() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        Alert.alert(t("chat.uploadError"), json.message || json.error || t("messages.uploadFailed"));
+        Alert.alert(t("chat.uploadError"), json.message || json.error || t("messages.uploadFailed"), [
+          { text: t("common.cancel"), style: "cancel" },
+          { text: t("common.retry") ?? "Retry", onPress: () => uploadFile(uri, name, mimeType) },
+        ]);
       } else {
         fetchMessages(true);
       }
     } catch {
-      Alert.alert(t("common.error"), t("messages.uploadFailed"));
+      Alert.alert(t("common.error"), t("messages.uploadFailed"), [
+        { text: t("common.cancel"), style: "cancel" },
+        { text: t("common.retry") ?? "Retry", onPress: () => uploadFile(uri, name, mimeType) },
+      ]);
     } finally { setUploading(false); }
   };
 
   // ── Pickers ────────────────────────────────────────────────────────────────
 
   const pickImage = async () => {
+    if (!await checkUploadConsent()) return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
       Alert.alert(t("messages.permissionRequired"), t("messages.galleryPermission"));
@@ -178,6 +210,7 @@ export default function MessagesScreen() {
   };
 
   const pickDocument = async () => {
+    if (!await checkUploadConsent()) return;
     const result = await DocumentPicker.getDocumentAsync({
       type: ["application/pdf", "image/*"],
       copyToCacheDirectory: true,
@@ -214,6 +247,7 @@ export default function MessagesScreen() {
   // ── Intraoral ─────────────────────────────────────────────────────────────
 
   const captureIntraoralStep = async () => {
+    if (!await checkUploadConsent()) return;
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
       Alert.alert(t("messages.permissionRequired"), t("messages.cameraPermission"));

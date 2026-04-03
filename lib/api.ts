@@ -55,7 +55,6 @@ function authHeaders(): Record<string, string> {
   if (AUTH_TOKEN) {
     headers.Authorization = `Bearer ${AUTH_TOKEN}`;
   }
-  console.log('[API] Auth headers:', AUTH_TOKEN ? `Bearer ${AUTH_TOKEN.substring(0, 20)}...` : 'No token');
   return headers;
 }
 
@@ -78,7 +77,6 @@ async function parseJsonSafe<T>(url: string, text: string): Promise<T> {
 
 export async function apiGet<T>(path: string): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
-  console.log("[API] GET", url);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_GET);
@@ -96,7 +94,6 @@ export async function apiGet<T>(path: string): Promise<T> {
     clearTimeout(timeoutId);
 
     const text = await res.text();
-    console.log("[API] GET response", res.status, text.substring(0, 200));
 
     if (!res.ok) {
       throw new Error(`GET ${url} -> ${res.status}`);
@@ -118,7 +115,6 @@ export async function apiGet<T>(path: string): Promise<T> {
 
 export async function apiPost<T>(path: string, body: any): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
-  console.log("[API] POST", url, JSON.stringify(body).substring(0, 200));
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_POST);
@@ -138,11 +134,9 @@ export async function apiPost<T>(path: string, body: any): Promise<T> {
     clearTimeout(timeoutId);
 
     const text = await res.text();
-    console.log("[API] POST response", res.status, text.substring(0, 200));
 
     if (!res.ok) {
-      console.error("[API] POST error response:", text);
-      throw new Error(`POST ${url} -> ${res.status}: ${text}`);
+      throw new Error(`POST ${url} -> ${res.status}: ${text.substring(0, 200)}`);
     }
 
     return parseJsonSafe<T>(url, text);
@@ -161,7 +155,6 @@ export async function apiPost<T>(path: string, body: any): Promise<T> {
 
 export async function apiPut<T>(path: string, body: any): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
-  console.log("[API] PUT", url, JSON.stringify(body).substring(0, 200));
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_PUT);
@@ -181,7 +174,6 @@ export async function apiPut<T>(path: string, body: any): Promise<T> {
     clearTimeout(timeoutId);
 
     const text = await res.text();
-    console.log("[API] PUT response", res.status, text.substring(0, 200));
 
     if (!res.ok) {
       throw new Error(`PUT ${url} -> ${res.status}`);

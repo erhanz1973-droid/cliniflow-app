@@ -160,8 +160,9 @@ export default function PatientDashboard() {
   const [fileCounts, setFileCounts] = useState({ total: 0, xray: 0, image: 0, pdf: 0 });
   const [showDentalReminder, setShowDentalReminder] = useState(false);
 
+  const [fetchError, setFetchError] = useState(false);
   const patientId = String(user?.patientId || user?.id || "").trim();
-  const patientName = String(user?.name || "Hasta").trim();
+  const patientName = String(user?.name || "").trim();
 
   const fetchData = useCallback(async () => {
     if (!user?.token || !patientId) {
@@ -289,6 +290,7 @@ export default function PatientDashboard() {
 
     } catch {
       setTreatmentsStale(false);
+      setFetchError(true);
     } finally {
       setRefreshing(false);
     }
@@ -320,8 +322,15 @@ export default function PatientDashboard() {
     <ScrollView
       style={styles.container}
       contentContainerStyle={{ paddingBottom: 32 }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchData(); }} tintColor="#2563eb" />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setFetchError(false); setRefreshing(true); fetchData(); }} tintColor="#2563eb" />}
     >
+      {/* FETCH ERROR BANNER */}
+      {fetchError && !refreshing && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorBannerText}>⚠️ {t("home.fetchError")}</Text>
+        </View>
+      )}
+
       {/* HEADER */}
       <View style={styles.header}>
         <View>
@@ -329,7 +338,7 @@ export default function PatientDashboard() {
           <Text style={styles.name}>{patientName}</Text>
         </View>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{patientName.charAt(0).toUpperCase()}</Text>
+          <Text style={styles.avatarText}>{(patientName || "?").charAt(0).toUpperCase()}</Text>
         </View>
       </View>
 
@@ -624,6 +633,11 @@ export default function PatientDashboard() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f3f4f6" },
   center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f3f4f6" },
+  errorBanner: {
+    backgroundColor: "#fef2f2", borderBottomWidth: 1, borderBottomColor: "#fecaca",
+    paddingHorizontal: 16, paddingVertical: 10,
+  },
+  errorBannerText: { fontSize: 13, color: "#b91c1c", fontWeight: "600" },
   header: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
     backgroundColor: "#fff", paddingHorizontal: 20, paddingTop: 60, paddingBottom: 20,

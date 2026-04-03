@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, Image, ActivityIndicator, Platform,
+  Alert, Image, ActivityIndicator, Platform, Modal,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../../lib/auth";
@@ -41,8 +41,9 @@ export default function ProfileScreen() {
   const { t, currentLanguage, setLanguage } = useLanguage();
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [localPhotoUri, setLocalPhotoUri] = useState<string | null>(null);
+  const [privacyVisible, setPrivacyVisible] = useState(false);
 
-  const name = String(user?.name || "Hasta").trim();
+  const name = String(user?.name || t("profile.name")).trim();
   const phone = String(user?.phone || "").trim();
   const clinicCode = String((user as any)?.clinicCode || "").trim();
   const status = String((user as any)?.status || "").trim();
@@ -66,7 +67,7 @@ export default function ProfileScreen() {
       try {
         json = JSON.parse(text) as typeof json;
       } catch {
-        throw new Error(`Sunucu hatası: ${text.substring(0, 120)}`);
+        throw new Error(t("common.error") + ": " + text.substring(0, 80));
       }
       if (!json.ok) throw new Error(json.error || t("profile.photoError"));
       const path = json.profilePhotoUrl || json.url;
@@ -235,12 +236,47 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* LEGAL */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>{t("profile.legal")}</Text>
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.legalBtn} onPress={() => setPrivacyVisible(true)} activeOpacity={0.7}>
+            <Text style={styles.legalIcon}>🔒</Text>
+            <Text style={styles.legalBtnText}>{t("profile.privacyPolicy")}</Text>
+            <Text style={styles.menuBtnArrow}>›</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
       {/* LOGOUT */}
       <View style={styles.section}>
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
           <Text style={styles.logoutText}>{t("profile.logout")}</Text>
         </TouchableOpacity>
       </View>
+
+      {/* PRIVACY POLICY MODAL */}
+      <Modal
+        visible={privacyVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setPrivacyVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>{t("profile.privacyPolicyTitle")}</Text>
+            <TouchableOpacity onPress={() => setPrivacyVisible(false)} style={styles.modalCloseBtn}>
+              <Text style={styles.modalCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+            <Text style={styles.modalBodyText}>{t("profile.privacyPolicyBody")}</Text>
+          </ScrollView>
+          <TouchableOpacity style={styles.modalDoneBtn} onPress={() => setPrivacyVisible(false)}>
+            <Text style={styles.modalDoneBtnText}>{t("profile.close")}</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -311,4 +347,24 @@ const styles = StyleSheet.create({
   menuBtnIcon: { fontSize: 18 },
   menuBtnText: { flex: 1, fontSize: 15, fontWeight: "600", color: "#111827" },
   menuBtnArrow: { fontSize: 20, color: "#9ca3af" },
+  legalBtn: {
+    flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14, gap: 12,
+  },
+  legalIcon: { fontSize: 18 },
+  legalBtnText: { flex: 1, fontSize: 15, fontWeight: "600", color: "#111827" },
+  modalContainer: { flex: 1, backgroundColor: "#fff" },
+  modalHeader: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 20, paddingTop: 24, paddingBottom: 16,
+    borderBottomWidth: 1, borderBottomColor: "#e5e7eb",
+  },
+  modalTitle: { fontSize: 17, fontWeight: "800", color: "#111827" },
+  modalCloseBtn: { padding: 4 },
+  modalCloseText: { fontSize: 18, color: "#6b7280" },
+  modalBody: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
+  modalBodyText: { fontSize: 14, color: "#374151", lineHeight: 22 },
+  modalDoneBtn: {
+    margin: 20, backgroundColor: "#2563eb", borderRadius: 12, paddingVertical: 14, alignItems: "center",
+  },
+  modalDoneBtnText: { fontSize: 15, fontWeight: "700", color: "#fff" },
 });

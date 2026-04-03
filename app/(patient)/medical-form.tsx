@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, ActivityIndicator, Alert, Switch,
+  TextInput, ActivityIndicator, Alert,
 } from "react-native";
 import { useAuth } from "../../lib/auth";
 import { API_BASE } from "../../lib/api";
 import { useRouter } from "expo-router";
+import { useLanguage } from "../../lib/language-context";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,10 +46,16 @@ function YesNoQuestion({
   label,
   field,
   onChange,
+  yesLabel,
+  noLabel,
+  detailPlaceholder,
 }: {
   label: string;
   field: YesNoField;
   onChange: (f: YesNoField) => void;
+  yesLabel: string;
+  noLabel: string;
+  detailPlaceholder: string;
 }) {
   return (
     <View style={styles.yesNoBlock}>
@@ -59,7 +66,7 @@ function YesNoQuestion({
           onPress={() => onChange({ ...field, value: true })}
         >
           <Text style={[styles.yesNoBtnText, field.value === true && styles.yesNoBtnTextActive]}>
-            Yes
+            {yesLabel}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -67,17 +74,17 @@ function YesNoQuestion({
           onPress={() => onChange({ ...field, value: false, detail: "" })}
         >
           <Text style={[styles.yesNoBtnText, field.value === false && styles.yesNoBtnTextActive]}>
-            No
+            {noLabel}
           </Text>
         </TouchableOpacity>
       </View>
       {field.value === true && (
         <TextInput
           style={styles.detailInput}
-          placeholder="Please provide details..."
+          placeholder={detailPlaceholder}
           placeholderTextColor="#9ca3af"
           value={field.detail}
-          onChangeText={(t) => onChange({ ...field, detail: t })}
+          onChangeText={(v) => onChange({ ...field, detail: v })}
           multiline
           numberOfLines={3}
         />
@@ -112,6 +119,7 @@ function CheckboxItem({
 export default function MedicalFormScreen() {
   const { user } = useAuth();
   const router = useRouter();
+  const { t } = useLanguage();
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -199,14 +207,13 @@ export default function MedicalFormScreen() {
         body: JSON.stringify(body),
       });
       const json = await res.json().catch(() => ({}));
-      console.log("[MEDICAL FORM] save response:", JSON.stringify(json));
-      if (!res.ok) throw new Error("Save failed");
+      if (!res.ok) throw new Error(json.error || "save_failed");
       setSaved(true);
-      Alert.alert("Kaydedildi", "Sağlık formunuz başarıyla gönderildi.", [
-        { text: "Tamam", onPress: () => router.back() },
+      Alert.alert(t("medicalForm.saved"), "", [
+        { text: t("common.close"), onPress: () => router.back() },
       ]);
     } catch {
-      Alert.alert("Hata", "Form kaydedilemedi. Lütfen tekrar deneyin.");
+      Alert.alert(t("common.error"), t("medicalForm.saveError"));
     } finally {
       setSubmitting(false);
     }
@@ -227,48 +234,53 @@ export default function MedicalFormScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backBtnText}>← Geri</Text>
+          <Text style={styles.backBtnText}>{t("medicalForm.back")}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Medical Form</Text>
+        <Text style={styles.headerTitle}>{t("medicalForm.title")}</Text>
         <View style={{ width: 60 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        {/* Intro */}
-        <View style={styles.introCard}>
-          <Text style={styles.introIcon}>🏥</Text>
-          <Text style={styles.introText}>
-            Please complete your medical history before your appointment. This information helps your
-            doctor provide safe and effective treatment.
-          </Text>
+        {/* Data consent notice */}
+        <View style={styles.consentCard}>
+          <Text style={styles.consentIcon}>🔒</Text>
+          <Text style={styles.consentText}>{t("medicalForm.consentNotice")}</Text>
         </View>
 
         {/* ── PERSONAL HEALTH ── */}
-        <SectionHeader title="Personal Health" />
+        <SectionHeader title={t("profile.health")} />
         <View style={styles.card}>
           <YesNoQuestion
-            label="Do you have any allergies?"
+            label={t("medicalForm.allergies")}
             field={allergies}
             onChange={setAllergies}
+            yesLabel={t("medicalForm.yes")}
+            noLabel={t("medicalForm.no")}
+            detailPlaceholder={t("medicalForm.detailPlaceholder")}
           />
           <View style={styles.divider} />
           <YesNoQuestion
-            label="Are you currently taking medications?"
+            label={t("medicalForm.medications")}
             field={medications}
             onChange={setMedications}
+            yesLabel={t("medicalForm.yes")}
+            noLabel={t("medicalForm.no")}
+            detailPlaceholder={t("medicalForm.detailPlaceholder")}
           />
           <View style={styles.divider} />
           <YesNoQuestion
-            label="Do you have any chronic diseases?"
+            label={t("medicalForm.chronicDiseases")}
             field={chronicDiseases}
             onChange={setChronicDiseases}
+            yesLabel={t("medicalForm.yes")}
+            noLabel={t("medicalForm.no")}
+            detailPlaceholder={t("medicalForm.detailPlaceholder")}
           />
         </View>
 
         {/* ── MEDICAL CONDITIONS ── */}
-        <SectionHeader title="Medical Conditions" />
+        <SectionHeader title={t("medicalForm.conditions")} />
         <View style={styles.card}>
-          <Text style={styles.cardSubtitle}>Select all that apply:</Text>
           {CONDITIONS.map((c) => (
             <CheckboxItem
               key={c.key}
@@ -281,12 +293,11 @@ export default function MedicalFormScreen() {
         </View>
 
         {/* ── MEDICATIONS ── */}
-        <SectionHeader title="Medications" />
+        <SectionHeader title={t("medicalForm.medicationsList")} />
         <View style={styles.card}>
-          <Text style={styles.cardSubtitle}>List any medications you are currently taking:</Text>
           <TextInput
             style={styles.textArea}
-            placeholder="e.g. Aspirin 100mg, Metformin 500mg..."
+            placeholder={t("medicalForm.medicationsPlaceholder")}
             placeholderTextColor="#9ca3af"
             value={medicationsList}
             onChangeText={setMedicationsList}
@@ -297,15 +308,11 @@ export default function MedicalFormScreen() {
         </View>
 
         {/* ── NOTES ── */}
-        <SectionHeader title="Additional Notes" />
+        <SectionHeader title={t("medicalForm.notes")} />
         <View style={styles.card}>
-          <Text style={styles.cardSubtitle}>
-            Anything else your doctor should know:{" "}
-            <Text style={styles.optional}>(optional)</Text>
-          </Text>
           <TextInput
             style={styles.textArea}
-            placeholder="Additional medical notes..."
+            placeholder={t("medicalForm.notesPlaceholder")}
             placeholderTextColor="#9ca3af"
             value={notes}
             onChangeText={setNotes}
@@ -325,7 +332,7 @@ export default function MedicalFormScreen() {
             <ActivityIndicator size="small" color="#fff" />
           ) : (
             <Text style={styles.submitBtnText}>
-              {saved ? "✓ Form Submitted" : "Submit Medical Form"}
+              {saved ? t("medicalForm.saved") : t("medicalForm.save")}
             </Text>
           )}
         </TouchableOpacity>
@@ -360,7 +367,22 @@ const styles = StyleSheet.create({
 
   content: { padding: 16 },
 
-  // Intro
+  // Consent notice
+  consentCard: {
+    backgroundColor: "#f0fdf4",
+    borderRadius: 12,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#bbf7d0",
+  },
+  consentIcon: { fontSize: 18 },
+  consentText: { flex: 1, fontSize: 13, color: "#166534", lineHeight: 20 },
+
+  // Intro (kept for backward compat)
   introCard: {
     backgroundColor: "#eff6ff",
     borderRadius: 12,
