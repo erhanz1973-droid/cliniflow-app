@@ -70,11 +70,14 @@ export default function ClinicOnboardingScreen() {
       const data = await res.json();
       if (!data?.ok) throw new Error(data?.error || 'error');
 
-      // Update auth context with new token
+      // Update auth context with new token, preserving existing profile fields
       if (data.token) {
         await signIn({
           token: data.token,
           patientId: user.patientId,
+          name:  user.name,
+          phone: user.phone,
+          email: user.email,
           type: 'patient',
           role: 'PATIENT',
           otpVerified: true,

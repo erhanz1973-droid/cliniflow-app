@@ -110,6 +110,9 @@ export default function OtpScreen() {
         await signIn({
           token:     json.token,
           patientId: json.patientId,
+          name:      json.name,
+          phone:     json.phone,
+          email:     json.email,
           type:      "patient",
           role:      "PATIENT",
           otpVerified: true,
