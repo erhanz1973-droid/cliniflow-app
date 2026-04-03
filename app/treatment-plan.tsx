@@ -223,6 +223,7 @@ function AddModal({
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [chair, setChair] = useState('');
+  const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [showProcList, setShowProcList] = useState(false);
   const [showDoctorList, setShowDoctorList] = useState(false);
@@ -231,7 +232,7 @@ function AddModal({
 
   const reset = () => {
     setToothInput(''); setSelectedProc(null); setSelectedDoctor(null);
-    setSelectedDate(null); setChair(''); setShowProcList(false); setShowDoctorList(false);
+    setSelectedDate(null); setChair(''); setNotes(''); setShowProcList(false); setShowDoctorList(false);
   };
 
   const save = async () => {
@@ -249,6 +250,7 @@ function AddModal({
         scheduled_at: selectedDate ? selectedDate.toISOString() : null,
         chair: chair.trim() || null,
         assigned_doctor_id: selectedDoctor?.id || null,
+        notes: notes.trim() || null,
       };
       const res = await securePost(
         API_ROUTES.doctor.addPatientTreatment(patientId),
@@ -391,6 +393,20 @@ function AddModal({
                 </TouchableOpacity>
               ))}
             </View>
+
+            {/* Notes */}
+            <Text style={styles.fieldLabel}>{t('treatmentPlan.notes')}</Text>
+            <TextInput
+              style={styles.notesInput}
+              placeholder={t('treatmentPlan.notesPlaceholder')}
+              value={notes}
+              onChangeText={setNotes}
+              multiline
+              numberOfLines={3}
+              maxLength={500}
+              textAlignVertical="top"
+            />
+            <Text style={styles.notesCounter}>{notes.length}/500</Text>
 
             <TouchableOpacity style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={save} disabled={saving}>
               {saving
