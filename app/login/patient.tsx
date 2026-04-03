@@ -25,7 +25,6 @@ export default function PatientLogin() {
   const [statusMsg, setStatusMsg] = useState('');
   const [errorMsg, setErrorMsg]   = useState('');
   const [phone, setPhone]         = useState("");
-  const [email, setEmail]         = useState("");
   const [password, setPassword]   = useState("");
   const [clinicCode, setClinicCode] = useState("");
   const warmupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -39,8 +38,7 @@ export default function PatientLogin() {
 
   const handlePatientLogin = async () => {
     const trimPhone = phone.trim();
-    const trimEmail = email.trim().toLowerCase();
-    if (!trimPhone && !trimEmail) {
+    if (!trimPhone) {
       Alert.alert(t('login.error'), t('login.phoneRequired'));
       return;
     }
@@ -68,8 +66,7 @@ export default function PatientLogin() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            phone: trimPhone || undefined,
-            email: trimEmail || undefined,
+            phone: trimPhone,
             password: password.trim() || undefined,
             clinicCode: clinicCode.trim() || undefined,
           }),
@@ -81,11 +78,11 @@ export default function PatientLogin() {
 
       // PENDING → OTP verification required
       if (json?.requiresOTP || json?.error === 'email_verification_required') {
-        router.replace({
+          router.replace({
           pathname: '/otp' as any,
           params: {
             phone: json.phone || trimPhone,
-            email: json.email || trimEmail,
+            email: json.email || '',
             patientId: json.patientId || '',
             source: 'patient',
           },
@@ -156,17 +153,6 @@ export default function PatientLogin() {
           onChangeText={v => { setPhone(v); setErrorMsg(''); }}
           keyboardType="phone-pad"
           autoCapitalize="none"
-          editable={!loading}
-        />
-
-        <TextInput
-          style={styles.input}
-          placeholder={t('login.emailPlaceholder') ?? 'E-posta (opsiyonel)'}
-          value={email}
-          onChangeText={v => { setEmail(v); setErrorMsg(''); }}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoCorrect={false}
           editable={!loading}
         />
 
