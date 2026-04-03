@@ -8,7 +8,7 @@ import { useLanguage } from '../../lib/language-context';
 import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES, Language } from '../../lib/i18n';
 import { ROLE_KEY } from '../(auth)/role-select';
 
-const WARMUP_TIMEOUT_MS = 75_000;
+const WARMUP_TIMEOUT_MS = 30_000; // 30 s — cold-start window; Apple reviewer must not wait 75 s
 const LOGIN_TIMEOUT_MS  = 15_000;
 
 function fetchWithTimeout(url: string, options: RequestInit, ms: number): Promise<Response> {
@@ -21,11 +21,19 @@ export default function PatientLogin() {
   const { signIn } = useAuth();
   const router = useRouter();
   const { t, currentLanguage, setLanguage } = useLanguage();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]     = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
-  const [phone, setPhone] = useState("");
+  const [errorMsg, setErrorMsg]   = useState('');
+  const [phone, setPhone]         = useState("");
   const [clinicCode, setClinicCode] = useState("");
   const warmupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearWarmup = () => {
+    if (warmupTimerRef.current) {
+      clearTimeout(warmupTimerRef.current);
+      warmupTimerRef.current = null;
+    }
+  };
 
   const handlePatientLogin = async () => {
     if (!phone.trim()) {
@@ -37,29 +45,26 @@ export default function PatientLogin() {
       return;
     }
     setLoading(true);
+    setErrorMsg('');
     setStatusMsg(t('login.connecting'));
 
-    // After 4 s with no response, tell user the server is warming up
+    // Show "warming up" hint after 4 s
     warmupTimerRef.current = setTimeout(() => {
       setStatusMsg(t('login.warmingUp'));
     }, 4000);
 
     try {
-      // Step 1: wake the server up (cheap GET, up to 75 s)
+      // Step 1: wake the server (30 s max — down from 75 s)
       try {
         await fetchWithTimeout(`${API_BASE}/api/health`, {}, WARMUP_TIMEOUT_MS);
       } catch {
-        // If health check itself times out, throw a friendly error
         throw new Error(t('login.timeout'));
       }
 
-      if (warmupTimerRef.current) {
-        clearTimeout(warmupTimerRef.current);
-        warmupTimerRef.current = null;
-      }
+      clearWarmup();
       setStatusMsg(t('login.loggingIn'));
 
-      // Step 2: actual login (server is awake now, 15 s is plenty)
+      // Step 2: actual login
       const res = await fetchWithTimeout(
         `${API_BASE}/api/patient/login`,
         {
@@ -78,29 +83,25 @@ export default function PatientLogin() {
       }
 
       await signIn({
-        token: payload.token,
-        id: payload.id || payload.patientId,
-        patientId: payload.patientId || payload.id,
-        type: "patient",
-        role: payload.role || "PATIENT",
-        phone: phone.trim(),
-        name: payload.name || "",
-        clinicId: payload.clinicId,
-        clinicCode: payload.clinicCode,
-        status: payload.status,
-        language: payload.language,
+        token:        payload.token,
+        id:           payload.id || payload.patientId,
+        patientId:    payload.patientId || payload.id,
+        type:         "patient",
+        role:         payload.role || "PATIENT",
+        phone:        phone.trim(),
+        name:         payload.name || "",
+        clinicId:     payload.clinicId,
+        clinicCode:   payload.clinicCode,
+        status:       payload.status,
+        language:     payload.language,
         referralCode: payload.referralCode || null,
       });
       router.replace("/(patient)" as any);
     } catch (error: any) {
-      if (warmupTimerRef.current) {
-        clearTimeout(warmupTimerRef.current);
-        warmupTimerRef.current = null;
-      }
-      const msg = error?.name === 'AbortError'
-        ? t('login.timeout')
-        : (error.message || t('login.loginFailed'));
-      Alert.alert(t('login.error'), msg);
+      clearWarmup();
+      const isTimeout = error?.name === 'AbortError' || String(error?.message || '').includes('timeout');
+      const msg = isTimeout ? t('login.timeout') : (error.message || t('login.loginFailed'));
+      setErrorMsg(msg);
     } finally {
       setLoading(false);
       setStatusMsg('');
@@ -131,7 +132,7 @@ export default function PatientLogin() {
           style={styles.input}
           placeholder={t('login.clinicCodePlaceholder')}
           value={clinicCode}
-          onChangeText={v => setClinicCode(v.toUpperCase())}
+          onChangeText={v => { setClinicCode(v.toUpperCase()); setErrorMsg(''); }}
           autoCapitalize="characters"
           editable={!loading}
         />
@@ -140,11 +141,21 @@ export default function PatientLogin() {
           style={styles.input}
           placeholder={t('login.phonePlaceholder')}
           value={phone}
-          onChangeText={setPhone}
+          onChangeText={v => { setPhone(v); setErrorMsg(''); }}
           keyboardType="phone-pad"
           autoCapitalize="none"
           editable={!loading}
         />
+
+        {/* Inline error with retry */}
+        {!!errorMsg && (
+          <View style={styles.errorCard}>
+            <Text style={styles.errorText}>⚠️ {errorMsg}</Text>
+            <Pressable style={styles.retryBtn} onPress={handlePatientLogin}>
+              <Text style={styles.retryBtnText}>🔄 {t('common.retry') ?? 'Retry'}</Text>
+            </Pressable>
+          </View>
+        )}
 
         <Pressable
           style={[styles.button, loading && styles.buttonDisabled]}
@@ -279,5 +290,31 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 13,
     flexShrink: 1,
+  },
+  errorCard: {
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+    gap: 8,
+  },
+  errorText: {
+    fontSize: 13,
+    color: '#b91c1c',
+    lineHeight: 18,
+  },
+  retryBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#2563eb',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  retryBtnText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
