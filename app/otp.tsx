@@ -1,52 +1,84 @@
 // app/otp.tsx
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, Alert, Platform, ScrollView, ActivityIndicator } from "react-native";
+import {
+  View, Text, TextInput, Pressable, StyleSheet,
+  Platform, ScrollView, ActivityIndicator,
+} from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../lib/auth";
+import { useLanguage } from "../lib/language-context";
 import { API_BASE, ADMIN_API_BASE } from "../lib/api";
 
-// ✅ hard timeout (sonsuz verifying olmasın)
-const VERIFY_TIMEOUT_MS = 8000;
+const VERIFY_TIMEOUT_MS = 10_000;
+
+/** Masks an email: "john.doe@gmail.com" → "jo***@gmail.com" */
+function maskEmail(email: string): string {
+  if (!email) return "";
+  const [local, domain] = email.split("@");
+  if (!local || !domain) return email;
+  const visible = local.slice(0, Math.min(2, local.length));
+  return `${visible}***@${domain}`;
+}
 
 export default function OtpScreen() {
-  const { signIn, signOut, setOtpVerified } = useAuth();
+  const { signIn } = useAuth();
+  const { t } = useLanguage();
   const params = useLocalSearchParams();
-  const email = params.email as string || "";
-  const phone = params.phone as string || "";
-  const patientId = params.patientId as string || "";
-  const source = params.source as string || "";
-  
-  // 🔥 CRITICAL: Doctors are NOT allowed in OTP screen
+
+  const email      = (params.email      as string) || "";
+  const phone      = (params.phone      as string) || "";
+  const patientId  = (params.patientId  as string) || "";
+  const source     = (params.source     as string) || "";
+  // emailSent='0' means the initial OTP email failed to deliver
+  const emailSentParam = (params.emailSent as string) ?? "1";
+  const initialEmailFailed = emailSentParam === "0";
+
+  // Doctors must never land here
   if (source === "doctor") {
     throw new Error("OTP is not allowed for doctors");
   }
-  
-  // 🔥 CRITICAL: Determine userType from source - NO FALLBACK
-  const userType = source === "doctor" ? "doctor" : "patient";
-  
-  const [otp, setOtp] = useState("");
-  const [phoneInput, setPhoneInput] = useState(phone);
-  const [busy, setBusy] = useState(false);
-  const [resending, setResending] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [isVerifying, setIsVerifying] = useState(false);
-  const otpVerifiedRef = useRef(false);
-  const hardResetDoneRef = useRef(false);
 
-  async function verifyWithServer(code: string, phoneToVerify: string) {
-    if (isVerifying || otpVerifiedRef.current) {
-      setMsg("Doğrulama devam ediyor, lütfen bekleyin.");
-      return;
+  const [otp, setOtp]               = useState("");
+  const [phoneInput, setPhoneInput] = useState(phone);
+  const [busy, setBusy]             = useState(false);
+  const [resending, setResending]   = useState(false);
+  const [errorMsg, setErrorMsg]     = useState("");
+  const [isVerifying, setIsVerifying] = useState(false);
+  const otpVerifiedRef  = useRef(false);
+  const autoResendDoneRef = useRef(false);
+
+  const noEmail = !email.trim();
+
+  // ── Guard: redirect if missing both phone and patientId ──────────────────
+  useEffect(() => {
+    if (!phone && !phoneInput && !patientId) {
+      router.replace("/");
     }
+  }, [phone, phoneInput, patientId]);
+
+  // ── Auto-resend if initial email failed ──────────────────────────────────
+  useEffect(() => {
+    if (initialEmailFailed && !noEmail && !autoResendDoneRef.current) {
+      autoResendDoneRef.current = true;
+      // Small delay so the UI is visible first
+      const timer = setTimeout(() => resendOTP(), 800);
+      return () => clearTimeout(timer);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Verify ────────────────────────────────────────────────────────────────
+  async function verifyWithServer(code: string, phoneToVerify: string) {
+    if (isVerifying || otpVerifiedRef.current) return;
     if (!code || code.length !== 6 || !phoneToVerify) {
-      throw new Error("Geçersiz parametreler. Lütfen tekrar deneyin.");
+      throw new Error(t("otp.invalidCode"));
     }
 
     setIsVerifying(true);
     otpVerifiedRef.current = true;
 
     const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS);
 
     try {
       const res = await fetch(`${ADMIN_API_BASE}/auth/verify-otp`, {
@@ -63,249 +95,237 @@ export default function OtpScreen() {
 
       const text = await res.text();
       let json: any;
-      try {
-        json = text ? JSON.parse(text) : null;
-      } catch {
-        throw new Error("Sunucu geçersiz yanıt döndürdü.");
-      }
+      try { json = text ? JSON.parse(text) : {}; } catch { json = {}; }
 
       if (!res.ok) {
-        let errorMsg = json.message || json.error || `Verify failed (${res.status})`;
-        if (json.error === "invalid_otp") {
-          errorMsg = "Geçersiz OTP kodu. Lütfen tekrar deneyin.";
-        } else if (json.error === "otp_expired") {
-          errorMsg = "OTP süresi dolmuş. Lütfen yeni bir kod isteyin.";
-        } else if (json.error === "otp_max_attempts") {
-          errorMsg = "Maksimum deneme sayısına ulaşıldı. Lütfen yeni bir kod isteyin.";
-        } else if (json.error === "patient_not_found") {
-          errorMsg = "Hesap bulunamadı. Lütfen kayıt olun.";
-        } else if (json.error === "doctor_not_found") {
-          errorMsg = "Doktor hesabı bulunamadı. Lütfen kayıt olun.";
-        } else if (json.error === "clinic_not_found") {
-          errorMsg = "Klinik bulunamadı. Lütfen klinik kodunu kontrol edin.";
-        } else if (json.error === "invalid_type") {
-          errorMsg = "Geçersiz kullanıcı türü. Lütfen tekrar deneyin.";
-        }
-        throw new Error(errorMsg);
+        const errCode = json?.error || "";
+        if (errCode === "invalid_otp")       throw new Error(t("otp.invalidCode"));
+        if (errCode === "otp_expired")       throw new Error(t("otp.expiredCode"));
+        if (errCode === "otp_max_attempts")  throw new Error(t("otp.maxAttempts"));
+        if (errCode === "patient_not_found") throw new Error(t("otp.notFound"));
+        throw new Error(json?.message || t("otp.networkError"));
       }
 
-      if (json.ok && json.token) {
-        if (json.type === "doctor") {
-          await signIn({
-            token: json.token,
-            doctorId: json.doctorId,
-            clinicId: json.clinicId,
-            type: "doctor",
-            role: "DOCTOR",
-            status: json.status,
-          });
-          
-          // 🔥 ROUTING: Based on doctor status
-          const targetRoute = json.status === "ACTIVE" 
-            ? "/doctor/dashboard" 
-            : "/waiting-approval";
-          router.replace(targetRoute);
-        } else if (json.type === "patient") {
-          await signIn({
-            token: json.token,
-            patientId: json.patientId,
-            type: "patient",
-            role: "PATIENT",
-            otpVerified: true   // ✅ EKLE
-          });
-          router.replace("/(patient)" as any);
-        } else if (json.type === "admin") {
-          await signIn({
-            token: json.token,
-            clinicId: json.clinicId,
-            clinicCode: json.clinicCode,
-            type: "admin",
-            role: "ADMIN",
-          });
-          router.replace("/admin/dashboard");
+      if (json?.ok && json?.token) {
+        await signIn({
+          token:     json.token,
+          patientId: json.patientId,
+          type:      "patient",
+          role:      "PATIENT",
+          otpVerified: true,
+        });
+        // If patient has no clinic → offer clinic selection onboarding
+        if (json.hasClinic === false) {
+          router.replace("/clinic-onboarding" as any);
         } else {
-          throw new Error(`Unknown user type: ${json.type}`);
+          router.replace("/(patient)" as any);
         }
       } else {
-        throw new Error("Invalid response from server");
+        throw new Error(t("otp.networkError"));
       }
+    } catch (err: any) {
+      if (err?.name === "AbortError") throw new Error(t("otp.timeout"));
+      throw err;
     } finally {
-      clearTimeout(t);
+      clearTimeout(timer);
       setIsVerifying(false);
     }
   }
 
-  async function resendOTP() {
-    const phoneToUse = phoneInput.trim();
-    if (!phoneToUse) {
-      Alert.alert("Hata", "Telefon numarası gereklidir.");
-      return;
-    }
-
-    setResending(true);
-    try {
-      const res = await fetch(`${API_BASE}/auth/request-otp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          phone: phoneToUse,
-          role: "PATIENT" // 🔥 CRITICAL: Send role for patient OTP
-        }),
-      });
-
-      // Safe JSON parsing
-      const text = await res.text();
-      let json;
-
-      try {
-        json = text ? JSON.parse(text) : null;
-      } catch {
-        throw new Error("Invalid OTP response (not JSON)");
-      }
-
-      if (!res.ok) {
-        let errorMsg = json?.message || json?.error || "OTP gönderilemedi";
-        if (json?.error === "rate_limit_exceeded") {
-          errorMsg = "Çok fazla istek. Lütfen bir süre sonra tekrar deneyin.";
-        }
-        Alert.alert("Hata", errorMsg);
-        return;
-      }
-
-      Alert.alert("Başarılı", "OTP kodu email adresinize gönderildi.");
-      setOtp(""); // Clear OTP input
-    } catch (error: any) {
-      Alert.alert("Hata", `OTP gönderilemedi: ${error.message || "Bilinmeyen hata"}`);
-    } finally {
-      setResending(false);
-    }
-  }
-
   async function onSubmit() {
-    // Guard checks
-    const code = otp.trim();
+    const code        = otp.trim();
+    const phoneToUse  = phoneInput.trim();
+
     if (!code || code.length !== 6) {
-      Alert.alert("Eksik Bilgi", "Lütfen 6 haneli OTP kodunu giriniz.");
+      setErrorMsg(t("otp.invalidCode"));
       return;
     }
-
-    const phoneToUse = phoneInput.trim();
     if (!phoneToUse) {
-      Alert.alert("Eksik Bilgi", "Telefon numarası gereklidir.");
-      return;
-    }
-
-    // Additional validation
-    if (code === undefined || phoneToUse === undefined) {
-      Alert.alert("Hata", "Geçersiz parametreler. Lütfen tekrar deneyin.");
+      setErrorMsg(t("otp.phoneRequired"));
       return;
     }
 
     setBusy(true);
-    setMsg("");
-
+    setErrorMsg("");
     try {
       await verifyWithServer(code, phoneToUse);
     } catch (e: any) {
-      const m =
-        e?.name === "AbortError"
-          ? `Doğrulama zaman aşımına uğradı (${VERIFY_TIMEOUT_MS / 1000}s).`
-          : e?.message || "OTP doğrulama hatası";
-      setMsg(m);
-      Alert.alert("OTP Doğrulama Hatası", m);
+      const m = e?.name === "AbortError" ? t("otp.timeout") : (e?.message || t("otp.networkError"));
+      setErrorMsg(m);
+      otpVerifiedRef.current = false;
     } finally {
       setBusy(false);
     }
   }
 
-  useEffect(() => {
-    if (source === "doctor") {
-      Alert.alert(
-        "Hata",
-        "Doktorlar OTP doğrulaması kullanamaz.",
-        [{ text: "Tamam", onPress: () => router.replace("/register-doctor") }]
-      );
+  // ── Resend ────────────────────────────────────────────────────────────────
+  async function resendOTP() {
+    const phoneToUse = phoneInput.trim();
+    if (!phoneToUse) {
+      setErrorMsg(t("otp.phoneRequired"));
       return;
     }
-    if (!phone && !phoneInput && !patientId) {
-      router.replace("/");
+
+    setResending(true);
+    setErrorMsg("");
+    try {
+      const res = await fetch(`${API_BASE}/auth/request-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: phoneToUse, role: "PATIENT" }),
+      });
+
+      const text = await res.text();
+      let json: any;
+      try { json = text ? JSON.parse(text) : {}; } catch { json = {}; }
+
+      if (!res.ok) {
+        const errCode = json?.error || "";
+        if (errCode === "rate_limit_exceeded") {
+          setErrorMsg(t("otp.maxAttempts"));
+        } else if (errCode === "email_missing_on_account") {
+          setErrorMsg(t("otp.noEmailWarning"));
+        } else if (errCode === "email_not_configured" || errCode === "otp_send_failed") {
+          setErrorMsg(t("otp.emailNotConfigured"));
+        } else {
+          setErrorMsg(json?.message || t("otp.networkError"));
+        }
+        return;
+      }
+
+      const sentEmail = json?.email || email;
+      const successMsg = sentEmail
+        ? t("otp.resendSuccess").replace("{email}", maskEmail(sentEmail))
+        : t("otp.sentToUnknown");
+      setErrorMsg("✅ " + successMsg);
+      setOtp("");
+    } catch {
+      setErrorMsg(t("otp.networkError"));
+    } finally {
+      setResending(false);
     }
-  }, [phone, phoneInput, patientId, source]);
+  }
+
+  // ── Subtitle text ─────────────────────────────────────────────────────────
+  const subtitleText = noEmail
+    ? t("otp.sentToUnknown")
+    : t("otp.sentTo").replace("{email}", maskEmail(email));
 
   return (
-    <ScrollView contentContainerStyle={styles.scrollContent}>
+    <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
       <View style={styles.wrap}>
-        <Text style={styles.h1}>Email Doğrulama</Text>
 
-        <Text style={styles.p}>
-          {email ? `${email} adresine` : "Email adresinize"} gönderilen 6 haneli OTP kodunu giriniz.
-        </Text>
+        {/* Header */}
+        <View style={styles.iconRow}>
+          <View style={styles.iconBubble}>
+            <Text style={styles.iconEmoji}>✉️</Text>
+          </View>
+        </View>
 
+        <Text style={styles.h1}>{t("otp.title")}</Text>
+
+        {/* No-email warning */}
+        {noEmail ? (
+          <View style={styles.warnBanner}>
+            <Text style={styles.warnText}>⚠️ {t("otp.noEmailWarning")}</Text>
+          </View>
+        ) : (
+          <Text style={styles.subtitle}>{subtitleText}</Text>
+        )}
+
+        {/* Initial email-failed warning */}
+        {initialEmailFailed && !noEmail && (
+          <View style={styles.failBanner}>
+            <Text style={styles.failBannerText}>
+              📧 {t("otp.emailFailedWarning")}
+            </Text>
+          </View>
+        )}
+
+        {/* Spam hint */}
+        {!noEmail && (
+          <Text style={styles.spamHint}>💡 {t("otp.spamHint")}</Text>
+        )}
+
+        {/* Phone input if missing */}
         {!phone && (
-          <>
-            <Text style={styles.label}>Telefon Numarası</Text>
-            <Text style={styles.requiredText}>Telefon numarası gerekmektedir</Text>
+          <View style={styles.fieldWrap}>
+            <Text style={styles.label}>{t("otp.phoneLabel")}</Text>
             <TextInput
               value={phoneInput}
-              onChangeText={setPhoneInput}
-              placeholder="Telefon Numarası"
-              placeholderTextColor="rgba(0,0,0,0.35)"
+              onChangeText={v => { setPhoneInput(v); setErrorMsg(""); }}
+              placeholder={t("otp.phonePlaceholder")}
+              placeholderTextColor="#9CA3AF"
               keyboardType="phone-pad"
               style={styles.input}
               editable={!busy}
               autoComplete="tel"
             />
-          </>
+          </View>
         )}
 
-        <Text style={styles.label}>OTP Kodu</Text>
+        {/* OTP input */}
         <TextInput
           value={otp}
-          onChangeText={setOtp}
-          placeholder="OTP Kodunu Giriniz"
-          placeholderTextColor="rgba(0,0,0,0.35)"
+          onChangeText={v => { setOtp(v.replace(/\D/g, "").slice(0, 6)); setErrorMsg(""); }}
+          placeholder={t("otp.codePlaceholder")}
+          placeholderTextColor="#9CA3AF"
           keyboardType={Platform.OS === "web" ? "default" : "number-pad"}
-          style={styles.input}
+          style={[styles.otpInput, errorMsg && !errorMsg.startsWith("✅") && styles.otpInputError]}
           maxLength={6}
-          editable={!busy}
-          autoFocus={!!phone}
+          editable={!busy && !noEmail}
+          autoFocus={!!phone && !noEmail}
+          textAlign="center"
         />
 
-        {msg ? <Text style={styles.err}>{msg}</Text> : null}
+        {/* Error / success message */}
+        {!!errorMsg && (
+          <Text style={[styles.msgText, errorMsg.startsWith("✅") ? styles.msgSuccess : styles.msgError]}>
+            {errorMsg}
+          </Text>
+        )}
 
-        <Pressable 
-          onPress={onSubmit} 
-          disabled={busy || otp.length !== 6} 
-          style={[styles.btn, (busy || otp.length !== 6) && styles.btnDisabled]}
-        >
-          {busy ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <Text style={styles.btnText}>Doğrula</Text>
-          )}
-        </Pressable>
+        {/* Verify button */}
+        {!noEmail && (
+          <Pressable
+            onPress={onSubmit}
+            disabled={busy || otp.length !== 6}
+            style={[styles.btn, (busy || otp.length !== 6) && styles.btnDisabled]}
+          >
+            {busy ? (
+              <View style={styles.busyRow}>
+                <ActivityIndicator size="small" color="#fff" />
+                <Text style={styles.btnText}>{t("otp.verifying")}</Text>
+              </View>
+            ) : (
+              <Text style={styles.btnText}>{t("otp.verify")}</Text>
+            )}
+          </Pressable>
+        )}
 
-        <Pressable 
-          onPress={resendOTP} 
-          disabled={resending} 
-          style={[styles.linkBtn, resending && { opacity: 0.5 }]}
-        >
-          {resending ? (
-            <ActivityIndicator size="small" color="#2563EB" />
-          ) : (
-            <Text style={styles.linkText}>Kodu Tekrar Gönder</Text>
-          )}
-        </Pressable>
+        {/* Resend */}
+        {!noEmail && (
+          <Pressable
+            onPress={resendOTP}
+            disabled={resending || busy}
+            style={[styles.linkBtn, (resending || busy) && { opacity: 0.5 }]}
+          >
+            {resending ? (
+              <ActivityIndicator size="small" color="#2563EB" />
+            ) : (
+              <Text style={styles.linkText}>{t("otp.resend")}</Text>
+            )}
+          </Pressable>
+        )}
 
-        <Pressable 
-          onPress={() => {
-            // Clear any partial registration data and go to home/register
-            router.replace("/");
-          }} 
+        {/* Back */}
+        <Pressable
+          onPress={() => router.replace("/")}
           style={styles.linkBtn}
         >
-          <Text style={styles.linkText}>Geri Dön</Text>
+          <Text style={styles.backText}>{t("otp.back")}</Text>
         </Pressable>
+
       </View>
     </ScrollView>
   );
@@ -315,100 +335,172 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     justifyContent: "center",
-  },
-  wrap: { 
-    flex: 1, 
-    padding: 24, 
     backgroundColor: "#F3F4F6",
-    maxWidth: 400,
+  },
+  wrap: {
+    padding: 28,
+    maxWidth: 420,
     alignSelf: "center",
     width: "100%",
   },
-  centerContent: {
-    justifyContent: "center",
+  iconRow: {
     alignItems: "center",
+    marginBottom: 16,
   },
-  h1: { 
-    fontSize: 28, 
-    fontWeight: "900", 
-    marginBottom: 12,
+  iconBubble: {
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    backgroundColor: "#eff6ff",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#2563eb",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  iconEmoji: {
+    fontSize: 32,
+  },
+  h1: {
+    fontSize: 26,
+    fontWeight: "800",
     color: "#111827",
     textAlign: "center",
+    marginBottom: 10,
   },
-  p: { 
-    color: "rgba(0,0,0,0.6)", 
-    marginBottom: 24, 
-    fontWeight: "600",
+  subtitle: {
     fontSize: 14,
+    color: "#6B7280",
     textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 6,
   },
-  input: {
-    backgroundColor: "white",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    fontWeight: "800",
-    fontSize: 18,
+  spamHint: {
+    fontSize: 12,
+    color: "#9CA3AF",
     textAlign: "center",
-    letterSpacing: 4,
+    lineHeight: 18,
+    marginBottom: 24,
+  },
+  warnBanner: {
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 20,
+  },
+  warnText: {
+    fontSize: 13,
+    color: "#DC2626",
+    lineHeight: 19,
+    fontWeight: "600",
+  },
+  failBanner: {
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 10,
+  },
+  failBannerText: {
+    fontSize: 13,
+    color: "#92400E",
+    lineHeight: 19,
+    fontWeight: "600",
+  },
+  fieldWrap: {
     marginBottom: 12,
   },
+  label: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#374151",
+    marginBottom: 6,
+  },
+  input: {
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    fontSize: 15,
+    color: "#111827",
+  },
+  otpInput: {
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+    borderWidth: 2,
+    borderColor: "#2563EB",
+    fontWeight: "800",
+    fontSize: 28,
+    letterSpacing: 10,
+    color: "#111827",
+    marginBottom: 12,
+  },
+  otpInputError: {
+    borderColor: "#DC2626",
+  },
+  msgText: {
+    fontSize: 13,
+    textAlign: "center",
+    fontWeight: "600",
+    marginBottom: 8,
+    lineHeight: 18,
+  },
+  msgError: {
+    color: "#DC2626",
+  },
+  msgSuccess: {
+    color: "#16a34a",
+  },
   btn: {
-    marginTop: 12,
     backgroundColor: "#2563EB",
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: "center",
+    marginTop: 4,
+    marginBottom: 4,
     shadowColor: "#2563EB",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 4,
   },
   btnDisabled: {
     backgroundColor: "#9CA3AF",
     shadowOpacity: 0,
+    elevation: 0,
   },
-  btnText: { 
-    color: "white", 
-    fontWeight: "900",
+  btnText: {
+    color: "#fff",
+    fontWeight: "800",
     fontSize: 16,
   },
-  err: { 
-    marginTop: 10, 
-    color: "#DC2626", 
-    fontWeight: "700",
-    fontSize: 14,
-    textAlign: "center",
-  },
-  linkBtn: { 
-    marginTop: 16, 
+  busyRow: {
+    flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
+    gap: 8,
   },
-  linkText: { 
-    fontWeight: "700", 
+  linkBtn: {
+    alignItems: "center",
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  linkText: {
     color: "#2563EB",
-    fontSize: 14,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: "#6B7280",
-  },
-  label: {
-    fontSize: 14,
     fontWeight: "700",
-    color: "#111827",
-    marginBottom: 8,
-    marginTop: 16,
+    fontSize: 14,
   },
-  requiredText: {
-    fontSize: 12,
-    color: "#DC2626",
-    marginBottom: 8,
-    fontWeight: "600",
+  backText: {
+    color: "#9CA3AF",
+    fontSize: 14,
+    fontWeight: "500",
   },
 });
