@@ -204,6 +204,24 @@ export default function ProfileScreen() {
         </View>
       </View>
 
+      {/* FIND A CLINIC — shown when patient has no clinic */}
+      {!clinicCode && (
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.findClinicBtn}
+            onPress={() => router.push("/clinic-onboarding" as any)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.findClinicIcon}>🏥</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.findClinicTitle}>{t("profile.findClinic")}</Text>
+              <Text style={styles.findClinicSub}>{t("profile.findClinicSub")}</Text>
+            </View>
+            <Text style={styles.menuBtnArrow}>›</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* LANGUAGE */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{t("profile.language")}</Text>
@@ -346,6 +364,13 @@ const styles = StyleSheet.create({
   },
   menuBtnIcon: { fontSize: 18 },
   menuBtnText: { flex: 1, fontSize: 15, fontWeight: "600", color: "#111827" },
+  findClinicBtn: {
+    backgroundColor: "#EFF6FF", borderRadius: 14, borderWidth: 1, borderColor: "#BFDBFE",
+    padding: 16, flexDirection: "row", alignItems: "center", gap: 12,
+  },
+  findClinicIcon: { fontSize: 22 },
+  findClinicTitle: { fontSize: 15, fontWeight: "700", color: "#1D4ED8", marginBottom: 2 },
+  findClinicSub: { fontSize: 12, color: "#3B82F6", lineHeight: 17 },
   menuBtnArrow: { fontSize: 20, color: "#9ca3af" },
   legalBtn: {
     flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14, gap: 12,
