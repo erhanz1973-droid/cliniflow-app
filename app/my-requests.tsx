@@ -99,6 +99,7 @@ type RatingKey = string;
 type Request = {
   id: string;
   clinic_id: string | null;
+  clinic_name: string | null;
   description: string;
   budget: string | null;
   preferred_treatment: string | null;
@@ -281,6 +282,10 @@ export default function MyRequestsScreen() {
                        t('treatReq.status.pending')}
                     </Text>
                   </View>
+                  {/* Show target clinic name if the request was sent to a specific clinic */}
+                  {req.clinic_name ? (
+                    <Text style={styles.cardClinic}>🏥 {req.clinic_name}</Text>
+                  ) : null}
                   <Text style={styles.cardDate}>{fmtDate(req.created_at)}</Text>
                 </View>
                 <View style={styles.cardHeaderRight}>
@@ -326,12 +331,23 @@ export default function MyRequestsScreen() {
                         const isBest = idx === 0 && req.offers.length > 1;
                         return (
                         <View key={offer.id} style={[styles.offerCard, isBest && styles.offerCardBest]}>
+                          {/* Clinic name header */}
+                          {offer.clinic_name && (
+                            <View style={styles.offerClinicRow}>
+                              <Text style={styles.offerClinicName}>🏥 {offer.clinic_name}</Text>
+                              {isBest && (
+                                <View style={styles.bestBadge}>
+                                  <Text style={styles.bestBadgeText}>⭐ {t('treatReq.bestMatch') || 'Best Match'}</Text>
+                                </View>
+                              )}
+                            </View>
+                          )}
                           <View style={styles.offerHeader}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
                               <Text style={styles.offerDoctor}>
                                 👨‍⚕️ {offer.doctor_name || t('treatReq.doctor')}
                               </Text>
-                              {isBest && (
+                              {!offer.clinic_name && isBest && (
                                 <View style={styles.bestBadge}>
                                   <Text style={styles.bestBadgeText}>⭐ {t('treatReq.bestMatch') || 'Best Match'}</Text>
                                 </View>
@@ -506,6 +522,7 @@ const styles = StyleSheet.create({
   statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   statusText: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
   cardDate: { fontSize: 12, color: '#9CA3AF' },
+  cardClinic: { fontSize: 12, fontWeight: '600', color: '#2563EB', marginTop: 2 },
   offerBadge: { backgroundColor: '#DBEAFE', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
   offerBadgeText: { fontSize: 11, color: '#1D4ED8', fontWeight: '700' },
   chevron: { fontSize: 12, color: '#9CA3AF' },
@@ -532,6 +549,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7, paddingVertical: 2,
   },
   bestBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  offerClinicRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: '#EFF6FF', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
+    marginBottom: 8,
+  },
+  offerClinicName: { fontSize: 13, fontWeight: '700', color: '#1D4ED8', flex: 1 },
   offerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   offerDoctor: { fontSize: 13, fontWeight: '700', color: '#111827' },
   offerDate: { fontSize: 11, color: '#9CA3AF' },
