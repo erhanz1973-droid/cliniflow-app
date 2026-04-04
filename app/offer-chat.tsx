@@ -3,8 +3,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   StyleSheet, SafeAreaView, ActivityIndicator, KeyboardAvoidingView,
-  Platform, Alert,
+  Platform, Alert, Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/language-context';
@@ -15,7 +17,9 @@ type Message = {
   sender_id: string;
   sender_role: 'patient' | 'doctor';
   sender_name: string;
-  text: string;
+  text: string | null;
+  attachment_url: string | null;
+  attachment_type: 'image' | 'xray' | 'document' | null;
   created_at: string;
 };
 
@@ -33,7 +37,6 @@ function fmtDate(iso: string) {
   } catch { return ''; }
 }
 
-// Group messages by date for day separators
 function groupByDate(messages: Message[]) {
   const groups: { date: string; items: Message[] }[] = [];
   let lastDate = '';
@@ -45,7 +48,6 @@ function groupByDate(messages: Message[]) {
     }
     groups[groups.length - 1].items.push(m);
   }
-  // Flatten to FlatList data with separators
   const flat: ({ type: 'separator'; date: string } | { type: 'message' } & Message)[] = [];
   for (const g of groups) {
     flat.push({ type: 'separator', date: g.date });
@@ -59,7 +61,6 @@ export default function OfferChatScreen() {
   const { user } = useAuth();
   const { t } = useLanguage();
 
-  // params: offerId, otherName (doctor or patient name), treatmentType
   const { offerId, otherName, treatmentType } = useLocalSearchParams<{
     offerId: string;
     otherName: string;
@@ -94,62 +95,149 @@ export default function OfferChatScreen() {
     }
   }, [user?.token, offerId, t]);
 
-  // Initial load
   useEffect(() => {
     fetchMessages(false).then(() => setLoading(false));
   }, [fetchMessages]);
 
-  // Polling every 5s
   useEffect(() => {
     pollRef.current = setInterval(() => fetchMessages(true), 5000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [fetchMessages]);
 
-  // Auto-scroll on new messages
   useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     }
   }, [messages.length]);
 
-  const send = async () => {
-    const text = draft.trim();
-    if (!text || !user?.token || !offerId) return;
-    if (text.length > 500) {
-      Alert.alert(t('common.error'), t('offerChat.tooLong'));
-      return;
-    }
+  // Upload a file to the backend and get back a URL
+  const uploadAttachment = async (
+    uri: string,
+    mimeType: string,
+    fileName: string,
+    attachmentType: 'image' | 'xray' | 'document'
+  ): Promise<string> => {
+    const formData = new FormData();
+    formData.append('file', { uri, type: mimeType, name: fileName } as any);
+    formData.append('offer_id', offerId!);
+    formData.append('attachment_type', attachmentType);
 
-    // Optimistic update
+    const res = await fetch(`${API_BASE}/api/offer-messages/upload`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${user!.token}` },
+      body: formData,
+    });
+    const data = await res.json();
+    if (!data?.ok) throw new Error(data?.error || 'upload_failed');
+    return data.url as string;
+  };
+
+  // Build and send a message (text-only, attachment-only, or both)
+  const sendMessage = async (opts: {
+    text?: string;
+    attachment_url?: string;
+    attachment_type?: 'image' | 'xray' | 'document';
+  }) => {
+    if (!user?.token || !offerId) return;
+
     const optimistic: Message = {
       id: `opt_${Date.now()}`,
       sender_id: user.id || '',
       sender_role: myRole,
       sender_name: user.name || (myRole === 'doctor' ? 'Dr.' : t('offerChat.you')),
-      text,
+      text: opts.text || null,
+      attachment_url: opts.attachment_url || null,
+      attachment_type: opts.attachment_type || null,
       created_at: new Date().toISOString(),
     };
     setMessages(prev => [...prev, optimistic]);
-    setDraft('');
     setSending(true);
 
     try {
       const res = await fetch(`${API_BASE}/api/offer-messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
-        body: JSON.stringify({ offer_id: offerId, text }),
+        body: JSON.stringify({
+          offer_id: offerId,
+          text: opts.text || '',
+          attachment_url: opts.attachment_url,
+          attachment_type: opts.attachment_type,
+        }),
       });
       const data = await res.json();
       if (!data?.ok) throw new Error(data?.error || 'error');
-      // Replace optimistic with real message
       setMessages(prev =>
-        prev.map(m => m.id === optimistic.id ? { ...data.message, sender_name: optimistic.sender_name } : m)
+        prev.map(m => m.id === optimistic.id
+          ? { ...data.message, sender_name: optimistic.sender_name }
+          : m
+        )
       );
     } catch (e: any) {
-      // Rollback optimistic
       setMessages(prev => prev.filter(m => m.id !== optimistic.id));
       Alert.alert(t('common.error'), e.message || t('common.error'));
     } finally {
+      setSending(false);
+    }
+  };
+
+  const send = async () => {
+    const text = draft.trim();
+    if (!text || sending) return;
+    if (text.length > 500) {
+      Alert.alert(t('common.error'), t('offerChat.tooLong'));
+      return;
+    }
+    setDraft('');
+    await sendMessage({ text });
+  };
+
+  const pickIntraoral = async () => {
+    if (sending) return;
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(t('common.error'), 'Photo library permission required');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: false,
+    });
+    if (result.canceled || !result.assets?.length) return;
+    const asset = result.assets[0];
+    const uri = asset.uri;
+    const mime = asset.mimeType || 'image/jpeg';
+    const name = asset.fileName || `intraoral_${Date.now()}.jpg`;
+
+    setSending(true);
+    try {
+      const url = await uploadAttachment(uri, mime, name, 'image');
+      await sendMessage({ attachment_url: url, attachment_type: 'image' });
+    } catch (e: any) {
+      Alert.alert(t('common.error'), e.message || 'Upload failed');
+      setSending(false);
+    }
+  };
+
+  const pickXray = async () => {
+    if (sending) return;
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['image/*', 'application/pdf'],
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled || !result.assets?.length) return;
+    const asset = result.assets[0];
+    const uri = asset.uri;
+    const mime = asset.mimeType || 'application/octet-stream';
+    const name = asset.name || `xray_${Date.now()}`;
+    const isImage = mime.startsWith('image/');
+
+    setSending(true);
+    try {
+      const url = await uploadAttachment(uri, mime, name, isImage ? 'xray' : 'document');
+      await sendMessage({ attachment_url: url, attachment_type: isImage ? 'xray' : 'document' });
+    } catch (e: any) {
+      Alert.alert(t('common.error'), e.message || 'Upload failed');
       setSending(false);
     }
   };
@@ -223,6 +311,10 @@ export default function OfferChatScreen() {
                 );
               }
               const isMe = item.sender_role === myRole;
+              const hasImage = item.attachment_url &&
+                (item.attachment_type === 'image' || item.attachment_type === 'xray');
+              const hasDoc   = item.attachment_url && item.attachment_type === 'document';
+
               return (
                 <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowOther]}>
                   {!isMe && (
@@ -236,9 +328,47 @@ export default function OfferChatScreen() {
                     {!isMe && (
                       <Text style={styles.senderName}>{item.sender_name}</Text>
                     )}
-                    <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
-                      {item.text}
-                    </Text>
+
+                    {/* Attachment: image / x-ray */}
+                    {hasImage && item.attachment_url && (
+                      <View style={styles.attachImageWrap}>
+                        <Image
+                          source={{ uri: item.attachment_url }}
+                          style={styles.attachImage}
+                          resizeMode="cover"
+                        />
+                        {item.attachment_type === 'xray' && (
+                          <View style={styles.xrayBadge}>
+                            <Text style={styles.xrayBadgeText}>🩻 X-Ray</Text>
+                          </View>
+                        )}
+                        {item.attachment_type === 'image' && (
+                          <View style={styles.intraoralBadge}>
+                            <Text style={styles.intraoralBadgeText}>📷 Intraoral</Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+
+                    {/* Attachment: document / PDF */}
+                    {hasDoc && item.attachment_url && (
+                      <TouchableOpacity
+                        style={[styles.docBubble, isMe && styles.docBubbleMe]}
+                        onPress={() => Alert.alert('File', item.attachment_url!)}
+                      >
+                        <Text style={styles.docIcon}>📄</Text>
+                        <Text style={[styles.docName, isMe && styles.docNameMe]} numberOfLines={2}>
+                          {item.attachment_url.split('/').pop() || 'Document'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {item.text ? (
+                      <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
+                        {item.text}
+                      </Text>
+                    ) : null}
+
                     <Text style={[styles.bubbleTime, isMe && styles.bubbleTimeMe]}>
                       {fmtTime(item.created_at)}
                     </Text>
@@ -251,6 +381,24 @@ export default function OfferChatScreen() {
 
         {/* Input bar */}
         <View style={styles.inputBar}>
+          {/* Intraoral photo */}
+          <TouchableOpacity
+            style={styles.attachBtn}
+            onPress={pickIntraoral}
+            disabled={sending}
+          >
+            <Text style={styles.attachBtnText}>📷</Text>
+          </TouchableOpacity>
+
+          {/* X-ray / document */}
+          <TouchableOpacity
+            style={styles.attachBtn}
+            onPress={pickXray}
+            disabled={sending}
+          >
+            <Text style={styles.attachBtnText}>🩻</Text>
+          </TouchableOpacity>
+
           <TextInput
             style={styles.input}
             value={draft}
@@ -326,13 +474,9 @@ const styles = StyleSheet.create({
   bubble: {
     maxWidth: '75%', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8,
   },
-  bubbleMe: {
-    backgroundColor: '#2563EB',
-    borderBottomRightRadius: 4,
-  },
+  bubbleMe: { backgroundColor: '#2563EB', borderBottomRightRadius: 4 },
   bubbleOther: {
-    backgroundColor: '#fff',
-    borderBottomLeftRadius: 4,
+    backgroundColor: '#fff', borderBottomLeftRadius: 4,
     borderWidth: 1, borderColor: '#E5E7EB',
   },
   senderName: { fontSize: 10, fontWeight: '700', color: '#6B7280', marginBottom: 3 },
@@ -341,11 +485,46 @@ const styles = StyleSheet.create({
   bubbleTime: { fontSize: 10, color: '#9CA3AF', marginTop: 4, textAlign: 'right' },
   bubbleTimeMe: { color: 'rgba(255,255,255,0.7)' },
 
+  // Attachment: image / xray
+  attachImageWrap: { position: 'relative', marginBottom: 6, borderRadius: 10, overflow: 'hidden' },
+  attachImage: { width: 200, height: 150, borderRadius: 10 },
+  xrayBadge: {
+    position: 'absolute', bottom: 6, left: 6,
+    backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 6,
+    paddingHorizontal: 7, paddingVertical: 3,
+  },
+  xrayBadgeText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+  intraoralBadge: {
+    position: 'absolute', bottom: 6, left: 6,
+    backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 6,
+    paddingHorizontal: 7, paddingVertical: 3,
+  },
+  intraoralBadgeText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+
+  // Attachment: document
+  docBubble: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#F3F4F6', borderRadius: 10,
+    paddingHorizontal: 10, paddingVertical: 8, marginBottom: 6,
+    borderWidth: 1, borderColor: '#E5E7EB', maxWidth: 220,
+  },
+  docBubbleMe: { backgroundColor: 'rgba(255,255,255,0.15)', borderColor: 'rgba(255,255,255,0.2)' },
+  docIcon: { fontSize: 22 },
+  docName: { flex: 1, fontSize: 12, color: '#374151' },
+  docNameMe: { color: '#fff' },
+
+  // Input bar
   inputBar: {
-    flexDirection: 'row', alignItems: 'flex-end', gap: 8,
-    backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 10,
+    flexDirection: 'row', alignItems: 'flex-end', gap: 6,
+    backgroundColor: '#fff', paddingHorizontal: 8, paddingVertical: 10,
     borderTopWidth: 1, borderTopColor: '#E5E7EB',
   },
+  attachBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#F3F4F6',
+  },
+  attachBtnText: { fontSize: 20 },
   input: {
     flex: 1, borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 20,
     paddingHorizontal: 14, paddingVertical: 9, fontSize: 14, color: '#111827',
