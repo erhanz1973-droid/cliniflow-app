@@ -109,7 +109,7 @@ export default function PatientLogin() {
         patientId:    payload.patientId || payload.id,
         type:         "patient",
         role:         payload.role || "PATIENT",
-        phone:        trimPhone || payload.phone || "",
+        phone:        payload.phone || (isEmail ? "" : trimInput),
         name:         payload.name || "",
         clinicId:     payload.clinicId,
         clinicCode:   payload.clinicCode,
