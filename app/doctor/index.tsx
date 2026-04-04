@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
-import { apiGet } from '../../lib/api';
+import { apiGet, API_BASE } from '../../lib/api';
 import { useLanguage } from '../../lib/language-context';
 
 interface Appointment {
@@ -85,6 +85,7 @@ export default function DoctorDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [inboxBadge, setInboxBadge] = useState(0);
 
   // Auth guard
   useEffect(() => {
@@ -92,10 +93,26 @@ export default function DoctorDashboard() {
     if (!user?.token || user.type !== 'doctor') router.replace('/');
   }, [user, isAuthReady, isInitialized, router]);
 
+  const loadInboxBadge = useCallback(async () => {
+    if (!user?.token) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/doctor/inbox-summary`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      const json = await res.json();
+      if (json?.ok) {
+        setInboxBadge((json.patient_messages || 0) + (json.pending_requests || 0));
+      }
+    } catch {}
+  }, [user?.token]);
+
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      const res = await apiGet<any>('/api/doctor/dashboard');
+      const [res] = await Promise.all([
+        apiGet<any>('/api/doctor/dashboard'),
+        loadInboxBadge(),
+      ]);
       if (res?.ok) setData(res as DashboardData);
     } catch (e: any) {
       console.error('[Doctor Dashboard] load error:', e);
@@ -111,9 +128,16 @@ export default function DoctorDashboard() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [loadInboxBadge]);
 
   useEffect(() => { if (isAuthReady && user?.type === 'doctor') load(); }, [isAuthReady, user, load]);
+
+  // Poll inbox badge every 30s
+  useEffect(() => {
+    if (!isAuthReady || user?.type !== 'doctor') return;
+    const interval = setInterval(loadInboxBadge, 30_000);
+    return () => clearInterval(interval);
+  }, [isAuthReady, user, loadInboxBadge]);
 
   // Auto-retry once after 6s when server is warming up
   useEffect(() => {
@@ -214,7 +238,14 @@ export default function DoctorDashboard() {
             <Text style={styles.quickLabel}>{t('doctor.quickActions.xray')}</Text>
           </Pressable>
           <Pressable style={styles.quickCard} onPress={() => router.push('/doctor/requests')}>
-            <Text style={styles.quickIcon}>📨</Text>
+            <View style={styles.quickIconWrap}>
+              <Text style={styles.quickIcon}>📨</Text>
+              {inboxBadge > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{inboxBadge > 99 ? '99+' : inboxBadge}</Text>
+                </View>
+              )}
+            </View>
             <Text style={styles.quickLabel}>{t('doctor.quickActions.requests')}</Text>
           </Pressable>
         </View>
@@ -393,8 +424,16 @@ const styles = StyleSheet.create({
     alignItems: 'center', gap: 6,
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
   },
+  quickIconWrap: { position: 'relative', width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   quickIcon: { fontSize: 28 },
   quickLabel: { fontSize: 12, fontWeight: '600', color: '#374151' },
+  badge: {
+    position: 'absolute', top: -4, right: -4,
+    minWidth: 18, height: 18, borderRadius: 9,
+    backgroundColor: '#EF4444', alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 4, borderWidth: 2, borderColor: '#fff',
+  },
+  badgeText: { color: '#fff', fontSize: 10, fontWeight: '700', lineHeight: 13 },
 
   // Card container
   card: {
