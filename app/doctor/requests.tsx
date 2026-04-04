@@ -3,7 +3,7 @@ import React, { useCallback, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   SafeAreaView, ActivityIndicator, RefreshControl, Modal,
-  TextInput, Alert, KeyboardAvoidingView, Platform,
+  TextInput, Alert, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../lib/auth';
@@ -66,6 +66,7 @@ type Request = {
   offer_count: number;
   my_offer_id: string | null;
   is_assigned_to_me: boolean;
+  photos: Array<{ url: string; type: string }> | null;
 };
 
 // ── Quick Offer Modal ─────────────────────────────────────────────────────────
@@ -314,6 +315,40 @@ function RequestCard({
           <Text style={cs.readMore}>{t('requests.card.readMore') || 'more ▾'}</Text>
         )}
       </TouchableOpacity>
+
+      {/* Attachments (photos / files) sent by patient */}
+      {req.photos && req.photos.length > 0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={cs.photosRow}>
+          {req.photos.map((p, i) => {
+            const isImage = p.type === 'image' || p.type === 'xray' ||
+              /\.(jpg|jpeg|png|gif|webp|heic)$/i.test(p.url || '');
+            return isImage ? (
+              <TouchableOpacity
+                key={i}
+                onPress={() => Alert.alert('📎 Attachment', p.url)}
+                activeOpacity={0.8}
+              >
+                <Image source={{ uri: p.url }} style={cs.photoThumb} />
+                {p.type === 'xray' && (
+                  <Text style={cs.photoLabel}>X-ray</Text>
+                )}
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                key={i}
+                style={cs.docThumb}
+                onPress={() => Alert.alert('📎 File', p.url)}
+                activeOpacity={0.8}
+              >
+                <Text style={cs.docThumbIcon}>📄</Text>
+                <Text style={cs.docThumbName} numberOfLines={1}>
+                  {p.url.split('/').pop() || 'file'}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
 
       {/* Metadata chips */}
       <View style={cs.metaRow}>
@@ -608,6 +643,12 @@ const cs = StyleSheet.create({
   statusDotAnswered: { backgroundColor: '#10B981' },
   description: { fontSize: 13, color: '#374151', lineHeight: 19, marginBottom: 6 },
   readMore: { fontSize: 12, color: '#2563EB', fontWeight: '600', marginBottom: 4 },
+  photosRow: { flexDirection: 'row', marginBottom: 10, marginTop: 4 },
+  photoThumb: { width: 72, height: 72, borderRadius: 8, marginRight: 8, backgroundColor: '#E5E7EB' },
+  photoLabel: { fontSize: 9, color: '#6B7280', textAlign: 'center', marginTop: 2 },
+  docThumb: { width: 72, height: 72, borderRadius: 8, marginRight: 8, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#E5E7EB' },
+  docThumbIcon: { fontSize: 24 },
+  docThumbName: { fontSize: 9, color: '#6B7280', marginTop: 2, paddingHorizontal: 4, textAlign: 'center' },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
   metaChip: { backgroundColor: '#F3F4F6', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   metaChipGray: { backgroundColor: '#E5E7EB' },
