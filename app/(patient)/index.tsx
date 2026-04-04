@@ -157,6 +157,7 @@ export default function PatientDashboard() {
   const [healthFormFilled, setHealthFormFilled] = useState(true);
   const [travel, setTravel] = useState<any>(null);
   const [hasClinicMessage, setHasClinicMessage] = useState(false);
+  const [inboxSummary, setInboxSummary] = useState({ new_offers: 0, doctor_messages: 0 });
   const [fileCounts, setFileCounts] = useState({ total: 0, xray: 0, image: 0, pdf: 0 });
   const [showDentalReminder, setShowDentalReminder] = useState(false);
 
@@ -249,11 +250,12 @@ export default function PatientDashboard() {
       setTreatmentsStale(false);
       setRefreshing(false);
 
-      // ── Secondary data: timeline + files + messages (parallel, non-blocking) ──
-      const [timelineRes, filesRes, msgRes] = await Promise.all([
+      // ── Secondary data: timeline + files + messages + inbox summary (parallel) ──
+      const [timelineRes, filesRes, msgRes, inboxRes] = await Promise.all([
         fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/timeline`, { headers }).catch(() => null),
         fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/files`, { headers }).catch(() => null),
         fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/messages`, { headers }).catch(() => null),
+        fetch(`${API_BASE}/api/patient/inbox-summary`, { headers }).catch(() => null),
       ]);
 
       const timelineJson = timelineRes ? await timelineRes.json().catch(() => ({})) : {};
@@ -287,6 +289,12 @@ export default function PatientDashboard() {
       const msgJson = msgRes ? await msgRes.json().catch(() => ({})) : {};
       const msgs = Array.isArray(msgJson.messages) ? msgJson.messages : [];
       setHasClinicMessage(msgs.some((m: any) => m.from === "CLINIC"));
+
+      const inboxJson = inboxRes ? await inboxRes.json().catch(() => ({})) : {};
+      setInboxSummary({
+        new_offers:      inboxJson.new_offers      || 0,
+        doctor_messages: inboxJson.doctor_messages || 0,
+      });
 
     } catch {
       setTreatmentsStale(false);
@@ -389,6 +397,44 @@ export default function PatientDashboard() {
         </TouchableOpacity>
       )}
 
+      {/* NEW DOCTOR OFFER BANNER */}
+      {inboxSummary.new_offers > 0 && (
+        <TouchableOpacity
+          style={styles.offerBanner}
+          onPress={() => router.push("/my-requests" as any)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.offerBannerIcon}>🦷</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.offerBannerTitle}>
+              {inboxSummary.new_offers === 1
+                ? "You have a new treatment offer!"
+                : `You have ${inboxSummary.new_offers} new treatment offers!`}
+            </Text>
+            <Text style={styles.offerBannerSub}>Tap to view offers from doctors →</Text>
+          </View>
+          <View style={styles.offerBannerBadge}>
+            <Text style={styles.offerBannerBadgeText}>{inboxSummary.new_offers}</Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
+      {/* NEW DOCTOR MESSAGE BANNER (only if no offer banner shown) */}
+      {inboxSummary.new_offers === 0 && inboxSummary.doctor_messages > 0 && (
+        <TouchableOpacity
+          style={styles.docMsgBanner}
+          onPress={() => router.push("/my-requests" as any)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.docMsgBannerIcon}>💬</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.docMsgBannerTitle}>Doctor replied to your request</Text>
+            <Text style={styles.docMsgBannerSub}>Tap to view messages →</Text>
+          </View>
+          <View style={styles.docMsgBannerDot} />
+        </TouchableOpacity>
+      )}
+
       {/* QUICK ACCESS CARDS */}
       <View style={styles.quickRow}>
         <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/(patient)/treatment-plan" as any)} activeOpacity={0.8}>
@@ -398,6 +444,21 @@ export default function PatientDashboard() {
         <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/(patient)/messages" as any)} activeOpacity={0.8}>
           <Text style={styles.quickIcon}>💬</Text>
           <Text style={styles.quickLabel}>{t("nav.messages")}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.quickCard, (inboxSummary.new_offers > 0 || inboxSummary.doctor_messages > 0) && styles.quickCardAlert]}
+          onPress={() => router.push("/my-requests" as any)}
+          activeOpacity={0.8}
+        >
+          {(inboxSummary.new_offers > 0 || inboxSummary.doctor_messages > 0) && (
+            <View style={styles.quickBadge}>
+              <Text style={styles.quickBadgeText}>
+                {inboxSummary.new_offers || inboxSummary.doctor_messages}
+              </Text>
+            </View>
+          )}
+          <Text style={styles.quickIcon}>📩</Text>
+          <Text style={styles.quickLabel}>Offers</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/(patient)/timeline" as any)} activeOpacity={0.8}>
           <Text style={styles.quickIcon}>✈️</Text>
@@ -744,8 +805,46 @@ const styles = StyleSheet.create({
     borderRadius: 12, paddingVertical: 12, paddingHorizontal: 4,
     borderWidth: 1, borderColor: "#e5e7eb",
   },
+  quickCardAlert: {
+    backgroundColor: "#fff7ed", borderColor: "#fdba74",
+  },
   quickIcon:  { fontSize: 22, marginBottom: 4 },
   quickLabel: { fontSize: 10, fontWeight: "600", color: "#374151", textAlign: "center" },
+  quickBadge: {
+    position: "absolute", top: 4, right: 6,
+    backgroundColor: "#ef4444", borderRadius: 8,
+    minWidth: 16, height: 16, alignItems: "center", justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  quickBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },
+
+  // Offer notification banner
+  offerBanner: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: "#fff7ed", borderWidth: 1, borderColor: "#fdba74",
+    borderRadius: 12, marginHorizontal: 16, marginTop: 16, padding: 14,
+  },
+  offerBannerIcon:  { fontSize: 24 },
+  offerBannerTitle: { fontSize: 14, fontWeight: "700", color: "#92400e", marginBottom: 2 },
+  offerBannerSub:   { fontSize: 12, color: "#b45309", lineHeight: 17 },
+  offerBannerBadge: {
+    backgroundColor: "#ea580c", borderRadius: 12, minWidth: 24, height: 24,
+    alignItems: "center", justifyContent: "center", paddingHorizontal: 6,
+  },
+  offerBannerBadgeText: { color: "#fff", fontSize: 13, fontWeight: "800" },
+
+  // Doctor message banner
+  docMsgBanner: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: "#f0fdf4", borderWidth: 1, borderColor: "#86efac",
+    borderRadius: 12, marginHorizontal: 16, marginTop: 16, padding: 14,
+  },
+  docMsgBannerIcon:  { fontSize: 24 },
+  docMsgBannerTitle: { fontSize: 14, fontWeight: "700", color: "#166534", marginBottom: 2 },
+  docMsgBannerSub:   { fontSize: 12, color: "#15803d", lineHeight: 17 },
+  docMsgBannerDot: {
+    width: 10, height: 10, borderRadius: 5, backgroundColor: "#16a34a",
+  },
 
   cardArrow: { fontSize: 20, color: "#2563eb", fontWeight: "700" },
 
