@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, Image, ActivityIndicator, Platform, Modal, Linking,
+  Alert, Image, ActivityIndicator, Platform, Modal, Linking, TextInput,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../../lib/auth";
@@ -43,6 +43,10 @@ export default function ProfileScreen() {
   const [localPhotoUri, setLocalPhotoUri] = useState<string | null>(null);
   const [privacyVisible, setPrivacyVisible] = useState(false);
   const [leavingClinic, setLeavingClinic] = useState(false);
+  const [joinModal, setJoinModal]         = useState(false);
+  const [joinClinicCode, setJoinClinicCode] = useState('');
+  const [joinReferralCode, setJoinReferralCode] = useState('');
+  const [joiningClinic, setJoiningClinic] = useState(false);
 
   const name = String(user?.name || t("profile.name")).trim();
   const phone = String(user?.phone || "").trim();
@@ -96,6 +100,44 @@ export default function ProfileScreen() {
       ]
     );
   }, [user, t, signIn]);
+
+  const joinWithCode = useCallback(async () => {
+    const code     = joinClinicCode.trim().toUpperCase();
+    const referral = joinReferralCode.trim().toUpperCase();
+    if (!code) {
+      Alert.alert(t("profile.joinModal.errorTitle") || "Hata", t("profile.joinModal.errorCode") || "Klinik kodu gereklidir.");
+      return;
+    }
+    if (!user?.token) return;
+    setJoiningClinic(true);
+    try {
+      const body: Record<string, string> = { clinic_code: code };
+      if (referral) body.referral_code = referral;
+      const res = await fetch(`${API_BASE}/api/patient/clinic`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${user.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        if (data.error === "clinic_not_found") throw new Error(t("profile.joinModal.errorNotFound") || "Klinik bulunamadı.");
+        if (data.error === "referral_code_invalid") throw new Error(t("profile.joinModal.errorReferral") || "Referral kodu geçersiz ya da bu klinikte kayıtlı değil.");
+        throw new Error(data.error || "join_failed");
+      }
+      await signIn({ ...user, token: data.token, clinicId: data.clinic.id, clinicCode: data.clinic.clinic_code, type: "patient" });
+      setJoinModal(false);
+      setJoinClinicCode('');
+      setJoinReferralCode('');
+      const successMsg = data.referral
+        ? (t("profile.joinModal.successReferral") || "Kliniğe katıldınız! Referral indiriminiz aktif edilecek.").replace("{clinic}", data.clinic.name)
+        : (t("profile.joinModal.success") || "Kliniğe başarıyla katıldınız!").replace("{clinic}", data.clinic.name);
+      Alert.alert("✅ " + data.clinic.name, successMsg);
+    } catch (err: any) {
+      Alert.alert(t("common.error") || "Hata", err.message);
+    } finally {
+      setJoiningClinic(false);
+    }
+  }, [joinClinicCode, joinReferralCode, user, t, signIn]);
 
   const uploadPhoto = async (uri: string, mimeType: string) => {
     if (!user?.token) return;
@@ -275,19 +317,35 @@ export default function ProfileScreen() {
             <Text style={[styles.menuBtnArrow, { color: "#DC2626" }]}>›</Text>
           </TouchableOpacity>
         ) : (
-          /* FIND A CLINIC */
-          <TouchableOpacity
-            style={styles.findClinicBtn}
-            onPress={() => router.push("/clinic-onboarding" as any)}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.findClinicIcon}>🏥</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.findClinicTitle}>{t("profile.findClinic")}</Text>
-              <Text style={styles.findClinicSub}>{t("profile.findClinicSub")}</Text>
-            </View>
-            <Text style={styles.menuBtnArrow}>›</Text>
-          </TouchableOpacity>
+          /* NO CLINIC — two options */
+          <View style={{ gap: 10 }}>
+            {/* Direct join with clinic code + referral code */}
+            <TouchableOpacity
+              style={styles.joinCodeBtn}
+              onPress={() => setJoinModal(true)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.findClinicIcon}>🔑</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.joinCodeTitle}>{t("profile.joinWithCode.btn") || "Klinik Kodu ile Katıl"}</Text>
+                <Text style={styles.joinCodeSub}>{t("profile.joinWithCode.sub") || "Klinik kodu ve referral kodunla katıl"}</Text>
+              </View>
+              <Text style={styles.menuBtnArrow}>›</Text>
+            </TouchableOpacity>
+            {/* Marketplace clinic search */}
+            <TouchableOpacity
+              style={styles.findClinicBtn}
+              onPress={() => router.push("/clinic-onboarding" as any)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.findClinicIcon}>🏥</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.findClinicTitle}>{t("profile.findClinic")}</Text>
+                <Text style={styles.findClinicSub}>{t("profile.findClinicSub")}</Text>
+              </View>
+              <Text style={styles.menuBtnArrow}>›</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
 
@@ -341,6 +399,66 @@ export default function ProfileScreen() {
           <Text style={styles.logoutText}>{t("profile.logout")}</Text>
         </TouchableOpacity>
       </View>
+
+      {/* JOIN WITH CODE MODAL */}
+      <Modal
+        visible={joinModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setJoinModal(false)}
+      >
+        <View style={styles.joinModalOverlay}>
+          <View style={styles.joinModalSheet}>
+            <View style={styles.joinModalHandle} />
+            <Text style={styles.joinModalTitle}>{t("profile.joinWithCode.modalTitle") || "🔑 Klinik Kodu ile Katıl"}</Text>
+            <Text style={styles.joinModalSub}>{t("profile.joinWithCode.modalSub") || "Kliniğinizden aldığınız kodu girin."}</Text>
+
+            <Text style={styles.joinInputLabel}>{t("profile.joinWithCode.clinicCodeLabel") || "Klinik Kodu"} *</Text>
+            <TextInput
+              style={styles.joinInput}
+              placeholder="ABC123"
+              placeholderTextColor="#9CA3AF"
+              value={joinClinicCode}
+              onChangeText={v => setJoinClinicCode(v.toUpperCase())}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              returnKeyType="next"
+            />
+
+            <Text style={styles.joinInputLabel}>
+              {t("profile.joinWithCode.referralLabel") || "Referral Kodu"}{" "}
+              <Text style={{ color: "#9CA3AF", fontWeight: "400" }}>({t("common.optional") || "isteğe bağlı"})</Text>
+            </Text>
+            <TextInput
+              style={styles.joinInput}
+              placeholder={t("profile.joinWithCode.referralPlaceholder") || "Sizi davet edenin kodu"}
+              placeholderTextColor="#9CA3AF"
+              value={joinReferralCode}
+              onChangeText={v => setJoinReferralCode(v.toUpperCase())}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              returnKeyType="done"
+            />
+            <Text style={styles.joinReferralHint}>
+              {t("profile.joinWithCode.referralHint") || "Sizi kliniğe davet eden başka bir hastanın ID kodudur. İndirim için gereklidir."}
+            </Text>
+
+            <TouchableOpacity
+              style={[styles.joinSubmitBtn, joiningClinic && { opacity: 0.6 }]}
+              onPress={joinWithCode}
+              disabled={joiningClinic}
+            >
+              {joiningClinic
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={styles.joinSubmitBtnText}>{t("profile.joinWithCode.submit") || "Kliniğe Katıl"}</Text>
+              }
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => { setJoinModal(false); setJoinClinicCode(''); setJoinReferralCode(''); }} style={{ alignItems: "center", paddingVertical: 12 }}>
+              <Text style={{ color: "#6B7280", fontSize: 14 }}>{t("common.cancel") || "Vazgeç"}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* PRIVACY POLICY MODAL — transparent overlay avoids new native view controller */}
       <Modal
@@ -453,6 +571,35 @@ const styles = StyleSheet.create({
   leaveClinicIcon: { fontSize: 22 },
   leaveClinicTitle: { fontSize: 15, fontWeight: "700", color: "#DC2626", marginBottom: 2 },
   leaveClinicSub: { fontSize: 12, color: "#EF4444", lineHeight: 17 },
+  joinCodeBtn: {
+    backgroundColor: "#F0FDF4", borderRadius: 14, borderWidth: 1, borderColor: "#BBF7D0",
+    padding: 16, flexDirection: "row", alignItems: "center", gap: 12,
+  },
+  joinCodeTitle: { fontSize: 15, fontWeight: "700", color: "#15803D", marginBottom: 2 },
+  joinCodeSub: { fontSize: 12, color: "#16A34A", lineHeight: 17 },
+  // Join modal
+  joinModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
+  joinModalSheet: {
+    backgroundColor: "#fff", borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    paddingHorizontal: 22, paddingTop: 12, paddingBottom: 36,
+  },
+  joinModalHandle: {
+    width: 36, height: 4, backgroundColor: "#D1D5DB", borderRadius: 2,
+    alignSelf: "center", marginBottom: 18,
+  },
+  joinModalTitle: { fontSize: 20, fontWeight: "800", color: "#111827", marginBottom: 4 },
+  joinModalSub: { fontSize: 13, color: "#6B7280", marginBottom: 20, lineHeight: 18 },
+  joinInputLabel: { fontSize: 13, fontWeight: "700", color: "#374151", marginBottom: 6 },
+  joinInput: {
+    backgroundColor: "#F9FAFB", borderWidth: 1.5, borderColor: "#D1D5DB", borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: "#111827",
+    letterSpacing: 1, marginBottom: 14,
+  },
+  joinReferralHint: { fontSize: 11, color: "#9CA3AF", lineHeight: 16, marginBottom: 20, marginTop: -10 },
+  joinSubmitBtn: {
+    backgroundColor: "#15803D", borderRadius: 12, paddingVertical: 15, alignItems: "center", marginBottom: 4,
+  },
+  joinSubmitBtnText: { color: "#fff", fontWeight: "800", fontSize: 15 },
   menuBtnArrow: { fontSize: 20, color: "#9ca3af" },
   legalBtn: {
     flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14, gap: 12,
