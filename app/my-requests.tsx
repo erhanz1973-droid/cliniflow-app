@@ -9,8 +9,22 @@ import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/language-context';
 import { API_BASE } from '../lib/api';
 
-// DISCLAIMER is now translated via t('treatReq.disclaimer') with this as the fallback
+// DISCLAIMER — always use the translation key; this fallback is only used if i18n is unavailable
 const DISCLAIMER_FALLBACK = 'This is a preliminary estimate. Final diagnosis requires clinical examination.';
+
+/**
+ * Translate duration units in a duration string to the current locale.
+ * e.g. "3–5 days" → "3–5 gün" (TR), "2–3 nights" → "2–3 gece" (TR)
+ * Leaves numeric parts and separators untouched.
+ */
+function translateDuration(raw: string | null, t: (k: string) => string): string | null {
+  if (!raw) return null;
+  return raw
+    .replace(/\bdays?\b/gi,   t('duration.days')   || 'days')
+    .replace(/\bnights?\b/gi, t('duration.nights') || 'nights')
+    .replace(/\bweeks?\b/gi,  t('duration.weeks')  || 'weeks')
+    .replace(/\bmonths?\b/gi, t('duration.months') || 'months');
+}
 
 // Price minimums — used for offer scoring
 const MIN_PRICE: Record<string, number> = {
@@ -332,14 +346,14 @@ export default function MyRequestsScreen() {
                             <Text style={styles.offerRow}>💰 {offer.price_range}</Text>
                           )}
                           {offer.duration && (
-                            <Text style={styles.offerRow}>📅 {offer.duration}</Text>
+                            <Text style={styles.offerRow}>📅 {translateDuration(offer.duration, t)}</Text>
                           )}
                           {offer.note && (
                             <Text style={styles.offerNote}>📝 {offer.note}</Text>
                           )}
                           <View style={styles.disclaimerBox}>
                             <Text style={styles.disclaimerText}>
-                              ⚠️ {offer.disclaimer || t('treatReq.disclaimer') || DISCLAIMER_FALLBACK}
+                              ⚠️ {t('treatReq.disclaimer') || DISCLAIMER_FALLBACK}
                             </Text>
                           </View>
 
