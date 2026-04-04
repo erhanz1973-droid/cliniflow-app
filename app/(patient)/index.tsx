@@ -165,7 +165,11 @@ export default function PatientDashboard() {
   const patientId = String(user?.patientId || user?.id || "").trim();
   const patientName = String(user?.name || "").trim();
   // Once the patient is attached to a clinic, marketplace features (offers, clinic search) are hidden
-  const hasClinic = !!String((user as any)?.clinicId || "").trim();
+  // Check both clinicId (UUID) and clinicCode as either may be set
+  const hasClinic = !!(
+    String((user as any)?.clinicId || "").trim() ||
+    String((user as any)?.clinicCode || "").trim()
+  );
 
   const fetchData = useCallback(async () => {
     if (!user?.token || !patientId) {

@@ -130,8 +130,9 @@ export default function MyRequestsScreen() {
   // Set of "clinicId:type" (or "offer:offerId:type") keys for already-rated entries
   const [ratedKeys, setRatedKeys]     = useState<Set<RatingKey>>(new Set());
 
-  // Patient's current clinic_id (from token)
+  // Patient's current clinic — check both UUID and code, either means they're attached
   const currentClinicId = String((user as any)?.clinicId || '').trim();
+  const hasClinic = !!(currentClinicId || String((user as any)?.clinicCode || '').trim());
 
   const joinClinic = useCallback(async (clinicId: string, clinicName: string, offerId: string) => {
     Alert.alert(
@@ -247,7 +248,7 @@ export default function MyRequestsScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t('treatReq.myRequests')}</Text>
         {/* New request button — hidden once patient has a clinic */}
-        {!currentClinicId ? (
+        {!hasClinic ? (
           <TouchableOpacity
             style={styles.newBtn}
             onPress={() => router.push('/request-treatment')}
@@ -274,7 +275,7 @@ export default function MyRequestsScreen() {
         )}
 
         {/* MORE CLINICS BANNER — hidden once patient has joined a clinic */}
-        {!error && !currentClinicId && requests.length > 0 && (() => {
+        {!error && !hasClinic && requests.length > 0 && (() => {
           const MAX = 3;
           const contacted = new Set(requests.map(r => r.clinic_id).filter(Boolean)).size;
           const remaining = MAX - contacted;
@@ -312,7 +313,7 @@ export default function MyRequestsScreen() {
             <Text style={styles.emptyTitle}>{t('treatReq.noRequests')}</Text>
             <Text style={styles.emptySub}>{t('treatReq.noRequestsSub')}</Text>
             {/* New request button — hidden once patient has a clinic */}
-            {!currentClinicId && (
+            {!hasClinic && (
               <TouchableOpacity
                 style={styles.newRequestBtn}
                 onPress={() => router.push('/request-treatment')}
@@ -457,8 +458,8 @@ export default function MyRequestsScreen() {
 
                                 {/* Action buttons row */}
                                 <View style={styles.actionRow}>
-                                  {/* Join Clinic — shown when offer has a clinic and patient is not yet linked to it */}
-                                  {offer.clinic_id && offer.clinic_id !== currentClinicId && (
+                                  {/* Join Clinic — hidden once the patient has any clinic */}
+                                  {!hasClinic && offer.clinic_id && offer.clinic_id !== currentClinicId && (
                                     <TouchableOpacity
                                       style={[styles.joinBtn, styles.actionBtn]}
                                       disabled={joiningClinic === offer.id}

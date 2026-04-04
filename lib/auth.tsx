@@ -18,8 +18,8 @@ type User = {
   phone?: string;
   patientId?: string; // For patients
   doctorId?: string; // For doctors
-  clinicId?: string; // For doctors and admins
-  clinicCode?: string; // For admins
+  clinicId?: string; // For doctors, admins, and patients who have joined a clinic
+  clinicCode?: string; // For admins and patients who have joined a clinic
   status?: string; // For doctors
   profilePhotoUrl?: string;
   diplomaFileUrl?: string;
@@ -149,11 +149,37 @@ async function storageSet(key: string, val: string | null): Promise<void> {
   }
 }
 
+/** Decode the payload of a JWT without verifying signature (client-side only). */
+function decodeJwtPayload(token: string): Record<string, any> | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = atob(payload);
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
+
 function safeParseUser(raw: string | null): User | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as User;
     if (!parsed?.token) return null;
+
+    // For patients: if clinicId is missing from the stored object,
+    // try to recover it from the JWT payload (handles sessions created before the fix).
+    if (parsed.type === "patient" && !parsed.clinicId) {
+      const payload = decodeJwtPayload(parsed.token);
+      if (payload?.clinicId) {
+        parsed.clinicId = String(payload.clinicId);
+      }
+      if (payload?.clinicCode && !parsed.clinicCode) {
+        parsed.clinicCode = String(payload.clinicCode);
+      }
+    }
+
     return parsed;
   } catch {
     return null;
@@ -265,8 +291,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // 🔥 TYPE-SPECIFIC FIELDS - NO CROSS-CONTAMINATION
       patientId: type === "patient" ? input.patientId : undefined,
       doctorId: type === "doctor" ? input.doctorId : undefined,
-      clinicId: (type === "doctor" || type === "admin") ? input.clinicId : undefined,
-      clinicCode: type === "admin" ? input.clinicCode : undefined,
+      // clinicId is valid for doctors, admins, AND patients who have joined a clinic
+      clinicId: input.clinicId || undefined,
+      clinicCode: (type === "admin" || type === "patient") ? (input.clinicCode || undefined) : undefined,
       status: type === "doctor" ? input.status : undefined,
       profilePhotoUrl: input.profilePhotoUrl,
       diplomaFileUrl: input.diplomaFileUrl,
