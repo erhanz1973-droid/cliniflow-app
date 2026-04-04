@@ -498,6 +498,13 @@ export default function PatientDashboard() {
           <Text style={styles.quickIcon}>📁</Text>
           <Text style={styles.quickLabel}>{t("nav.files")}</Text>
         </TouchableOpacity>
+        {/* Previous conversations — only shown when patient has a clinic (replaces the hidden Offers card) */}
+        {hasClinic && (
+          <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/my-requests" as any)} activeOpacity={0.8}>
+            <Text style={styles.quickIcon}>💬</Text>
+            <Text style={styles.quickLabel}>{t("home.prevChats") || "Yazışmalar"}</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* FILES CARD */}
