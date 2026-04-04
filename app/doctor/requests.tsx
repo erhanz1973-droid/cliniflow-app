@@ -264,12 +264,13 @@ function QuickOfferModal({
 
 // ── Request Card ──────────────────────────────────────────────────────────────
 function RequestCard({
-  req, token, onOfferSent, onChat,
+  req, token, onOfferSent, onChat, isChatsFilter,
 }: {
   req: Request;
   token?: string;
   onOfferSent: () => void;
   onChat: (offerId: string) => void;
+  isChatsFilter?: boolean;
 }) {
   const { t } = useLanguage();
 
@@ -391,20 +392,31 @@ function RequestCard({
 
       {/* Answered state actions */}
       {hasMyOffer && (
-        <View style={cs.answeredRow}>
-          <View style={cs.answeredBadge}>
-            <Text style={cs.answeredBadgeText}>{t('requests.card.offerSentBadge') || '✓ Offer sent'}</Text>
-          </View>
+        isChatsFilter ? (
+          /* Chat-focused layout: full-width open chat button */
           <TouchableOpacity
-            style={cs.chatBtn}
+            style={cs.chatBtnFull}
             onPress={() => onChat(req.my_offer_id!)}
+            activeOpacity={0.85}
           >
-            <Text style={cs.chatBtnText}>{t('requests.card.messages') || '💬 Messages'}</Text>
+            <Text style={cs.chatBtnFullText}>💬 {t('requests.card.openChat') || 'Open Conversation'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={cs.resendBtn} onPress={openFull}>
-            <Text style={cs.resendBtnText}>{t('requests.card.another') || '+ Another'}</Text>
-          </TouchableOpacity>
-        </View>
+        ) : (
+          <View style={cs.answeredRow}>
+            <View style={cs.answeredBadge}>
+              <Text style={cs.answeredBadgeText}>{t('requests.card.offerSentBadge') || '✓ Offer sent'}</Text>
+            </View>
+            <TouchableOpacity
+              style={cs.chatBtn}
+              onPress={() => onChat(req.my_offer_id!)}
+            >
+              <Text style={cs.chatBtnText}>{t('requests.card.messages') || '💬 Messages'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={cs.resendBtn} onPress={openFull}>
+              <Text style={cs.resendBtnText}>{t('requests.card.another') || '+ Another'}</Text>
+            </TouchableOpacity>
+          </View>
+        )
       )}
 
       {showModal && (
@@ -421,7 +433,7 @@ function RequestCard({
 }
 
 // ── Dashboard Screen ──────────────────────────────────────────────────────────
-type FilterKey = 'all' | 'mine' | 'pending' | 'answered';
+type FilterKey = 'all' | 'mine' | 'pending' | 'answered' | 'chats';
 
 export default function DoctorRequestsScreen() {
   const router  = useRouter();
@@ -432,7 +444,7 @@ export default function DoctorRequestsScreen() {
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error,      setError]      = useState<string | null>(null);
-  const [filter,     setFilter]     = useState<FilterKey>('all');
+  const [filter,     setFilter]     = useState<FilterKey>('chats');
 
   const load = useCallback(async () => {
     if (!user?.token) return;
@@ -460,16 +472,19 @@ export default function DoctorRequestsScreen() {
     if (filter === 'mine')     return r.is_assigned_to_me;
     if (filter === 'pending')  return r.status === 'pending';
     if (filter === 'answered') return r.status === 'answered';
+    if (filter === 'chats')    return !!r.my_offer_id;   // conversations where I sent an offer
     return true;
   });
 
   const pendingCount = requests.filter(r => r.status === 'pending').length;
   const mineCount    = requests.filter(r => r.is_assigned_to_me).length;
+  const chatsCount   = requests.filter(r => !!r.my_offer_id).length;
 
   const FILTERS: { key: FilterKey; label: string; count?: number }[] = [
+    { key: 'chats',    label: t('requests.filter.chats')    || '💬 My Chats', count: chatsCount },
     { key: 'all',      label: t('requests.filter.all')      || 'All' },
-    { key: 'pending',  label: t('requests.filter.pending')  || 'Pending',  count: pendingCount },
-    { key: 'mine',     label: t('requests.filter.mine')     || 'Mine',     count: mineCount    },
+    { key: 'pending',  label: t('requests.filter.pending')  || 'Pending',     count: pendingCount },
+    { key: 'mine',     label: t('requests.filter.mine')     || 'Mine',        count: mineCount    },
     { key: 'answered', label: t('requests.filter.answered') || 'Answered' },
   ];
 
@@ -549,6 +564,7 @@ export default function DoctorRequestsScreen() {
               key={req.id}
               req={req}
               token={user?.token}
+              isChatsFilter={filter === 'chats'}
               onOfferSent={() => {
                 load();
                 Alert.alert(
@@ -682,6 +698,12 @@ const cs = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 7,
   },
   resendBtnText: { fontSize: 12, fontWeight: '600', color: '#374151' },
+  // Chat-focused full-width button (shown in "My Chats" filter)
+  chatBtnFull: {
+    backgroundColor: '#2563EB', borderRadius: 10, paddingVertical: 12,
+    alignItems: 'center', marginTop: 10,
+  },
+  chatBtnFullText: { fontSize: 14, fontWeight: '800', color: '#fff', letterSpacing: 0.2 },
 });
 
 const ms = StyleSheet.create({
