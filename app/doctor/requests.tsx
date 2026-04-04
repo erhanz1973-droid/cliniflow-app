@@ -11,7 +11,6 @@ import { useLanguage } from '../../lib/language-context';
 import { API_BASE } from '../../lib/api';
 
 // ── Quick treatment presets ───────────────────────────────────────────────────
-// Tap one to open a pre-filled offer modal in <15 seconds.
 const QUICK = [
   { value: 'IMPLANT',  label: 'Implant',  emoji: '🦷', price: '$800–1,200',    dur: '3–5 days' },
   { value: 'CROWN',    label: 'Crown',    emoji: '👑', price: '$200–350',      dur: '2–3 days' },
@@ -19,7 +18,6 @@ const QUICK = [
   { value: 'ALL_ON_4', label: 'All-on-4', emoji: '✨', price: '$5,000–8,000',  dur: '5–7 days' },
 ];
 
-// Full list for the "More" selector inside the modal
 const ALL_TYPES = [
   { value: 'IMPLANT',    label: 'Implant' },
   { value: 'CROWN',      label: 'Crown' },
@@ -34,7 +32,6 @@ const ALL_TYPES = [
   { value: 'OTHER',      label: 'Other' },
 ];
 
-// Price control (mirrors backend)
 const MIN_PRICE: Record<string, number> = {
   IMPLANT: 600, CROWN: 150, BRIDGE: 300, VENEER: 200,
   ALL_ON_4: 4000, ALL_ON_6: 5000, WHITENING: 100,
@@ -42,19 +39,18 @@ const MIN_PRICE: Record<string, number> = {
 };
 
 function parsePriceMin(str: string): number | null {
-  // Strip thousands-separator commas before parsing (e.g. "1,200" → "1200")
   const nums = str.replace(/,(\d{3})/g, '$1').replace(/[^\d.]/g, ' ').trim().split(/\s+/)
     .map(Number).filter(n => !isNaN(n) && n > 0);
   return nums.length > 0 ? Math.min(...nums) : null;
 }
 
-function fmtTs(iso: string) {
+function fmtTs(iso: string, t: (k: string) => string) {
   try {
-    const d  = new Date(iso);
+    const d   = new Date(iso);
     const now = new Date();
     const diffH = (now.getTime() - d.getTime()) / 36e5;
-    if (diffH < 1)   return `${Math.round(diffH * 60)}m ago`;
-    if (diffH < 24)  return `${Math.round(diffH)}h ago`;
+    if (diffH < 1)  return (t('requests.time.minsAgo') || '{n}m ago').replace('{n}', String(Math.round(diffH * 60)));
+    if (diffH < 24) return (t('requests.time.hoursAgo') || '{n}h ago').replace('{n}', String(Math.round(diffH)));
     return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
   } catch { return iso; }
 }
@@ -82,6 +78,8 @@ function QuickOfferModal({
   onClose: () => void;
   onSent: () => void;
 }) {
+  const { t } = useLanguage();
+
   const [treatType, setTreatType]   = useState(preset?.value || '');
   const [price,     setPrice]       = useState(preset?.price || '');
   const [duration,  setDuration]    = useState(preset?.dur   || '');
@@ -94,9 +92,15 @@ function QuickOfferModal({
   const isBelowMin = minAllowed !== null && parsedMin !== null && parsedMin < minAllowed;
 
   const submit = async () => {
-    if (!treatType) { Alert.alert('Select treatment type first'); return; }
+    if (!treatType) {
+      Alert.alert(t('requests.modal.selectType') || 'Select treatment type first');
+      return;
+    }
     if (isBelowMin) {
-      Alert.alert('Price too low', `Minimum for this treatment is $${minAllowed}.`);
+      Alert.alert(
+        t('requests.modal.priceTooLow') || 'Price too low',
+        (t('requests.modal.minPrice') || 'Minimum for this treatment is ${min}.').replace('${min}', `$${minAllowed}`)
+      );
       return;
     }
     setSaving(true);
@@ -118,11 +122,15 @@ function QuickOfferModal({
       if (!data?.ok) throw new Error(data?.error || 'Error');
       onSent();
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      Alert.alert(t('common.error'), e.message);
     } finally {
       setSaving(false);
     }
   };
+
+  const modalTitle = preset
+    ? `${preset.emoji} ${preset.label} ${t('requests.modal.sendOffer') || 'Send Offer'}`
+    : (t('requests.modal.makeOffer') || 'Make an Offer');
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
@@ -131,13 +139,10 @@ function QuickOfferModal({
         style={ms.overlay}
       >
         <View style={ms.sheet}>
-          {/* Handle + header */}
           <View style={ms.handleBar} />
           <View style={ms.header}>
             <View style={{ flex: 1 }}>
-              <Text style={ms.title}>
-                {preset ? `${preset.emoji} ${preset.label} Offer` : 'Make an Offer'}
-              </Text>
+              <Text style={ms.title}>{modalTitle}</Text>
               <Text style={ms.patientRow} numberOfLines={1}>
                 👤 {request.patient_name}
               </Text>
@@ -151,26 +156,26 @@ function QuickOfferModal({
 
             {/* Patient request summary */}
             <View style={ms.summaryBox}>
-              <Text style={ms.summaryLabel}>PATIENT REQUEST</Text>
+              <Text style={ms.summaryLabel}>{t('requests.modal.patientRequest') || 'PATIENT REQUEST'}</Text>
               <Text style={ms.summaryText} numberOfLines={3}>{request.description}</Text>
               {request.budget && (
-                <Text style={ms.summaryBudget}>Budget: {request.budget}</Text>
+                <Text style={ms.summaryBudget}>{t('requests.modal.budget') || 'Budget: '}{request.budget}</Text>
               )}
             </View>
 
-            {/* Treatment type — show inline picker if no preset */}
+            {/* Treatment type */}
             {showMore ? (
               <View style={ms.typePicker}>
-                <Text style={ms.fieldLabel}>Treatment type</Text>
+                <Text style={ms.fieldLabel}>{t('requests.modal.treatmentType') || 'Treatment type'}</Text>
                 <View style={ms.typeGrid}>
-                  {ALL_TYPES.map(t => (
+                  {ALL_TYPES.map(tp => (
                     <TouchableOpacity
-                      key={t.value}
-                      style={[ms.typeChip, treatType === t.value && ms.typeChipActive]}
-                      onPress={() => setTreatType(t.value)}
+                      key={tp.value}
+                      style={[ms.typeChip, treatType === tp.value && ms.typeChipActive]}
+                      onPress={() => setTreatType(tp.value)}
                     >
-                      <Text style={[ms.typeChipText, treatType === t.value && ms.typeChipTextActive]}>
-                        {t.label}
+                      <Text style={[ms.typeChipText, treatType === tp.value && ms.typeChipTextActive]}>
+                        {tp.label}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -180,45 +185,48 @@ function QuickOfferModal({
               <View style={ms.presetRow}>
                 <Text style={ms.presetBadge}>{preset?.emoji} {preset?.label}</Text>
                 <TouchableOpacity onPress={() => setShowMore(true)}>
-                  <Text style={ms.changeTypeLink}>Change type</Text>
+                  <Text style={ms.changeTypeLink}>{t('requests.modal.changeType') || 'Change type'}</Text>
                 </TouchableOpacity>
               </View>
             )}
 
             {/* Price */}
             <Text style={ms.fieldLabel}>
-              Price range{minAllowed !== null ? ` (min $${minAllowed})` : ''}
+              {t('requests.modal.priceRange') || 'Price range'}
+              {minAllowed !== null ? ` (min $${minAllowed})` : ''}
             </Text>
             <TextInput
               style={[ms.input, isBelowMin && ms.inputError]}
               value={price}
               onChangeText={setPrice}
-              placeholder="e.g. $800–1,200"
+              placeholder={t('requests.modal.pricePlaceholder') || 'e.g. $800–1,200'}
               placeholderTextColor="#9CA3AF"
               maxLength={80}
             />
             {isBelowMin && (
-              <Text style={ms.errorHint}>⛔ Below minimum (${minAllowed})</Text>
+              <Text style={ms.errorHint}>
+                {(t('requests.modal.belowMin') || '⛔ Below minimum (${min})').replace('${min}', `$${minAllowed}`)}
+              </Text>
             )}
 
             {/* Duration */}
-            <Text style={ms.fieldLabel}>Duration</Text>
+            <Text style={ms.fieldLabel}>{t('requests.modal.duration') || 'Duration'}</Text>
             <TextInput
               style={ms.input}
               value={duration}
               onChangeText={setDuration}
-              placeholder="e.g. 3–5 days"
+              placeholder={t('requests.modal.durationPlaceholder') || 'e.g. 3–5 days'}
               placeholderTextColor="#9CA3AF"
               maxLength={80}
             />
 
             {/* Note */}
-            <Text style={ms.fieldLabel}>Note (optional)</Text>
+            <Text style={ms.fieldLabel}>{t('requests.modal.note') || 'Note (optional)'}</Text>
             <TextInput
               style={ms.textarea}
               value={note}
               onChangeText={setNote}
-              placeholder="Any special notes for the patient..."
+              placeholder={t('requests.modal.notePlaceholder') || 'Any special notes for the patient...'}
               placeholderTextColor="#9CA3AF"
               multiline
               numberOfLines={3}
@@ -226,10 +234,10 @@ function QuickOfferModal({
               textAlignVertical="top"
             />
 
-            {/* Disclaimer notice */}
+            {/* Disclaimer */}
             <View style={ms.disclaimer}>
               <Text style={ms.disclaimerText}>
-                ⚠️ Preliminary estimate — final diagnosis requires clinical examination.
+                {t('requests.modal.disclaimer') || '⚠️ Preliminary estimate — final diagnosis requires clinical examination.'}
               </Text>
             </View>
 
@@ -242,7 +250,7 @@ function QuickOfferModal({
             >
               {saving
                 ? <ActivityIndicator color="#fff" size="small" />
-                : <Text style={ms.sendBtnText}>Send Offer</Text>
+                : <Text style={ms.sendBtnText}>{t('requests.modal.sendOffer') || 'Send Offer'}</Text>
               }
             </TouchableOpacity>
             <View style={{ height: 32 }} />
@@ -262,6 +270,8 @@ function RequestCard({
   onOfferSent: () => void;
   onChat: (offerId: string) => void;
 }) {
+  const { t } = useLanguage();
+
   const [preset, setPreset] = useState<typeof QUICK[0] | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [expanded, setExpanded]   = useState(false);
@@ -272,6 +282,10 @@ function RequestCard({
   const openQuick = (q: typeof QUICK[0]) => { setPreset(q); setShowModal(true); };
   const openFull  = () => { setPreset(null); setShowModal(true); };
 
+  const offerCountLabel = req.offer_count === 1
+    ? (t('requests.card.offerSent1') || '1 offer sent')
+    : (t('requests.card.offersSent') || '{n} offers sent').replace('{n}', String(req.offer_count));
+
   return (
     <View style={[cs.card, isPending && !hasMyOffer && cs.cardUrgent]}>
 
@@ -280,13 +294,13 @@ function RequestCard({
         <View style={cs.topLeft}>
           {req.is_assigned_to_me && (
             <View style={cs.assignedBadge}>
-              <Text style={cs.assignedText}>📌 Assigned to me</Text>
+              <Text style={cs.assignedText}>{t('requests.card.assignedToMe') || '📌 Assigned to me'}</Text>
             </View>
           )}
           <Text style={cs.patientName}>👤 {req.patient_name}</Text>
         </View>
         <View style={cs.topRight}>
-          <Text style={cs.ts}>{fmtTs(req.created_at)}</Text>
+          <Text style={cs.ts}>{fmtTs(req.created_at, t)}</Text>
           <View style={[cs.statusDot, isPending ? cs.statusDotPending : cs.statusDotAnswered]} />
         </View>
       </View>
@@ -297,7 +311,7 @@ function RequestCard({
           {req.description}
         </Text>
         {!expanded && req.description.length > 80 && (
-          <Text style={cs.readMore}>more ▾</Text>
+          <Text style={cs.readMore}>{t('requests.card.readMore') || 'more ▾'}</Text>
         )}
       </TouchableOpacity>
 
@@ -315,7 +329,7 @@ function RequestCard({
         )}
         {req.offer_count > 0 && (
           <View style={[cs.metaChip, cs.metaChipGray]}>
-            <Text style={cs.metaChipText}>{req.offer_count} offer{req.offer_count > 1 ? 's' : ''} sent</Text>
+            <Text style={cs.metaChipText}>{offerCountLabel}</Text>
           </View>
         )}
       </View>
@@ -344,16 +358,16 @@ function RequestCard({
       {hasMyOffer && (
         <View style={cs.answeredRow}>
           <View style={cs.answeredBadge}>
-            <Text style={cs.answeredBadgeText}>✓ Offer sent</Text>
+            <Text style={cs.answeredBadgeText}>{t('requests.card.offerSentBadge') || '✓ Offer sent'}</Text>
           </View>
           <TouchableOpacity
             style={cs.chatBtn}
             onPress={() => onChat(req.my_offer_id!)}
           >
-            <Text style={cs.chatBtnText}>💬 Messages</Text>
+            <Text style={cs.chatBtnText}>{t('requests.card.messages') || '💬 Messages'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={cs.resendBtn} onPress={openFull}>
-            <Text style={cs.resendBtnText}>+ Another</Text>
+            <Text style={cs.resendBtnText}>{t('requests.card.another') || '+ Another'}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -383,7 +397,7 @@ export default function DoctorRequestsScreen() {
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error,      setError]      = useState<string | null>(null);
-  const [filter,     setFilter]     = useState<FilterKey>('pending');
+  const [filter,     setFilter]     = useState<FilterKey>('all');
 
   const load = useCallback(async () => {
     if (!user?.token) return;
@@ -418,10 +432,10 @@ export default function DoctorRequestsScreen() {
   const mineCount    = requests.filter(r => r.is_assigned_to_me).length;
 
   const FILTERS: { key: FilterKey; label: string; count?: number }[] = [
-    { key: 'pending',  label: 'Pending',  count: pendingCount },
-    { key: 'mine',     label: 'Mine',     count: mineCount    },
-    { key: 'answered', label: 'Answered' },
-    { key: 'all',      label: 'All' },
+    { key: 'all',      label: t('requests.filter.all')      || 'All' },
+    { key: 'pending',  label: t('requests.filter.pending')  || 'Pending',  count: pendingCount },
+    { key: 'mine',     label: t('requests.filter.mine')     || 'Mine',     count: mineCount    },
+    { key: 'answered', label: t('requests.filter.answered') || 'Answered' },
   ];
 
   return (
@@ -430,10 +444,10 @@ export default function DoctorRequestsScreen() {
       {/* Header */}
       <View style={ds.header}>
         <TouchableOpacity onPress={() => router.back()} style={ds.backBtn}>
-          <Text style={ds.backTxt}>← Back</Text>
+          <Text style={ds.backTxt}>{t('requests.back') || '← Back'}</Text>
         </TouchableOpacity>
         <View style={ds.headerCenter}>
-          <Text style={ds.headerTitle}>Incoming Requests</Text>
+          <Text style={ds.headerTitle}>{t('requests.incoming') || 'Incoming Requests'}</Text>
           {pendingCount > 0 && (
             <View style={ds.badge}>
               <Text style={ds.badgeTxt}>{pendingCount}</Text>
@@ -478,7 +492,7 @@ export default function DoctorRequestsScreen() {
             <View style={ds.errorBox}>
               <Text style={ds.errorTxt}>⚠️ {error}</Text>
               <TouchableOpacity onPress={() => { setLoading(true); load(); }}>
-                <Text style={ds.retryTxt}>Retry</Text>
+                <Text style={ds.retryTxt}>{t('requests.retry') || 'Retry'}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -486,11 +500,11 @@ export default function DoctorRequestsScreen() {
           {!error && filtered.length === 0 && (
             <View style={ds.emptyBox}>
               <Text style={ds.emptyIcon}>📭</Text>
-              <Text style={ds.emptyTitle}>No requests here</Text>
+              <Text style={ds.emptyTitle}>{t('requests.empty.title') || 'No requests here'}</Text>
               <Text style={ds.emptySub}>
                 {filter === 'mine'
-                  ? 'No requests assigned to you yet.'
-                  : 'Pull down to refresh.'}
+                  ? (t('requests.empty.mine') || 'No requests assigned to you yet.')
+                  : (t('requests.empty.pull') || 'Pull down to refresh.')}
               </Text>
             </View>
           )}
@@ -502,7 +516,10 @@ export default function DoctorRequestsScreen() {
               token={user?.token}
               onOfferSent={() => {
                 load();
-                Alert.alert('✅ Offer sent!', 'The patient will be notified.');
+                Alert.alert(
+                  t('requests.offerSent.title') || '✅ Offer sent!',
+                  t('requests.offerSent.msg')   || 'The patient will be notified.'
+                );
               }}
               onChat={offerId =>
                 router.push({
@@ -526,7 +543,6 @@ export default function DoctorRequestsScreen() {
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
-// Dashboard
 const ds = StyleSheet.create({
   safe:   { flex: 1, backgroundColor: '#F3F4F6' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
@@ -569,7 +585,6 @@ const ds = StyleSheet.create({
   emptySub: { fontSize: 13, color: '#6B7280', textAlign: 'center', paddingHorizontal: 24 },
 });
 
-// Card
 const cs = StyleSheet.create({
   card: {
     backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 12,
@@ -598,7 +613,6 @@ const cs = StyleSheet.create({
   metaChipGray: { backgroundColor: '#E5E7EB' },
   metaChipText: { fontSize: 11, color: '#374151', fontWeight: '500' },
 
-  // Quick action row
   quickRow: { flexDirection: 'row', gap: 6 },
   quickBtn: {
     flex: 1, backgroundColor: '#EFF6FF', borderRadius: 10, borderWidth: 1, borderColor: '#BFDBFE',
@@ -612,7 +626,6 @@ const cs = StyleSheet.create({
   },
   quickMoreTxt: { fontSize: 18, color: '#6B7280', fontWeight: '700', lineHeight: 24 },
 
-  // Answered state
   answeredRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   answeredBadge: {
     backgroundColor: '#D1FAE5', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
@@ -630,7 +643,6 @@ const cs = StyleSheet.create({
   resendBtnText: { fontSize: 12, fontWeight: '600', color: '#374151' },
 });
 
-// Modal
 const ms = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
   sheet: {
