@@ -15,6 +15,7 @@ const ALL = '__ALL__';
 
 type ClinicRating = {
   composite: number | null;
+  communication_avg: number | null;
   total_count: number;
 };
 
@@ -166,21 +167,30 @@ export default function ClinicOnboardingScreen() {
           {item.city ? <Text style={styles.cardCity}>📍 {item.city}</Text> : null}
           {item.address ? <Text style={styles.cardAddr} numberOfLines={1}>{item.address}</Text> : null}
 
-          {/* Rating row */}
-          <View style={styles.ratingRow}>
-            {item.rating?.composite != null ? (
-              <>
+          {/* Rating rows */}
+          {item.rating?.composite != null ? (
+            <View style={styles.ratingBlock}>
+              <View style={styles.ratingRow}>
+                <Text style={styles.ratingLabel}>{t('clinicOnboard.ratingOverall') || 'Overall'}</Text>
                 <Text style={styles.ratingStar}>★</Text>
                 <Text style={styles.ratingScore}>{item.rating.composite.toFixed(1)}</Text>
-                <Text style={styles.ratingCount}>
-                  ({item.rating.total_count})
-                </Text>
-              </>
-            ) : (
+                <Text style={styles.ratingCount}>({item.rating.total_count})</Text>
+              </View>
+              {item.rating.communication_avg != null && (
+                <View style={styles.ratingRow}>
+                  <Text style={styles.ratingLabel}>{t('clinicOnboard.ratingComm') || 'Communication'}</Text>
+                  <Text style={styles.ratingStarComm}>★</Text>
+                  <Text style={styles.ratingScoreComm}>{item.rating.communication_avg.toFixed(1)}</Text>
+                </View>
+              )}
+              <Text style={styles.cardCode}>{item.clinic_code}</Text>
+            </View>
+          ) : (
+            <View style={styles.ratingRow}>
               <Text style={styles.ratingNew}>{t('clinicOnboard.ratingNew') || 'New'}</Text>
-            )}
-            <Text style={styles.cardCode}>{item.clinic_code}</Text>
-          </View>
+              <Text style={styles.cardCode}>{item.clinic_code}</Text>
+            </View>
+          )}
         </View>
       </TouchableOpacity>
     );
@@ -426,11 +436,15 @@ const styles = StyleSheet.create({
   cardAddr: { fontSize: 11, color: '#9CA3AF', marginBottom: 4 },
   cardCode: { fontSize: 10, color: '#9CA3AF', fontWeight: '600', letterSpacing: 0.5, marginLeft: 'auto' as any },
 
-  // Rating row
-  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
-  ratingStar: { fontSize: 13, color: '#F59E0B' },
-  ratingScore: { fontSize: 13, fontWeight: '700', color: '#111827' },
-  ratingCount: { fontSize: 12, color: '#6B7280', marginRight: 4 },
+  // Rating block
+  ratingBlock: { marginTop: 4, gap: 2 },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  ratingLabel: { fontSize: 10, color: '#9CA3AF', fontWeight: '600', width: 82 },
+  ratingStar: { fontSize: 12, color: '#F59E0B' },
+  ratingScore: { fontSize: 12, fontWeight: '700', color: '#111827' },
+  ratingCount: { fontSize: 11, color: '#6B7280' },
+  ratingStarComm: { fontSize: 12, color: '#6366F1' },
+  ratingScoreComm: { fontSize: 12, fontWeight: '700', color: '#6366F1' },
   ratingNew: { fontSize: 11, color: '#10B981', fontWeight: '700', marginRight: 4 },
 
   // Checkbox
