@@ -19,7 +19,7 @@ const MIN_PRICE: Record<string, number> = {
 };
 
 function parsePriceMin(str: string): number | null {
-  const nums = str.replace(/[^\d.]/g, ' ').trim().split(/\s+/)
+  const nums = str.replace(/,(\d{3})/g, '$1').replace(/[^\d.]/g, ' ').trim().split(/\s+/)
     .map(Number).filter(n => !isNaN(n) && n > 0);
   return nums.length > 0 ? Math.min(...nums) : null;
 }
