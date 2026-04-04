@@ -28,6 +28,13 @@ export default function QuoteRequestScreen() {
   const { t }   = useLanguage();
   const params  = useLocalSearchParams<{ clinics?: string }>();
 
+  // Guard: if t() returns the key itself (stale bundle bug), use fallback instead
+  const safeT = (key: string, fallback: string, p?: Record<string, string | number>) => {
+    const raw = t(key, p);
+    if (!raw || raw === key) return fallback;
+    return raw;
+  };
+
   const selectedClinics: Clinic[] = (() => {
     try { return JSON.parse(decodeURIComponent(params.clinics || '[]')); }
     catch { return []; }
@@ -43,8 +50,10 @@ export default function QuoteRequestScreen() {
   const handleSubmit = async () => {
     const trimmed = description.trim();
     if (!trimmed) {
-      Alert.alert(t('quoteRequest.descRequired') || 'Description required',
-        t('quoteRequest.descRequiredMsg') || 'Please tell us a bit about your treatment.');
+      Alert.alert(
+        safeT('quoteRequest.descRequired', 'Description required'),
+        safeT('quoteRequest.descRequiredMsg', 'Please tell us a bit about your treatment.'),
+      );
       return;
     }
     if (!user?.token) {
@@ -96,14 +105,13 @@ export default function QuoteRequestScreen() {
             {/* Header */}
             <View style={styles.formHeader}>
               <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                <Text style={styles.backBtnText}>‹  {t('common.back') || 'Back'}</Text>
+                <Text style={styles.backBtnText}>‹  {safeT('common.back', 'Back')}</Text>
               </TouchableOpacity>
               <Text style={styles.formTitle}>
-                {t('quoteRequest.title') || 'Tell us about your treatment'}
+                {safeT('quoteRequest.title', 'Tell us about your treatment')}
               </Text>
               <Text style={styles.formSubtitle}>
-                {t('quoteRequest.subtitle', { count: cliniCount }) ||
-                  `Your request will be sent to ${cliniCount} clinic(s).`}
+                {safeT('quoteRequest.subtitle', `Your request will be sent to ${cliniCount} clinic(s).`, { count: cliniCount })}
               </Text>
             </View>
 
@@ -119,15 +127,12 @@ export default function QuoteRequestScreen() {
             {/* Description */}
             <View style={styles.fieldCard}>
               <Text style={styles.fieldLabel}>
-                {t('quoteRequest.descLabel') || 'Describe your treatment needs'}
+                {safeT('quoteRequest.descLabel', 'Describe your treatment needs')}
                 <Text style={styles.required}> *</Text>
               </Text>
               <TextInput
                 style={styles.textarea}
-                placeholder={
-                  t('quoteRequest.descPlaceholder') ||
-                  'e.g. I need a dental implant on my upper left molar. I had an X-ray last month...'
-                }
+                placeholder={safeT('quoteRequest.descPlaceholder', 'e.g. I need a dental implant on my upper left molar. I had an X-ray last month...')}
                 placeholderTextColor="#9CA3AF"
                 multiline
                 numberOfLines={5}
@@ -142,15 +147,15 @@ export default function QuoteRequestScreen() {
             {/* Photo upload — optional placeholder */}
             <View style={styles.fieldCard}>
               <Text style={styles.fieldLabel}>
-                {t('quoteRequest.photoLabel') || 'Attach a photo'}
-                <Text style={styles.optional}>  ({t('quoteRequest.optional') || 'optional'})</Text>
+                {safeT('quoteRequest.photoLabel', 'Attach a photo')}
+                <Text style={styles.optional}>  ({safeT('quoteRequest.optional', 'optional')})</Text>
               </Text>
               <TouchableOpacity style={styles.photoPlaceholder} activeOpacity={0.7}
                 onPress={() => Alert.alert('Coming soon', 'Photo upload will be available in a future update.')}
               >
                 <Text style={styles.photoIcon}>📷</Text>
                 <Text style={styles.photoHint}>
-                  {t('quoteRequest.photoHint') || 'Tap to add a photo (X-ray, intraoral, etc.)'}
+                  {safeT('quoteRequest.photoHint', 'Tap to add a photo (X-ray, intraoral, etc.)')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -161,8 +166,7 @@ export default function QuoteRequestScreen() {
           <View style={styles.footer}>
             <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit} activeOpacity={0.85}>
               <Text style={styles.submitBtnText}>
-                {t('quoteRequest.sendBtn', { count: cliniCount }) ||
-                  `Send Request to ${cliniCount} Clinics`}
+                {safeT('quoteRequest.sendBtn', `Send Request to ${cliniCount} Clinics`, { count: cliniCount })}
               </Text>
             </TouchableOpacity>
           </View>
@@ -177,7 +181,7 @@ export default function QuoteRequestScreen() {
       <SafeAreaView style={[styles.safe, styles.centerSafe]}>
         <ActivityIndicator size="large" color="#2563EB" style={{ marginBottom: 24 }} />
         <Text style={styles.loadingTitle}>
-          {t('quoteRequest.sending') || 'Sending to clinics...'}
+          {safeT('quoteRequest.sending', 'Sending to clinics...')}
         </Text>
         <View style={styles.clinicTickList}>
           {selectedClinics.map(c => {
@@ -203,10 +207,10 @@ export default function QuoteRequestScreen() {
     <SafeAreaView style={[styles.safe, styles.centerSafe]}>
       <Text style={styles.successEmoji}>🎉</Text>
       <Text style={styles.successTitle}>
-        {t('quoteRequest.successTitle') || 'Your request has been sent'}
+        {safeT('quoteRequest.successTitle', 'Your request has been sent')}
       </Text>
       <Text style={styles.successSub}>
-        {t('quoteRequest.successSub') || 'You will receive offers shortly'}
+        {safeT('quoteRequest.successSub', 'You will receive offers shortly')}
       </Text>
 
       {/* Clinic confirmation list */}
@@ -225,7 +229,7 @@ export default function QuoteRequestScreen() {
         activeOpacity={0.85}
       >
         <Text style={styles.goBtnText}>
-          {t('quoteRequest.goToRequests') || 'Go to My Requests'}
+          {safeT('quoteRequest.goToRequests', 'Go to My Requests')}
         </Text>
       </TouchableOpacity>
 
@@ -234,7 +238,7 @@ export default function QuoteRequestScreen() {
         onPress={() => router.replace('/(patient)' as any)}
       >
         <Text style={styles.homeLinkText}>
-          {t('quoteRequest.backToHome') || 'Back to Home'}
+          {safeT('quoteRequest.backToHome', 'Back to Home')}
         </Text>
       </TouchableOpacity>
     </SafeAreaView>

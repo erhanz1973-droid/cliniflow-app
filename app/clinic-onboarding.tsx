@@ -112,8 +112,8 @@ export default function ClinicOnboardingScreen() {
       } else {
         if (next.size >= MAX_SELECT) {
           Alert.alert(
-            'Maximum reached',
-            `You can select up to ${MAX_SELECT} clinics.`
+            t('clinicOnboard.empty') || 'Maximum reached',
+            t('quoteRequest.subtitle', { count: MAX_SELECT }) || `You can select up to ${MAX_SELECT} clinics.`
           );
           return prev;
         }
@@ -126,7 +126,7 @@ export default function ClinicOnboardingScreen() {
   // ── Submit: navigate to quote-request screen with selected clinics ──
   const handleGetQuotes = () => {
     if (selected.size === 0) {
-      Alert.alert('No clinic selected', 'Please select at least 1 clinic.');
+      Alert.alert(t('clinicOnboard.empty') || 'No clinic selected', t('clinicOnboard.emptySub') || 'Please select at least 1 clinic.');
       return;
     }
     const selectedClinics = clinics.filter(c => selected.has(c.id));
@@ -177,7 +177,7 @@ export default function ClinicOnboardingScreen() {
                 </Text>
               </>
             ) : (
-              <Text style={styles.ratingNew}>New</Text>
+              <Text style={styles.ratingNew}>{t('clinicOnboard.ratingNew') || 'New'}</Text>
             )}
             <Text style={styles.cardCode}>{item.clinic_code}</Text>
           </View>
@@ -204,7 +204,7 @@ export default function ClinicOnboardingScreen() {
         {/* Info text */}
         <View style={styles.infoBanner}>
           <Text style={styles.infoText}>
-            ℹ️  To ensure fast responses, your request will be sent to up to {MAX_SELECT} clinics.
+            ℹ️  {t('clinicOnboard.infoBanner', { max: MAX_SELECT }) || `To ensure fast responses, your request will be sent to up to ${MAX_SELECT} clinics.`}
           </Text>
         </View>
       </View>
@@ -241,7 +241,7 @@ export default function ClinicOnboardingScreen() {
       {/* ── Counter bar ── */}
       <View style={styles.counterBar}>
         <Text style={styles.counterText}>
-          Selected:{' '}
+          {t('clinicOnboard.selected') || 'Selected'}:{' '}
           <Text style={[styles.counterNum, limitReached && styles.counterNumMax]}>
             {selCount}
           </Text>
@@ -249,7 +249,7 @@ export default function ClinicOnboardingScreen() {
         </Text>
         {selCount > 0 && (
           <TouchableOpacity onPress={() => setSelected(new Set())}>
-            <Text style={styles.clearAllBtn}>Clear all</Text>
+            <Text style={styles.clearAllBtn}>{t('clinicOnboard.clearAll') || 'Clear all'}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -300,7 +300,7 @@ export default function ClinicOnboardingScreen() {
             {submitting
               ? <ActivityIndicator size="small" color="#fff" />
               : <Text style={styles.quoteBtnText}>
-                  Get Quotes from {selCount} Clinic{selCount > 1 ? 's' : ''}
+                  {t('clinicOnboard.getQuotes', { count: selCount }) || `Get Quotes from ${selCount} Clinic${selCount > 1 ? 's' : ''}`}
                 </Text>
             }
           </TouchableOpacity>
