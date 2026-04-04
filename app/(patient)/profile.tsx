@@ -397,6 +397,16 @@ export default function ProfileScreen() {
             <Text style={styles.legalBtnText}>{t("profile.privacyPolicy")}</Text>
             <Text style={styles.menuBtnArrow}>›</Text>
           </TouchableOpacity>
+          <View style={styles.divider} />
+          <TouchableOpacity
+            style={styles.legalBtn}
+            onPress={() => Linking.openURL("https://www.clinifly.net/terms")}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.legalIcon}>📄</Text>
+            <Text style={styles.legalBtnText}>{t("profile.termsOfService") || "Terms of Service"}</Text>
+            <Text style={styles.menuBtnArrow}>›</Text>
+          </TouchableOpacity>
         </View>
       </View>
 

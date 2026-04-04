@@ -572,8 +572,13 @@ export default function TreatmentPlanScreen() {
         }),
       ]);
 
+      // Parse both JSON bodies in parallel
+      const [pj, json] = await Promise.all([
+        pres.json().catch(() => ({})),
+        res.json().catch(() => ({})),
+      ]);
+
       try {
-        const pj = await pres.json().catch(() => ({}));
         if (pj.showPrices === false) {
           setPricesVisible(false);
           setPriceByType({});
@@ -596,8 +601,6 @@ export default function TreatmentPlanScreen() {
         setPricesVisible(true);
         setPriceByType({});
       }
-
-      const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         console.warn("[TREATMENT-PLAN] API error:", res.status, json?.error, json?.message);
       }
@@ -765,6 +768,14 @@ export default function TreatmentPlanScreen() {
     }, [user?.token, patientId, fetchData])
   );
 
+  // Initial load — fire immediately on mount (or when auth/patientId becomes available)
+  useEffect(() => {
+    if (!user?.token || !patientId) return;
+    void fetchData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.token, patientId]); // intentionally omit fetchData to run only once per identity change
+
+  // Polling — keep data fresh while the screen is mounted
   useEffect(() => {
     if (!user?.token || !patientId) return;
     const id = setInterval(() => {
