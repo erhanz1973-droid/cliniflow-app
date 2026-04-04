@@ -82,6 +82,7 @@ type RatingKey = string; // `${offerId}:${type}`
 
 type Request = {
   id: string;
+  clinic_id: string | null;
   description: string;
   budget: string | null;
   preferred_treatment: string | null;
@@ -195,6 +196,39 @@ export default function MyRequestsScreen() {
             </TouchableOpacity>
           </View>
         )}
+
+        {/* MORE CLINICS BANNER — shown when patient contacted < 3 distinct clinics */}
+        {!error && requests.length > 0 && (() => {
+          const MAX = 3;
+          const contacted = new Set(requests.map(r => r.clinic_id).filter(Boolean)).size;
+          const remaining = MAX - contacted;
+          if (remaining <= 0) return null;
+          return (
+            <TouchableOpacity
+              style={styles.moreBanner}
+              onPress={() => router.push('/clinic-onboarding' as any)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.moreBannerLeft}>
+                <Text style={styles.moreBannerSlots}>
+                  {contacted}/{MAX}
+                </Text>
+                <Text style={styles.moreBannerSlotsLabel}>clinics</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.moreBannerTitle}>
+                  {remaining === 1
+                    ? '1 more clinic slot available!'
+                    : `${remaining} more clinic slots available!`}
+                </Text>
+                <Text style={styles.moreBannerSub}>
+                  Get more quotes to compare offers →
+                </Text>
+              </View>
+              <Text style={styles.moreBannerArrow}>›</Text>
+            </TouchableOpacity>
+          );
+        })()}
 
         {!error && requests.length === 0 && (
           <View style={styles.emptyBox}>
@@ -501,6 +535,19 @@ const styles = StyleSheet.create({
     borderColor: '#BBF7D0', paddingVertical: 8, alignItems: 'center',
   },
   rateBtnTrtText: { fontSize: 12, fontWeight: '700', color: '#15803D' },
+
+  // More clinics banner
+  moreBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#f0fdf4', borderWidth: 1.5, borderColor: '#86efac',
+    borderRadius: 12, padding: 14, marginBottom: 12,
+  },
+  moreBannerLeft: { alignItems: 'center', minWidth: 36 },
+  moreBannerSlots: { fontSize: 20, fontWeight: '800', color: '#15803d', lineHeight: 24 },
+  moreBannerSlotsLabel: { fontSize: 10, color: '#16a34a', fontWeight: '600' },
+  moreBannerTitle: { fontSize: 14, fontWeight: '700', color: '#166534', marginBottom: 2 },
+  moreBannerSub: { fontSize: 12, color: '#15803d', lineHeight: 17 },
+  moreBannerArrow: { fontSize: 22, color: '#16a34a', fontWeight: '700' },
 
   // Rating badges
   ratingBadgeRow: { flexDirection: 'row', gap: 6, marginTop: 8, flexWrap: 'wrap' },
