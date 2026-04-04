@@ -4,6 +4,7 @@ import {
   StyleSheet, ActivityIndicator, ScrollView,
 } from 'react-native';
 import { API_BASE } from '../lib/api';
+import { useLanguage } from '../lib/language-context';
 
 interface ICD10Code {
   code: string;
@@ -21,6 +22,7 @@ export default function ICD10Dropdown({
   onCodeSelect,
   placeholder = 'ICD-10 kodu ara…',
 }: ICD10DropdownProps) {
+  const { language } = useLanguage();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ICD10Code[]>([]);
   const [loading, setLoading] = useState(false);
@@ -32,7 +34,7 @@ export default function ICD10Dropdown({
     if (!selectedCode) setQuery('');
   }, [selectedCode]);
 
-  // Debounced search whenever query changes
+  // Debounced search whenever query or language changes
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
@@ -46,7 +48,7 @@ export default function ICD10Dropdown({
       try {
         setLoading(true);
         const res = await fetch(
-          `${API_BASE}/api/icd10/search?q=${encodeURIComponent(query)}`,
+          `${API_BASE}/api/icd10/search?q=${encodeURIComponent(query)}&lang=${encodeURIComponent(language || 'tr')}`,
         );
         const json = await res.json();
         const list: ICD10Code[] = Array.isArray(json)
@@ -64,7 +66,7 @@ export default function ICD10Dropdown({
     }, 350);
 
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [query]);
+  }, [query, language]);
 
   const handleSelect = (item: ICD10Code) => {
     onCodeSelect(item);
