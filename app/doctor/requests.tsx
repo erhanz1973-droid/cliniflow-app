@@ -327,7 +327,7 @@ function RequestCard({
       {/* Attachments (photos / files) sent by patient */}
       {req.photos && req.photos.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={cs.photosRow}>
-          {req.photos.map((p, i) => {
+          {req.photos.filter(p => !!p.url).map((p, i) => {
             const isImage = p.type === 'image' || p.type === 'xray' ||
               /\.(jpg|jpeg|png|gif|webp|heic)$/i.test(p.url || '');
             return isImage ? (
@@ -354,7 +354,7 @@ function RequestCard({
               >
                 <Text style={cs.docThumbIcon}>📄</Text>
                 <Text style={cs.docThumbName} numberOfLines={1}>
-                  {p.url.split('/').pop() || 'file'}
+                  {(p.url || '').split('/').pop() || 'file'}
                 </Text>
               </TouchableOpacity>
             );
