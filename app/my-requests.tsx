@@ -9,7 +9,8 @@ import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/language-context';
 import { API_BASE } from '../lib/api';
 
-const DISCLAIMER = 'This is a preliminary estimate. Final diagnosis requires clinical examination.';
+// DISCLAIMER is now translated via t('treatReq.disclaimer') with this as the fallback
+const DISCLAIMER_FALLBACK = 'This is a preliminary estimate. Final diagnosis requires clinical examination.';
 
 // Price minimums — used for offer scoring
 const MIN_PRICE: Record<string, number> = {
@@ -303,7 +304,7 @@ export default function MyRequestsScreen() {
                   ) : (
                     <>
                       <Text style={styles.offersTitle}>
-                        {t('treatReq.doctorOffers')} · sorted by best match
+                        {t('treatReq.doctorOffers')} · {t('treatReq.sortedByBestMatch') || 'sorted by best match'}
                       </Text>
                       {[...req.offers]
                         .sort((a, b) => scoreOffer(a) - scoreOffer(b))
@@ -318,7 +319,7 @@ export default function MyRequestsScreen() {
                               </Text>
                               {isBest && (
                                 <View style={styles.bestBadge}>
-                                  <Text style={styles.bestBadgeText}>⭐ Best Match</Text>
+                                  <Text style={styles.bestBadgeText}>⭐ {t('treatReq.bestMatch') || 'Best Match'}</Text>
                                 </View>
                               )}
                             </View>
@@ -338,7 +339,7 @@ export default function MyRequestsScreen() {
                           )}
                           <View style={styles.disclaimerBox}>
                             <Text style={styles.disclaimerText}>
-                              ⚠️ {offer.disclaimer || DISCLAIMER}
+                              ⚠️ {offer.disclaimer || t('treatReq.disclaimer') || DISCLAIMER_FALLBACK}
                             </Text>
                           </View>
 
@@ -354,12 +355,12 @@ export default function MyRequestsScreen() {
                                 <View style={styles.ratingBadgeRow}>
                                   {hasExp && (
                                     <View style={styles.ratingBadge}>
-                                      <Text style={styles.ratingBadgeText}>✓ Visited clinic</Text>
+                                      <Text style={styles.ratingBadgeText}>✓ {t('treatReq.visitedClinic') || 'Visited clinic'}</Text>
                                     </View>
                                   )}
                                   {hasTrt && (
                                     <View style={[styles.ratingBadge, styles.ratingBadgeTrt]}>
-                                      <Text style={[styles.ratingBadgeText, styles.ratingBadgeTextTrt]}>✓ Completed treatment</Text>
+                                      <Text style={[styles.ratingBadgeText, styles.ratingBadgeTextTrt]}>✓ {t('treatReq.completedTreatment') || 'Completed treatment'}</Text>
                                     </View>
                                   )}
                                 </View>

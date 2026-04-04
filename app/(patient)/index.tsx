@@ -408,10 +408,10 @@ export default function PatientDashboard() {
           <View style={{ flex: 1 }}>
             <Text style={styles.offerBannerTitle}>
               {inboxSummary.new_offers === 1
-                ? "You have a new treatment offer!"
-                : `You have ${inboxSummary.new_offers} new treatment offers!`}
+                ? t("home.newOfferSingle")
+                : (t("home.newOfferMultiple") || "").replace("{n}", String(inboxSummary.new_offers))}
             </Text>
-            <Text style={styles.offerBannerSub}>Tap to view offers from doctors →</Text>
+            <Text style={styles.offerBannerSub}>{t("home.tapToViewOffers")}</Text>
           </View>
           <View style={styles.offerBannerBadge}>
             <Text style={styles.offerBannerBadgeText}>{inboxSummary.new_offers}</Text>
@@ -428,8 +428,8 @@ export default function PatientDashboard() {
         >
           <Text style={styles.docMsgBannerIcon}>💬</Text>
           <View style={{ flex: 1 }}>
-            <Text style={styles.docMsgBannerTitle}>Doctor replied to your request</Text>
-            <Text style={styles.docMsgBannerSub}>Tap to view messages →</Text>
+            <Text style={styles.docMsgBannerTitle}>{t("home.doctorReplied")}</Text>
+            <Text style={styles.docMsgBannerSub}>{t("home.tapToViewMessages")}</Text>
           </View>
           <View style={styles.docMsgBannerDot} />
         </TouchableOpacity>
@@ -458,7 +458,7 @@ export default function PatientDashboard() {
             </View>
           )}
           <Text style={styles.quickIcon}>📩</Text>
-          <Text style={styles.quickLabel}>Offers</Text>
+          <Text style={styles.quickLabel}>{t("home.quickOffers")}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/(patient)/timeline" as any)} activeOpacity={0.8}>
           <Text style={styles.quickIcon}>✈️</Text>
