@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   StyleSheet, SafeAreaView, ActivityIndicator, KeyboardAvoidingView,
-  Platform, Alert, Image, Modal, ScrollView,
+  Platform, Alert, Image, Modal, ScrollView, Linking,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -393,30 +393,39 @@ export default function OfferChatScreen() {
 
                     {/* Attachment: image / x-ray */}
                     {hasImage && item.attachment_url && (
-                      <View style={styles.attachImageWrap}>
-                        <Image
-                          source={{ uri: item.attachment_url }}
-                          style={styles.attachImage}
-                          resizeMode="cover"
-                        />
-                        {item.attachment_type === 'xray' && (
-                          <View style={styles.xrayBadge}>
-                            <Text style={styles.xrayBadgeText}>🩻 X-Ray</Text>
-                          </View>
+                      <TouchableOpacity
+                        activeOpacity={0.85}
+                        onPress={() => Linking.openURL(item.attachment_url!).catch(() =>
+                          Alert.alert('Hata', 'Fotoğraf açılamadı.')
                         )}
-                        {item.attachment_type === 'image' && (
-                          <View style={styles.intraoralBadge}>
-                            <Text style={styles.intraoralBadgeText}>📷 Intraoral</Text>
-                          </View>
-                        )}
-                      </View>
+                      >
+                        <View style={styles.attachImageWrap}>
+                          <Image
+                            source={{ uri: item.attachment_url }}
+                            style={styles.attachImage}
+                            resizeMode="cover"
+                          />
+                          {item.attachment_type === 'xray' && (
+                            <View style={styles.xrayBadge}>
+                              <Text style={styles.xrayBadgeText}>🩻 X-Ray</Text>
+                            </View>
+                          )}
+                          {item.attachment_type === 'image' && (
+                            <View style={styles.intraoralBadge}>
+                              <Text style={styles.intraoralBadgeText}>📷 Intraoral</Text>
+                            </View>
+                          )}
+                        </View>
+                      </TouchableOpacity>
                     )}
 
                     {/* Attachment: document / PDF */}
                     {hasDoc && item.attachment_url && (
                       <TouchableOpacity
                         style={[styles.docBubble, isMe && styles.docBubbleMe]}
-                        onPress={() => Alert.alert('File', item.attachment_url!)}
+                        onPress={() => Linking.openURL(item.attachment_url!).catch(() =>
+                          Alert.alert('Hata', 'Dosya açılamadı.')
+                        )}
                       >
                         <Text style={styles.docIcon}>📄</Text>
                         <Text style={[styles.docName, isMe && styles.docNameMe]} numberOfLines={2}>

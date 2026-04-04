@@ -3,7 +3,7 @@ import React, { useCallback, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   SafeAreaView, ActivityIndicator, RefreshControl, Modal,
-  TextInput, Alert, KeyboardAvoidingView, Platform, Image,
+  TextInput, Alert, KeyboardAvoidingView, Platform, Image, Linking,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../lib/auth';
@@ -326,7 +326,9 @@ function RequestCard({
             return isImage ? (
               <TouchableOpacity
                 key={i}
-                onPress={() => Alert.alert('📎 Attachment', p.url)}
+                onPress={() => Linking.openURL(p.url).catch(() =>
+                  Alert.alert('Hata', 'Fotoğraf açılamadı.')
+                )}
                 activeOpacity={0.8}
               >
                 <Image source={{ uri: p.url }} style={cs.photoThumb} />
@@ -338,7 +340,9 @@ function RequestCard({
               <TouchableOpacity
                 key={i}
                 style={cs.docThumb}
-                onPress={() => Alert.alert('📎 File', p.url)}
+                onPress={() => Linking.openURL(p.url).catch(() =>
+                  Alert.alert('Hata', 'Dosya açılamadı.')
+                )}
                 activeOpacity={0.8}
               >
                 <Text style={cs.docThumbIcon}>📄</Text>
