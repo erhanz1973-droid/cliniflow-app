@@ -232,16 +232,16 @@ export default function MyRequestsScreen() {
                 <Text style={styles.moreBannerSlots}>
                   {contacted}/{MAX}
                 </Text>
-                <Text style={styles.moreBannerSlotsLabel}>clinics</Text>
+                <Text style={styles.moreBannerSlotsLabel}>{t('treatReq.moreBanner.clinics') || 'clinics'}</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.moreBannerTitle}>
                   {remaining === 1
-                    ? '1 more clinic slot available!'
-                    : `${remaining} more clinic slots available!`}
+                    ? t('treatReq.moreBanner.oneSlot') || '1 more clinic slot available!'
+                    : (t('treatReq.moreBanner.manySlots') || '{n} more clinic slots available!').replace('{n}', String(remaining))}
                 </Text>
                 <Text style={styles.moreBannerSub}>
-                  Get more quotes to compare offers →
+                  {t('treatReq.moreBanner.sub') || 'Get more quotes to compare offers →'}
                 </Text>
               </View>
               <Text style={styles.moreBannerArrow}>›</Text>
