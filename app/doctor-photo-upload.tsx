@@ -12,9 +12,7 @@ export default function DoctorPhotoUpload() {
   const pickImage = async (type: 'profile' | 'diploma') => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: type === 'diploma' 
-          ? [ImagePicker.MediaTypeOptions.Images]
-          : [ImagePicker.MediaTypeOptions.Images],
+        mediaTypes: "images",
         allowsEditing: true,
         quality: 0.8,
       });

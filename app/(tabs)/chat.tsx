@@ -433,7 +433,7 @@ export default function ChatScreen() {
 
       // Pick image with specific formats
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: "images",
         allowsMultipleSelection: false,
         quality: 0.85,
         exif: false, // Disable EXIF data
