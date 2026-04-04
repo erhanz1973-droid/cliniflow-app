@@ -24,7 +24,7 @@ export default function PatientLogin() {
   const [loading, setLoading]     = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
   const [errorMsg, setErrorMsg]   = useState('');
-  const [phone, setPhone]         = useState("");
+  const [phoneOrEmail, setPhoneOrEmail] = useState("");
   const [password, setPassword]   = useState("");
   const [clinicCode, setClinicCode] = useState("");
   const warmupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -37,11 +37,13 @@ export default function PatientLogin() {
   };
 
   const handlePatientLogin = async () => {
-    const trimPhone = phone.trim();
-    if (!trimPhone) {
+    const trimInput = phoneOrEmail.trim();
+    if (!trimInput) {
       Alert.alert(t('login.error'), t('login.phoneRequired'));
       return;
     }
+    // Detect whether input is an email or a phone number
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimInput);
     setLoading(true);
     setErrorMsg('');
     setStatusMsg(t('login.connecting'));
@@ -66,7 +68,8 @@ export default function PatientLogin() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            phone: trimPhone,
+            phone: isEmail ? undefined : trimInput,
+            email: isEmail ? trimInput : undefined,
             password: password.trim() || undefined,
             clinicCode: clinicCode.trim() || undefined,
           }),
@@ -78,11 +81,11 @@ export default function PatientLogin() {
 
       // PENDING → OTP verification required
       if (json?.requiresOTP || json?.error === 'email_verification_required') {
-          router.replace({
+        router.replace({
           pathname: '/otp' as any,
           params: {
-            phone: json.phone || trimPhone,
-            email: json.email || '',
+            phone: json.phone || (isEmail ? '' : trimInput),
+            email: json.email || (isEmail ? trimInput : ''),
             patientId: json.patientId || '',
             source: 'patient',
           },
@@ -148,11 +151,12 @@ export default function PatientLogin() {
       <View style={styles.form}>
         <TextInput
           style={styles.input}
-          placeholder={t('login.phonePlaceholder')}
-          value={phone}
-          onChangeText={v => { setPhone(v); setErrorMsg(''); }}
-          keyboardType="phone-pad"
+          placeholder={t('login.phoneOrEmailPlaceholder') || 'Telefon veya E-posta'}
+          value={phoneOrEmail}
+          onChangeText={v => { setPhoneOrEmail(v); setErrorMsg(''); }}
+          keyboardType="email-address"
           autoCapitalize="none"
+          autoCorrect={false}
           editable={!loading}
         />
 
@@ -200,6 +204,13 @@ export default function PatientLogin() {
           ) : (
             <Text style={styles.buttonText}>{t('login.patientTitle')}</Text>
           )}
+        </Pressable>
+
+        <Pressable
+          style={[styles.altButton, { alignSelf: 'center', marginTop: 4, minWidth: 200 }]}
+          onPress={() => router.push('/register-patient')}
+        >
+          <Text style={styles.altButtonText}>{t('login.registerPatient')}</Text>
         </Pressable>
 
         <Pressable
@@ -299,6 +310,19 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: "#2563EB",
     fontSize: 16,
+  },
+  altButton: {
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#2563EB",
+    backgroundColor: "#fff",
+    minWidth: 120,
+  },
+  altButtonText: {
+    color: "#2563EB",
+    fontSize: 15,
   },
   changeRoleBtn: {
     alignItems: "center",
