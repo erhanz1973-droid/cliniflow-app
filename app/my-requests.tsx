@@ -78,7 +78,8 @@ type Offer = {
   doctor_name: string | null;
 };
 
-type RatingKey = string; // `${offerId}:${type}`
+// Key = `${clinicId}:${type}` (or `offer:${offerId}:${type}` for marketplace offers)
+type RatingKey = string;
 
 type Request = {
   id: string;
@@ -109,7 +110,7 @@ export default function MyRequestsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError]           = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  // Set of "offerId:type" keys the patient has already rated
+  // Set of "clinicId:type" (or "offer:offerId:type") keys for already-rated entries
   const [ratedKeys, setRatedKeys]   = useState<Set<RatingKey>>(new Set());
 
   const load = useCallback(async () => {
@@ -128,9 +129,11 @@ export default function MyRequestsScreen() {
       const ratData = await ratRes.json();
       if (!reqData?.ok) throw new Error(reqData?.error || 'error');
       setRequests(reqData.requests || []);
-      // Build a set of already-rated keys
+      // Build a set of already-rated keys (clinic-level: 1 patient × 1 clinic × 1 type)
       const keys = new Set<RatingKey>(
-        (ratData?.ratings || []).map((r: any) => `${r.offer_id}:${r.type}`)
+        (ratData?.ratings || []).map((r: any) =>
+          r.clinic_id ? `${r.clinic_id}:${r.type}` : `offer:${r.offer_id}:${r.type}`
+        )
       );
       setRatedKeys(keys);
     } catch (e: any) {
@@ -340,80 +343,90 @@ export default function MyRequestsScreen() {
                           </View>
 
                           {/* Rating badges */}
-                          <View style={styles.ratingBadgeRow}>
-                            {ratedKeys.has(`${offer.id}:experience`) && (
-                              <View style={styles.ratingBadge}>
-                                <Text style={styles.ratingBadgeText}>✓ Visited clinic</Text>
-                              </View>
-                            )}
-                            {ratedKeys.has(`${offer.id}:treatment`) && (
-                              <View style={[styles.ratingBadge, styles.ratingBadgeTrt]}>
-                                <Text style={[styles.ratingBadgeText, styles.ratingBadgeTextTrt]}>✓ Completed treatment</Text>
-                              </View>
-                            )}
-                          </View>
+                          {(() => {
+                            const rk = offer.clinic_id
+                              ? (t: string) => `${offer.clinic_id}:${t}`
+                              : (t: string) => `offer:${offer.id}:${t}`;
+                            const hasExp = ratedKeys.has(rk('experience'));
+                            const hasTrt = ratedKeys.has(rk('treatment'));
+                            return (
+                              <>
+                                <View style={styles.ratingBadgeRow}>
+                                  {hasExp && (
+                                    <View style={styles.ratingBadge}>
+                                      <Text style={styles.ratingBadgeText}>✓ Visited clinic</Text>
+                                    </View>
+                                  )}
+                                  {hasTrt && (
+                                    <View style={[styles.ratingBadge, styles.ratingBadgeTrt]}>
+                                      <Text style={[styles.ratingBadgeText, styles.ratingBadgeTextTrt]}>✓ Completed treatment</Text>
+                                    </View>
+                                  )}
+                                </View>
 
-                          {/* Action buttons row */}
-                          <View style={styles.actionRow}>
-                            {/* Message Doctor */}
-                            <TouchableOpacity
-                              style={[styles.msgBtn, styles.actionBtn]}
-                              onPress={() =>
-                                router.push({
-                                  pathname: '/offer-chat',
-                                  params: {
-                                    offerId: offer.id,
-                                    otherName: encodeURIComponent(offer.doctor_name || t('treatReq.doctor')),
-                                    treatmentType: offer.treatment_type,
-                                  },
-                                })
-                              }
-                            >
-                              <Text style={styles.msgBtnText}>💬 {t('offerChat.messageDoctor')}</Text>
-                            </TouchableOpacity>
+                                {/* Action buttons row */}
+                                <View style={styles.actionRow}>
+                                  {/* Message Doctor */}
+                                  <TouchableOpacity
+                                    style={[styles.msgBtn, styles.actionBtn]}
+                                    onPress={() =>
+                                      router.push({
+                                        pathname: '/offer-chat',
+                                        params: {
+                                          offerId: offer.id,
+                                          otherName: encodeURIComponent(offer.doctor_name || t('treatReq.doctor')),
+                                          treatmentType: offer.treatment_type,
+                                        },
+                                      })
+                                    }
+                                  >
+                                    <Text style={styles.msgBtnText}>💬 {t('offerChat.messageDoctor')}</Text>
+                                  </TouchableOpacity>
 
-                            {/* Rate Experience (if not yet rated) */}
-                            {!ratedKeys.has(`${offer.id}:experience`) && (
-                              <TouchableOpacity
-                                style={[styles.rateBtn, styles.actionBtn]}
-                                onPress={() =>
-                                  router.push({
-                                    pathname: '/rate',
-                                    params: {
-                                      offerId:       offer.id,
-                                      type:          'experience',
-                                      clinicName:    encodeURIComponent(offer.clinic_name || 'Clinic'),
-                                      doctorName:    encodeURIComponent(offer.doctor_name || ''),
-                                      treatmentDone: ratedKeys.has(`${offer.id}:treatment`) ? '1' : '0',
-                                    },
-                                  })
-                                }
-                              >
-                                <Text style={styles.rateBtnText}>⭐ Rate</Text>
-                              </TouchableOpacity>
-                            )}
+                                  {/* Rate Experience (if not yet rated for this clinic) */}
+                                  {!hasExp && (
+                                    <TouchableOpacity
+                                      style={[styles.rateBtn, styles.actionBtn]}
+                                      onPress={() =>
+                                        router.push({
+                                          pathname: '/rate',
+                                          params: {
+                                            offerId:       offer.id,
+                                            type:          'experience',
+                                            clinicName:    encodeURIComponent(offer.clinic_name || 'Clinic'),
+                                            doctorName:    encodeURIComponent(offer.doctor_name || ''),
+                                            treatmentDone: hasTrt ? '1' : '0',
+                                          },
+                                        })
+                                      }
+                                    >
+                                      <Text style={styles.rateBtnText}>⭐ Rate</Text>
+                                    </TouchableOpacity>
+                                  )}
 
-                            {/* Rate Treatment (only if experience already given) */}
-                            {ratedKeys.has(`${offer.id}:experience`) &&
-                             !ratedKeys.has(`${offer.id}:treatment`) && (
-                              <TouchableOpacity
-                                style={[styles.rateBtnTrt, styles.actionBtn]}
-                                onPress={() =>
-                                  router.push({
-                                    pathname: '/rate',
-                                    params: {
-                                      offerId:    offer.id,
-                                      type:       'treatment',
-                                      clinicName: encodeURIComponent(offer.clinic_name || 'Clinic'),
-                                      doctorName: encodeURIComponent(offer.doctor_name || ''),
-                                    },
-                                  })
-                                }
-                              >
-                                <Text style={styles.rateBtnTrtText}>🦷 Rate Treatment</Text>
-                              </TouchableOpacity>
-                            )}
-                          </View>
+                                  {/* Rate Treatment (only if experience already given for this clinic) */}
+                                  {hasExp && !hasTrt && (
+                                    <TouchableOpacity
+                                      style={[styles.rateBtnTrt, styles.actionBtn]}
+                                      onPress={() =>
+                                        router.push({
+                                          pathname: '/rate',
+                                          params: {
+                                            offerId:    offer.id,
+                                            type:       'treatment',
+                                            clinicName: encodeURIComponent(offer.clinic_name || 'Clinic'),
+                                            doctorName: encodeURIComponent(offer.doctor_name || ''),
+                                          },
+                                        })
+                                      }
+                                    >
+                                      <Text style={styles.rateBtnTrtText}>🦷 Rate Treatment</Text>
+                                    </TouchableOpacity>
+                                  )}
+                                </View>
+                              </>
+                            );
+                          })()}
                         </View>
                         );
                       })}
