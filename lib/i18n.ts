@@ -302,6 +302,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "quoteRequest.pickFileSub": "Dosyalardan PDF veya görsel",
     "quoteRequest.takePhoto": "Ağız İçi Fotoğraf Çek",
     "quoteRequest.takePhotoSub": "Kamerayı aç",
+    "quoteRequest.intraoralCount": "ağız içi fotoğraf",
 
     "profile.findClinic": "Klinik Bul",
     "profile.findClinicSub": "Bir kliniğe bağlanarak tedavinizi takip edin.",
@@ -1481,6 +1482,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "quoteRequest.pickFileSub": "PDF or image from files",
     "quoteRequest.takePhoto": "Take Intraoral Photo",
     "quoteRequest.takePhotoSub": "Open camera",
+    "quoteRequest.intraoralCount": "intraoral photos",
 
     "profile.findClinic": "Find a Clinic",
     "profile.findClinicSub": "Connect with a clinic to track your treatment.",
@@ -2675,6 +2677,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "quoteRequest.pickFileSub": "PDF ან სურათი ფაილებიდან",
     "quoteRequest.takePhoto": "ინტრაორალური ფოტოს გადაღება",
     "quoteRequest.takePhotoSub": "კამერის გახსნა",
+    "quoteRequest.intraoralCount": "ინტრაორალური ფოტო",
 
     "profile.findClinic": "კლინიკის პოვნა",
     "profile.findClinicSub": "დაუკავშირდით კლინიკას და თვალი ადევნეთ მკურნალობას.",
@@ -4410,6 +4413,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "quoteRequest.pickFileSub": "PDF или изображение из файлов",
     "quoteRequest.takePhoto": "Сделать внутриротовое фото",
     "quoteRequest.takePhotoSub": "Открыть камеру",
+    "quoteRequest.intraoralCount": "внутриротовых фото",
 
     "profile.findClinic": "Найти клинику",
     "profile.findClinicSub": "Подключитесь к клинике для отслеживания лечения.",
