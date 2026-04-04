@@ -380,10 +380,11 @@ export default function MyRequestsScreen() {
                                   router.push({
                                     pathname: '/rate',
                                     params: {
-                                      offerId:    offer.id,
-                                      type:       'experience',
-                                      clinicName: encodeURIComponent(offer.clinic_name || 'Clinic'),
-                                      doctorName: encodeURIComponent(offer.doctor_name || ''),
+                                      offerId:       offer.id,
+                                      type:          'experience',
+                                      clinicName:    encodeURIComponent(offer.clinic_name || 'Clinic'),
+                                      doctorName:    encodeURIComponent(offer.doctor_name || ''),
+                                      treatmentDone: ratedKeys.has(`${offer.id}:treatment`) ? '1' : '0',
                                     },
                                   })
                                 }

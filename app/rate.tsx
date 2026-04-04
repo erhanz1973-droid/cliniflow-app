@@ -46,18 +46,23 @@ export default function RateScreen() {
   const router  = useRouter();
   const { user } = useAuth();
   const params  = useLocalSearchParams<{
-    offerId:    string;
-    type:       string;
-    clinicName: string;
-    doctorName: string;
+    offerId:       string;
+    type:          string;
+    clinicName:    string;
+    doctorName:    string;
+    treatmentDone: string;
   }>();
 
-  const offerId    = params.offerId    || '';
-  const type       = (params.type === 'treatment' ? 'treatment' : 'experience') as RatingType;
-  const clinicName = decodeURIComponent(params.clinicName || 'Clinic');
-  const doctorName = decodeURIComponent(params.doctorName || 'Doctor');
+  const offerId      = params.offerId    || '';
+  const type         = (params.type === 'treatment' ? 'treatment' : 'experience') as RatingType;
+  const clinicName   = decodeURIComponent(params.clinicName || 'Clinic');
+  const doctorName   = decodeURIComponent(params.doctorName || 'Doctor');
+  const treatmentDone = params.treatmentDone === '1';
 
   const isExperience = type === 'experience';
+  // On experience rating: Price/Value is only shown when treatment is already completed.
+  // If treatment is still ongoing, only Communication is available.
+  const showPriceScore = isExperience && treatmentDone;
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [overall,       setOverall]       = useState(0);
@@ -80,8 +85,8 @@ export default function RateScreen() {
     try {
       const body: Record<string, any> = { offer_id: offerId, type, overall };
       if (isExperience) {
-        if (communication > 0) body.communication = communication;
-        if (price > 0)         body.price         = price;
+        if (communication > 0)              body.communication = communication;
+        if (showPriceScore && price > 0)    body.price         = price;
       } else {
         if (result > 0) body.result = result;
       }
@@ -182,7 +187,16 @@ export default function RateScreen() {
             {isExperience ? (
               <>
                 <SubScore label="Communication" value={communication} onChange={setCommunication} />
-                <SubScore label="Price / Value"  value={price}         onChange={setPrice}         />
+                {showPriceScore ? (
+                  <SubScore label="Price / Value" value={price} onChange={setPrice} />
+                ) : (
+                  <View style={ss.lockedRow}>
+                    <Text style={ss.lockedLabel}>Price / Value</Text>
+                    <View style={ss.lockedBadge}>
+                      <Text style={ss.lockedBadgeText}>🔒 After treatment</Text>
+                    </View>
+                  </View>
+                )}
               </>
             ) : (
               <SubScore label="Treatment result" value={result} onChange={setResult} />
@@ -282,6 +296,18 @@ const ss = StyleSheet.create({
     paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
   },
   subLabel: { fontSize: 14, color: '#374151', fontWeight: '500' },
+
+  // Locked sub-score (price, shown only after treatment)
+  lockedRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 10,
+  },
+  lockedLabel: { fontSize: 14, color: '#9CA3AF', fontWeight: '500' },
+  lockedBadge: {
+    backgroundColor: '#F3F4F6', borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  lockedBadgeText: { fontSize: 11, color: '#6B7280', fontWeight: '600' },
 
   // Textarea
   textarea: {
