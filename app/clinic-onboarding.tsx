@@ -13,12 +13,18 @@ import { API_BASE } from '../lib/api';
 const MAX_SELECT = 3;
 const ALL = '__ALL__';
 
+type ClinicRating = {
+  composite: number | null;
+  total_count: number;
+};
+
 type Clinic = {
   id: string;
   clinic_code: string;
   name: string;
   city: string | null;
   address: string | null;
+  rating?: ClinicRating | null;
 };
 
 export default function ClinicOnboardingScreen() {
@@ -157,9 +163,24 @@ export default function ClinicOnboardingScreen() {
         {/* Info */}
         <View style={styles.cardInfo}>
           <Text style={[styles.cardName, isDisabled && { color: '#9CA3AF' }]}>{item.name}</Text>
-          {item.city   ? <Text style={styles.cardCity}>📍 {item.city}</Text>   : null}
+          {item.city ? <Text style={styles.cardCity}>📍 {item.city}</Text> : null}
           {item.address ? <Text style={styles.cardAddr} numberOfLines={1}>{item.address}</Text> : null}
-          <Text style={styles.cardCode}>{item.clinic_code}</Text>
+
+          {/* Rating row */}
+          <View style={styles.ratingRow}>
+            {item.rating?.composite != null ? (
+              <>
+                <Text style={styles.ratingStar}>★</Text>
+                <Text style={styles.ratingScore}>{item.rating.composite.toFixed(1)}</Text>
+                <Text style={styles.ratingCount}>
+                  ({item.rating.total_count})
+                </Text>
+              </>
+            ) : (
+              <Text style={styles.ratingNew}>New</Text>
+            )}
+            <Text style={styles.cardCode}>{item.clinic_code}</Text>
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -402,8 +423,15 @@ const styles = StyleSheet.create({
   cardInfo: { flex: 1 },
   cardName: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 2 },
   cardCity: { fontSize: 12, color: '#6B7280', marginBottom: 2 },
-  cardAddr: { fontSize: 11, color: '#9CA3AF', marginBottom: 3 },
-  cardCode: { fontSize: 10, color: '#9CA3AF', fontWeight: '600', letterSpacing: 0.5 },
+  cardAddr: { fontSize: 11, color: '#9CA3AF', marginBottom: 4 },
+  cardCode: { fontSize: 10, color: '#9CA3AF', fontWeight: '600', letterSpacing: 0.5, marginLeft: 'auto' as any },
+
+  // Rating row
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
+  ratingStar: { fontSize: 13, color: '#F59E0B' },
+  ratingScore: { fontSize: 13, fontWeight: '700', color: '#111827' },
+  ratingCount: { fontSize: 12, color: '#6B7280', marginRight: 4 },
+  ratingNew: { fontSize: 11, color: '#10B981', fontWeight: '700', marginRight: 4 },
 
   // Checkbox
   checkbox: {
