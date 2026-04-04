@@ -282,6 +282,20 @@ export default function DoctorPatientsScreen() {
                     >
                       <Text style={styles.actionBtnText}>{t('doctor.patients.files')}</Text>
                     </Pressable>
+                    {/* Messages button — opens chat with this patient */}
+                    {p.patient_id && (
+                      <Pressable
+                        style={[styles.actionBtn, styles.actionBtnMsg]}
+                        onPress={() =>
+                          router.push({
+                            pathname: '/chat',
+                            params: { patientId: p.patient_id },
+                          })
+                        }
+                      >
+                        <Text style={[styles.actionBtnText, { color: '#fff' }]}>💬 {t('doctor.patients.messages') || 'Messages'}</Text>
+                      </Pressable>
+                    )}
                   </View>
                 </View>
               );
@@ -381,6 +395,7 @@ const styles = StyleSheet.create({
   actionBtnGreen: { backgroundColor: '#059669' },
   actionBtnGray: { backgroundColor: '#374151' },
   actionBtnPurple: { backgroundColor: '#7C3AED' },
+  actionBtnMsg: { backgroundColor: '#2563EB' },
   actionBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
 
   // Empty

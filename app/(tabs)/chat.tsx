@@ -293,8 +293,7 @@ export default function ChatScreen() {
       if (!user?.token || !patientId) return;
       
       try {
-        const res = await fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/messages`, {
-          headers: { Authorization: `Bearer ${user.token}` },
+        const res = await fetchWithRole(`/${encodeURIComponent(patientId)}/messages`, {
           cache: "no-store",
         });
 
@@ -381,12 +380,9 @@ export default function ChatScreen() {
     isSendingMessageRef.current = true;
 
     try {
-      const res = await fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/messages`, {
+      const res = await fetchWithRole(`/${encodeURIComponent(patientId)}/messages`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${user.token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: text.trim(),
           type: "text",
