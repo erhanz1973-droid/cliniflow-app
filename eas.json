@@ -6,7 +6,11 @@
   },
   "submit": {
     "production": {
-      "ios": {}
+      "ios": {
+        "appleId": "",
+        "ascAppId": "",
+        "reviewNotes": "Test Account:\nPhone: +15555550100\nClinic Code: DEMO01\nPassword: not required\n\nOTP/SMS verification is DISABLED for this test account — the app logs in directly without any SMS code.\n\nThis is a dental clinic patient app. The test account is pre-configured with demo treatment records, referral data, and a treatment plan for review."
+      }
     }
   }
 }
