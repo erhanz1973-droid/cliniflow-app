@@ -65,6 +65,7 @@ type Request = {
   created_at: string;
   offer_count: number;
   my_offer_id: string | null;
+  unread_count: number;
   is_assigned_to_me: boolean;
   photos: Array<{ url: string; type: string }> | null;
 };
@@ -303,7 +304,13 @@ function RequestCard({
         </View>
         <View style={cs.topRight}>
           <Text style={cs.ts}>{fmtTs(req.created_at, t)}</Text>
-          <View style={[cs.statusDot, isPending ? cs.statusDotPending : cs.statusDotAnswered]} />
+          {req.unread_count > 0 ? (
+            <View style={cs.unreadBadge}>
+              <Text style={cs.unreadBadgeText}>{req.unread_count > 99 ? '99+' : req.unread_count}</Text>
+            </View>
+          ) : (
+            <View style={[cs.statusDot, isPending ? cs.statusDotPending : cs.statusDotAnswered]} />
+          )}
         </View>
       </View>
 
@@ -399,11 +406,14 @@ function RequestCard({
         isChatsFilter ? (
           /* Chat-focused layout: full-width open chat button */
           <TouchableOpacity
-            style={cs.chatBtnFull}
+            style={[cs.chatBtnFull, req.unread_count > 0 && cs.chatBtnFullUnread]}
             onPress={() => onChat(req.my_offer_id!)}
             activeOpacity={0.85}
           >
-            <Text style={cs.chatBtnFullText}>💬 {t('requests.card.openChat') || 'Open Conversation'}</Text>
+            <Text style={cs.chatBtnFullText}>
+              💬 {t('requests.card.openChat') || 'Open Conversation'}
+              {req.unread_count > 0 ? `  •  ${req.unread_count} ${t('requests.card.newMessages') || 'new'}` : ''}
+            </Text>
           </TouchableOpacity>
         ) : (
           <View style={cs.answeredRow}>
@@ -707,7 +717,14 @@ const cs = StyleSheet.create({
     backgroundColor: '#2563EB', borderRadius: 10, paddingVertical: 12,
     alignItems: 'center', marginTop: 10,
   },
+  chatBtnFullUnread: { backgroundColor: '#DC2626' }, // red when there are unread messages
   chatBtnFullText: { fontSize: 14, fontWeight: '800', color: '#fff', letterSpacing: 0.2 },
+  // Unread message badge (top-right of card, replaces the status dot)
+  unreadBadge: {
+    backgroundColor: '#DC2626', borderRadius: 10, minWidth: 20, height: 20,
+    paddingHorizontal: 5, alignItems: 'center', justifyContent: 'center',
+  },
+  unreadBadgeText: { fontSize: 11, fontWeight: '800', color: '#fff' },
 });
 
 const ms = StyleSheet.create({

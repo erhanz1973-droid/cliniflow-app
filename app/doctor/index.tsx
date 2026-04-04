@@ -4,7 +4,7 @@ import {
   View, Text, ScrollView, Pressable, StyleSheet,
   SafeAreaView, ActivityIndicator, RefreshControl, Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { apiGet, API_BASE } from '../../lib/api';
 import { useLanguage } from '../../lib/language-context';
@@ -131,6 +131,11 @@ export default function DoctorDashboard() {
   }, [loadInboxBadge]);
 
   useEffect(() => { if (isAuthReady && user?.type === 'doctor') load(); }, [isAuthReady, user, load]);
+
+  // Refresh badge every time the screen comes into focus (e.g. after closing a chat)
+  useFocusEffect(useCallback(() => {
+    if (isAuthReady && user?.type === 'doctor') loadInboxBadge();
+  }, [isAuthReady, user, loadInboxBadge]));
 
   // Poll inbox badge every 30s
   useEffect(() => {

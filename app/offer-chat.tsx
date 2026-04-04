@@ -91,6 +91,17 @@ export default function OfferChatScreen() {
 
   const myRole = user?.type === 'doctor' ? 'doctor' : 'patient';
 
+  // Mark all patient messages in this thread as read (doctor only)
+  const markAsRead = useCallback(async () => {
+    if (!user?.token || !offerId || user?.type !== 'doctor') return;
+    try {
+      await fetch(`${API_BASE}/api/offer-messages/${encodeURIComponent(offerId)}/read`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+    } catch { /* silent — badge will auto-correct on next poll */ }
+  }, [user?.token, user?.type, offerId]);
+
   const fetchMessages = useCallback(async (silent = false) => {
     if (!user?.token || !offerId) return;
     if (!silent) setError(null);
@@ -110,8 +121,11 @@ export default function OfferChatScreen() {
   }, [user?.token, offerId, t]);
 
   useEffect(() => {
-    fetchMessages(false).then(() => setLoading(false));
-  }, [fetchMessages]);
+    fetchMessages(false).then(() => {
+      setLoading(false);
+      markAsRead(); // mark existing messages as read as soon as chat opens
+    });
+  }, [fetchMessages, markAsRead]);
 
   useEffect(() => {
     pollRef.current = setInterval(() => fetchMessages(true), 5000);
