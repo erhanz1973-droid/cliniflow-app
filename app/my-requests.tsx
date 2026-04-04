@@ -2,7 +2,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  SafeAreaView, ActivityIndicator, RefreshControl,
+  SafeAreaView, ActivityIndicator, RefreshControl, Alert,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../lib/auth';
@@ -118,16 +118,58 @@ function fmtDate(iso: string) {
 
 export default function MyRequestsScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, signIn } = useAuth();
   const { t } = useLanguage();
 
-  const [requests, setRequests]     = useState<Request[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError]           = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [requests, setRequests]       = useState<Request[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [refreshing, setRefreshing]   = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+  const [expandedId, setExpandedId]   = useState<string | null>(null);
+  const [joiningClinic, setJoiningClinic] = useState<string | null>(null); // offer.id being joined
   // Set of "clinicId:type" (or "offer:offerId:type") keys for already-rated entries
-  const [ratedKeys, setRatedKeys]   = useState<Set<RatingKey>>(new Set());
+  const [ratedKeys, setRatedKeys]     = useState<Set<RatingKey>>(new Set());
+
+  // Patient's current clinic_id (from token)
+  const currentClinicId = String((user as any)?.clinicId || '').trim();
+
+  const joinClinic = useCallback(async (clinicId: string, clinicName: string, offerId: string) => {
+    Alert.alert(
+      t('treatReq.joinClinic.title') || 'Kliniğe Katıl',
+      (t('treatReq.joinClinic.confirm') || '{clinic} kliniği ile devam etmek istiyor musunuz?').replace('{clinic}', clinicName),
+      [
+        { text: t('common.cancel') || 'İptal', style: 'cancel' },
+        {
+          text: t('treatReq.joinClinic.yes') || 'Evet, Katıl',
+          onPress: async () => {
+            setJoiningClinic(offerId);
+            try {
+              const res = await fetch(`${API_BASE}/api/patient/clinic`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${user?.token}`,
+                },
+                body: JSON.stringify({ clinic_id: clinicId }),
+              });
+              const data = await res.json();
+              if (!data?.ok) throw new Error(data?.error || 'error');
+              // Update stored auth token so clinic association is reflected immediately
+              await signIn({ ...user, token: data.token, clinicId: data.clinic.id, clinicCode: data.clinic.clinic_code });
+              Alert.alert(
+                t('treatReq.joinClinic.successTitle') || '✅ Klinik Eklendi',
+                (t('treatReq.joinClinic.successMsg') || '{clinic} kliniğinize eklendi.').replace('{clinic}', data.clinic.name)
+              );
+            } catch (e: any) {
+              Alert.alert(t('common.error'), e.message || t('common.pleaseRetry'));
+            } finally {
+              setJoiningClinic(null);
+            }
+          },
+        },
+      ]
+    );
+  }, [user, signIn, t]);
 
   const load = useCallback(async () => {
     if (!user?.token) return;
@@ -397,6 +439,21 @@ export default function MyRequestsScreen() {
 
                                 {/* Action buttons row */}
                                 <View style={styles.actionRow}>
+                                  {/* Join Clinic — shown when offer has a clinic and patient is not yet linked to it */}
+                                  {offer.clinic_id && offer.clinic_id !== currentClinicId && (
+                                    <TouchableOpacity
+                                      style={[styles.joinBtn, styles.actionBtn]}
+                                      disabled={joiningClinic === offer.id}
+                                      onPress={() => joinClinic(offer.clinic_id!, offer.clinic_name || t('treatReq.clinic') || 'Clinic', offer.id)}
+                                    >
+                                      {joiningClinic === offer.id ? (
+                                        <ActivityIndicator size="small" color="#fff" />
+                                      ) : (
+                                        <Text style={styles.joinBtnText}>🏥 {t('treatReq.joinClinic.btn') || 'Kliniğe Katıl'}</Text>
+                                      )}
+                                    </TouchableOpacity>
+                                  )}
+
                                   {/* Message Doctor */}
                                   <TouchableOpacity
                                     style={[styles.msgBtn, styles.actionBtn]}
@@ -568,6 +625,11 @@ const styles = StyleSheet.create({
   // Action row
   actionRow: { flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' },
   actionBtn: { flex: 1, minWidth: 80 },
+  joinBtn: {
+    backgroundColor: '#16A34A', borderRadius: 8, paddingVertical: 9,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  joinBtnText: { fontSize: 12, fontWeight: '800', color: '#fff' },
 
   msgBtn: {
     backgroundColor: '#EFF6FF', borderRadius: 8, borderWidth: 1,
