@@ -121,16 +121,23 @@ export default function ProfileScreen() {
       const data = await res.json();
       if (!data.ok) {
         if (data.error === "clinic_not_found") throw new Error(t("profile.joinModal.errorNotFound") || "Klinik bulunamadı.");
-        if (data.error === "referral_code_invalid") throw new Error(t("profile.joinModal.errorReferral") || "Referral kodu geçersiz ya da bu klinikte kayıtlı değil.");
         throw new Error(data.error || "join_failed");
       }
       await signIn({ ...user, token: data.token, clinicId: data.clinic.id, clinicCode: data.clinic.clinic_code, type: "patient" });
       setJoinModal(false);
       setJoinClinicCode('');
       setJoinReferralCode('');
-      const successMsg = data.referral
-        ? (t("profile.joinModal.successReferral") || "Kliniğe katıldınız! Referral indiriminiz aktif edilecek.").replace("{clinic}", data.clinic.name)
-        : (t("profile.joinModal.success") || "Kliniğe başarıyla katıldınız!").replace("{clinic}", data.clinic.name);
+      // Referral may have succeeded, failed, or not been requested
+      const refOk = data.referral && !data.referral.error;
+      const refBad = data.referral?.error;
+      let successMsg: string;
+      if (refOk) {
+        successMsg = (t("profile.joinModal.successReferral") || "Kliniğe katıldınız! Referral indiriminiz aktif edilecek.").replace("{clinic}", data.clinic.name);
+      } else if (refBad) {
+        successMsg = (t("profile.joinModal.successNoReferral") || "Kliniğe katıldınız! Ancak referral kodu geçersiz — indirim uygulanmadı.").replace("{clinic}", data.clinic.name);
+      } else {
+        successMsg = (t("profile.joinModal.success") || "Kliniğe başarıyla katıldınız!").replace("{clinic}", data.clinic.name);
+      }
       Alert.alert("✅ " + data.clinic.name, successMsg);
     } catch (err: any) {
       Alert.alert(t("common.error") || "Hata", err.message);
