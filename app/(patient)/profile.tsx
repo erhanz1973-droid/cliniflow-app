@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Alert, Image, ActivityIndicator, Platform, Modal, Linking,
@@ -36,19 +36,66 @@ const pickerImageOptions: ImagePicker.ImagePickerOptions = {
 };
 
 export default function ProfileScreen() {
-  const { user, signOut, patchUser } = useAuth();
+  const { user, signOut, patchUser, signIn } = useAuth();
   const router = useRouter();
   const { t, currentLanguage, setLanguage } = useLanguage();
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [localPhotoUri, setLocalPhotoUri] = useState<string | null>(null);
   const [privacyVisible, setPrivacyVisible] = useState(false);
+  const [leavingClinic, setLeavingClinic] = useState(false);
 
   const name = String(user?.name || t("profile.name")).trim();
   const phone = String(user?.phone || "").trim();
   const clinicCode = String((user as any)?.clinicCode || "").trim();
+  const clinicId   = String((user as any)?.clinicId   || "").trim();
+  const hasClinic  = !!(clinicCode || clinicId);
   const status = String((user as any)?.status || "").trim();
   const storedPhoto = (user as { profilePhotoUrl?: string })?.profilePhotoUrl;
   const photoUri = localPhotoUri || toDisplayPhotoUrl(storedPhoto);
+
+  const leaveClinic = useCallback(() => {
+    Alert.alert(
+      t("profile.leaveClinic.title") || "Klinikten Ayrıl",
+      t("profile.leaveClinic.warning") ||
+        "Kliniğinizle olan referral bağınız ve indiriminiz sona erecek.\n\nİlerde tekrar davet ederek veya edilerek avantajlardan yeniden yararlanabilirsiniz.",
+      [
+        { text: t("common.cancel") || "Vazgeç", style: "cancel" },
+        {
+          text: t("profile.leaveClinic.confirm") || "Evet, Ayrıl",
+          style: "destructive",
+          onPress: async () => {
+            if (!user?.token) return;
+            setLeavingClinic(true);
+            try {
+              const res = await fetch(`${API_BASE}/api/patient/clinic`, {
+                method: "DELETE",
+                headers: { Authorization: `Bearer ${user.token}` },
+              });
+              const data = await res.json();
+              if (!data.ok) throw new Error(data.error || "leave_failed");
+              // Update stored session — clear clinic fields and refresh token
+              await signIn({
+                ...user,
+                token: data.token,
+                clinicId: undefined,
+                clinicCode: undefined,
+                type: "patient",
+              });
+              Alert.alert(
+                t("profile.leaveClinic.successTitle") || "Klinikten Ayrıldınız",
+                t("profile.leaveClinic.successMsg") || "Artık yeni bir klinik arayabilirsiniz.",
+                [{ text: "OK" }]
+              );
+            } catch (err: any) {
+              Alert.alert(t("common.error") || "Hata", err.message);
+            } finally {
+              setLeavingClinic(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [user, t, signIn]);
 
   const uploadPhoto = async (uri: string, mimeType: string) => {
     if (!user?.token) return;
@@ -204,9 +251,31 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {/* FIND A CLINIC — shown when patient has no clinic */}
-      {!clinicCode && (
-        <View style={styles.section}>
+      {/* CLINIC SECTION — Find a Clinic or Leave Clinic depending on membership */}
+      <View style={styles.section}>
+        {hasClinic ? (
+          /* LEAVE CLINIC */
+          <TouchableOpacity
+            style={styles.leaveClinicBtn}
+            onPress={leaveClinic}
+            activeOpacity={0.85}
+            disabled={leavingClinic}
+          >
+            {leavingClinic ? (
+              <ActivityIndicator size="small" color="#DC2626" style={{ marginRight: 8 }} />
+            ) : (
+              <Text style={styles.leaveClinicIcon}>🚪</Text>
+            )}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.leaveClinicTitle}>{t("profile.leaveClinic.btn") || "Klinikten Ayrıl"}</Text>
+              <Text style={styles.leaveClinicSub}>
+                {clinicCode ? `${t("profile.clinicCode")}: ${clinicCode}` : t("profile.leaveClinic.sub") || "Klinik üyeliğinizi sonlandırın"}
+              </Text>
+            </View>
+            <Text style={[styles.menuBtnArrow, { color: "#DC2626" }]}>›</Text>
+          </TouchableOpacity>
+        ) : (
+          /* FIND A CLINIC */
           <TouchableOpacity
             style={styles.findClinicBtn}
             onPress={() => router.push("/clinic-onboarding" as any)}
@@ -219,8 +288,8 @@ export default function ProfileScreen() {
             </View>
             <Text style={styles.menuBtnArrow}>›</Text>
           </TouchableOpacity>
-        </View>
-      )}
+        )}
+      </View>
 
       {/* LANGUAGE */}
       <View style={styles.section}>
@@ -377,6 +446,13 @@ const styles = StyleSheet.create({
   findClinicIcon: { fontSize: 22 },
   findClinicTitle: { fontSize: 15, fontWeight: "700", color: "#1D4ED8", marginBottom: 2 },
   findClinicSub: { fontSize: 12, color: "#3B82F6", lineHeight: 17 },
+  leaveClinicBtn: {
+    backgroundColor: "#FFF1F2", borderRadius: 14, borderWidth: 1, borderColor: "#FECACA",
+    padding: 16, flexDirection: "row", alignItems: "center", gap: 12,
+  },
+  leaveClinicIcon: { fontSize: 22 },
+  leaveClinicTitle: { fontSize: 15, fontWeight: "700", color: "#DC2626", marginBottom: 2 },
+  leaveClinicSub: { fontSize: 12, color: "#EF4444", lineHeight: 17 },
   menuBtnArrow: { fontSize: 20, color: "#9ca3af" },
   legalBtn: {
     flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14, gap: 12,
