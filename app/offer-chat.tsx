@@ -24,7 +24,7 @@ const PHOTO_STEP_KEYS = [
 type Message = {
   id: string;
   sender_id: string;
-  sender_role: 'patient' | 'doctor';
+  sender_role: 'patient' | 'doctor' | 'system';
   sender_name: string;
   text: string | null;
   attachment_url: string | null;
@@ -386,6 +386,22 @@ export default function OfferChatScreen() {
                   </View>
                 );
               }
+              // System event messages rendered as a centred notification strip
+              if (item.sender_role === 'system') {
+                const systemText =
+                  item.text === 'clinic_joined'
+                    ? t('chat.systemClinicJoined') || '✅ Hasta klinik kaydını tamamladı'
+                    : item.text || '';
+                return (
+                  <View style={styles.systemMsgRow}>
+                    <View style={styles.systemMsgBubble}>
+                      <Text style={styles.systemMsgText}>{systemText}</Text>
+                      <Text style={styles.systemMsgTime}>{fmtTime(item.created_at)}</Text>
+                    </View>
+                  </View>
+                );
+              }
+
               const isMe = item.sender_role === myRole;
               const hasImage = item.attachment_url &&
                 (item.attachment_type === 'image' || item.attachment_type === 'xray');
@@ -724,6 +740,16 @@ const styles = StyleSheet.create({
   },
   dateLine: { flex: 1, height: 1, backgroundColor: '#E5E7EB' },
   dateText: { fontSize: 11, color: '#9CA3AF', fontWeight: '600' },
+
+  systemMsgRow: { alignItems: 'center', marginVertical: 10 },
+  systemMsgBubble: {
+    backgroundColor: '#D1FAE5', borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 8,
+    maxWidth: '80%', alignItems: 'center',
+    borderWidth: 1, borderColor: '#6EE7B7',
+  },
+  systemMsgText: { fontSize: 13, color: '#065F46', fontWeight: '600', textAlign: 'center' },
+  systemMsgTime: { fontSize: 10, color: '#6EE7B7', marginTop: 3 },
 
   bubbleRow: { flexDirection: 'row', marginBottom: 10, alignItems: 'flex-end' },
   bubbleRowMe: { justifyContent: 'flex-end' },
