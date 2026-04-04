@@ -202,7 +202,17 @@ export default function MyRequestsScreen() {
     }
   }, [user?.token, t]);
 
-  useFocusEffect(useCallback(() => { setLoading(true); load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    setLoading(true);
+    load();
+    // Mark all answered offers as seen — clears the home screen badge
+    if (user?.token) {
+      fetch(`${API_BASE}/api/patient/treatment-requests/mark-seen`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user.token}` },
+      }).catch(() => {});
+    }
+  }, [load, user?.token]));
 
   const onRefresh = () => { setRefreshing(true); load(); };
 

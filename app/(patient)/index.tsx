@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, RefreshControl,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useAuth } from "../../lib/auth";
 import { API_BASE } from "../../lib/api";
 import { useLanguage } from "../../lib/language-context";
@@ -137,6 +137,8 @@ function statusColor(s: string) {
 export default function PatientDashboard() {
   const { user, signOut } = useAuth();
   const { t } = useLanguage();
+  // Patient is linked to a clinic — hide marketplace/request features
+  const hasClinic = !!String((user as any)?.clinicId || (user as any)?.clinicCode || '').trim();
   const locale = useDateLocale();
   const greeting = useGreeting();
   const statusLabel = useStatusLabel();
@@ -306,6 +308,23 @@ export default function PatientDashboard() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Re-fetch only the inbox badge when screen comes back into focus
+  // (e.g. patient returns from my-requests after viewing offers)
+  const refreshInbox = useCallback(async () => {
+    if (!user?.token || !patientId) return;
+    const headers = { Authorization: `Bearer ${user.token}`, Accept: "application/json" };
+    try {
+      const inboxRes = await fetch(`${API_BASE}/api/patient/inbox-summary`, { headers }).catch(() => null);
+      const inboxJson = inboxRes ? await inboxRes.json().catch(() => ({})) : {};
+      setInboxSummary({
+        new_offers:      inboxJson.new_offers      || 0,
+        doctor_messages: inboxJson.doctor_messages || 0,
+      });
+    } catch {}
+  }, [user?.token, patientId]);
+
+  useFocusEffect(useCallback(() => { refreshInbox(); }, [refreshInbox]));
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -397,8 +416,8 @@ export default function PatientDashboard() {
         </TouchableOpacity>
       )}
 
-      {/* NEW DOCTOR OFFER BANNER */}
-      {inboxSummary.new_offers > 0 && (
+      {/* NEW DOCTOR OFFER BANNER — hidden once patient has joined a clinic */}
+      {!hasClinic && inboxSummary.new_offers > 0 && (
         <TouchableOpacity
           style={styles.offerBanner}
           onPress={() => router.push("/my-requests" as any)}
@@ -419,8 +438,8 @@ export default function PatientDashboard() {
         </TouchableOpacity>
       )}
 
-      {/* NEW DOCTOR MESSAGE BANNER (only if no offer banner shown) */}
-      {inboxSummary.new_offers === 0 && inboxSummary.doctor_messages > 0 && (
+      {/* NEW DOCTOR MESSAGE BANNER — hidden once patient has joined a clinic */}
+      {!hasClinic && inboxSummary.new_offers === 0 && inboxSummary.doctor_messages > 0 && (
         <TouchableOpacity
           style={styles.docMsgBanner}
           onPress={() => router.push("/my-requests" as any)}
@@ -445,21 +464,24 @@ export default function PatientDashboard() {
           <Text style={styles.quickIcon}>💬</Text>
           <Text style={styles.quickLabel}>{t("nav.messages")}</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.quickCard, (inboxSummary.new_offers > 0 || inboxSummary.doctor_messages > 0) && styles.quickCardAlert]}
-          onPress={() => router.push("/my-requests" as any)}
-          activeOpacity={0.8}
-        >
-          {(inboxSummary.new_offers > 0 || inboxSummary.doctor_messages > 0) && (
-            <View style={styles.quickBadge}>
-              <Text style={styles.quickBadgeText}>
-                {inboxSummary.new_offers || inboxSummary.doctor_messages}
-              </Text>
-            </View>
-          )}
-          <Text style={styles.quickIcon}>📩</Text>
-          <Text style={styles.quickLabel}>{t("home.quickOffers")}</Text>
-        </TouchableOpacity>
+        {/* Offers quick card — only shown when patient has no clinic yet */}
+        {!hasClinic && (
+          <TouchableOpacity
+            style={[styles.quickCard, (inboxSummary.new_offers > 0 || inboxSummary.doctor_messages > 0) && styles.quickCardAlert]}
+            onPress={() => router.push("/my-requests" as any)}
+            activeOpacity={0.8}
+          >
+            {(inboxSummary.new_offers > 0 || inboxSummary.doctor_messages > 0) && (
+              <View style={styles.quickBadge}>
+                <Text style={styles.quickBadgeText}>
+                  {inboxSummary.new_offers || inboxSummary.doctor_messages}
+                </Text>
+              </View>
+            )}
+            <Text style={styles.quickIcon}>📩</Text>
+            <Text style={styles.quickLabel}>{t("home.quickOffers")}</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/(patient)/timeline" as any)} activeOpacity={0.8}>
           <Text style={styles.quickIcon}>✈️</Text>
           <Text style={styles.quickLabel}>{t("nav.journey")}</Text>
