@@ -59,18 +59,20 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 
   const t = useCallback(
     (key: string, params?: Record<string, string | number>): string => {
-      // DEBUG: Disable Turkish fallback to see missing translations
-      const translation = translations[currentLanguage]?.[key] || key;
-      
+      const translation =
+        translations[currentLanguage]?.[key] ||
+        translations['tr']?.[key] ||
+        '';
+
       if (params) {
         return translation.replace(/\{(\w+)\}/g, (match: string, paramKey: string) => {
           return params[paramKey]?.toString() || match;
         });
       }
-      
+
       return translation;
     },
-    [currentLanguage, translations]
+    [currentLanguage]
   );
 
   const value: LanguageContextType = {
