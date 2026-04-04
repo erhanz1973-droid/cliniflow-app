@@ -96,13 +96,13 @@ export default function QuoteRequestScreen() {
             {/* Header */}
             <View style={styles.formHeader}>
               <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                <Text style={styles.backBtnText}>‹  Back</Text>
+                <Text style={styles.backBtnText}>‹  {t('common.back') || 'Back'}</Text>
               </TouchableOpacity>
               <Text style={styles.formTitle}>
                 {t('quoteRequest.title') || 'Tell us about your treatment'}
               </Text>
               <Text style={styles.formSubtitle}>
-                {t('quoteRequest.subtitle') || `Your request will be sent to ${cliniCount} clinic${cliniCount > 1 ? 's' : ''}.`}
+                {(t('quoteRequest.subtitle') || 'Your request will be sent to {count} clinic(s).').replace('{count}', String(cliniCount))}
               </Text>
             </View>
 
@@ -160,7 +160,7 @@ export default function QuoteRequestScreen() {
           <View style={styles.footer}>
             <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit} activeOpacity={0.85}>
               <Text style={styles.submitBtnText}>
-                {t('quoteRequest.sendBtn') || `Send Request to ${cliniCount} Clinic${cliniCount > 1 ? 's' : ''}`}
+                {(t('quoteRequest.sendBtn') || 'Send Request to {count} Clinics').replace('{count}', String(cliniCount))}
               </Text>
             </TouchableOpacity>
           </View>
