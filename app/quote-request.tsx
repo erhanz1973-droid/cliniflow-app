@@ -5,8 +5,10 @@ import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   SafeAreaView, ActivityIndicator, KeyboardAvoidingView,
-  Platform, ScrollView, Alert,
+  Platform, ScrollView, Alert, Image, Modal, Pressable,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/language-context';
@@ -21,6 +23,13 @@ type Clinic = {
 };
 
 type Phase = 'form' | 'loading' | 'success';
+
+type Attachment = {
+  uri: string;       // local URI for preview
+  url: string;       // uploaded public URL
+  type: 'image' | 'document';
+  name: string;
+};
 
 export default function QuoteRequestScreen() {
   const router  = useRouter();
@@ -44,7 +53,90 @@ export default function QuoteRequestScreen() {
   const [description, setDescription] = useState('');
   const [sentIds, setSentIds]         = useState<string[]>([]);
 
+  // Attachment state
+  const [attachment, setAttachment]   = useState<Attachment | null>(null);
+  const [uploading, setUploading]     = useState(false);
+  const [attachMenu, setAttachMenu]   = useState(false);
+
   const cliniCount = selectedClinics.length;
+
+  // ── Upload helper ──────────────────────────────────────────────────────────
+  const uploadFile = async (uri: string, mimeType: string, fileName: string): Promise<string> => {
+    const formData = new FormData();
+    formData.append('file', { uri, type: mimeType, name: fileName } as any);
+
+    const res = await fetch(`${API_BASE}/api/patient/treatment-requests/upload`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${user!.token}` },
+      body: formData,
+    });
+    const data = await res.json();
+    if (!data?.ok) throw new Error(data?.error || 'upload_failed');
+    return data.url as string;
+  };
+
+  // ── Pick from gallery ──────────────────────────────────────────────────────
+  const pickPhoto = async () => {
+    setAttachMenu(false);
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(safeT('common.error', 'Error'), 'Photo library permission required');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.85,
+      allowsEditing: false,
+    });
+    if (result.canceled || !result.assets?.length) return;
+    const asset = result.assets[0];
+    await doUpload(asset.uri, asset.mimeType || 'image/jpeg', asset.fileName || `photo_${Date.now()}.jpg`, 'image');
+  };
+
+  // ── Take with camera ───────────────────────────────────────────────────────
+  const takePhoto = async () => {
+    setAttachMenu(false);
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(safeT('common.error', 'Error'), 'Camera permission required');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.85,
+    });
+    if (result.canceled || !result.assets?.length) return;
+    const asset = result.assets[0];
+    await doUpload(asset.uri, asset.mimeType || 'image/jpeg', asset.fileName || `intraoral_${Date.now()}.jpg`, 'image');
+  };
+
+  // ── Pick document / x-ray ─────────────────────────────────────────────────
+  const pickFile = async () => {
+    setAttachMenu(false);
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['image/*', 'application/pdf'],
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled || !result.assets?.length) return;
+    const asset = result.assets[0];
+    const mime  = asset.mimeType || 'application/octet-stream';
+    const type: 'image' | 'document' = mime.startsWith('image/') ? 'image' : 'document';
+    await doUpload(asset.uri, mime, asset.name || `file_${Date.now()}`, type);
+  };
+
+  // ── Common upload + state setter ───────────────────────────────────────────
+  const doUpload = async (uri: string, mime: string, name: string, type: 'image' | 'document') => {
+    if (!user?.token) return;
+    setUploading(true);
+    try {
+      const url = await uploadFile(uri, mime, name);
+      setAttachment({ uri, url, type, name });
+    } catch (e: any) {
+      Alert.alert(safeT('common.error', 'Error'), e.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   // ── Submit handler ────────────────────────────────────────────────────────
   const handleSubmit = async () => {
@@ -75,6 +167,7 @@ export default function QuoteRequestScreen() {
           body: JSON.stringify({
             description: trimmed,
             target_clinic_id: clinic.id,
+            photos: attachment?.url ? [attachment.url] : [],
           }),
         });
         const data = await res.json();
@@ -87,7 +180,6 @@ export default function QuoteRequestScreen() {
       }
     }
 
-    // Small pause so the user sees each tick animate
     await new Promise(r => setTimeout(r, 400));
     setPhase('success');
   };
@@ -144,33 +236,126 @@ export default function QuoteRequestScreen() {
               <Text style={styles.charCount}>{description.length} / 2000</Text>
             </View>
 
-            {/* Photo upload — optional placeholder */}
+            {/* Photo / File attachment */}
             <View style={styles.fieldCard}>
               <Text style={styles.fieldLabel}>
                 {safeT('quoteRequest.photoLabel', 'Attach a photo')}
                 <Text style={styles.optional}>  ({safeT('quoteRequest.optional', 'optional')})</Text>
               </Text>
-              <TouchableOpacity style={styles.photoPlaceholder} activeOpacity={0.7}
-                onPress={() => Alert.alert('Coming soon', 'Photo upload will be available in a future update.')}
-              >
-                <Text style={styles.photoIcon}>📷</Text>
-                <Text style={styles.photoHint}>
-                  {safeT('quoteRequest.photoHint', 'Tap to add a photo (X-ray, intraoral, etc.)')}
-                </Text>
-              </TouchableOpacity>
+
+              {attachment ? (
+                /* Preview of uploaded file */
+                <View style={styles.previewBox}>
+                  {attachment.type === 'image' ? (
+                    <Image source={{ uri: attachment.uri }} style={styles.previewImage} resizeMode="cover" />
+                  ) : (
+                    <View style={styles.previewDoc}>
+                      <Text style={styles.previewDocIcon}>📄</Text>
+                      <Text style={styles.previewDocName} numberOfLines={2}>{attachment.name}</Text>
+                    </View>
+                  )}
+                  <TouchableOpacity style={styles.removeBtn} onPress={() => setAttachment(null)}>
+                    <Text style={styles.removeBtnText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : uploading ? (
+                <View style={styles.uploadingBox}>
+                  <ActivityIndicator size="small" color="#2563EB" />
+                  <Text style={styles.uploadingText}>
+                    {safeT('quoteRequest.uploading', 'Uploading...')}
+                  </Text>
+                </View>
+              ) : (
+                /* Attach button */
+                <TouchableOpacity
+                  style={styles.attachBtn}
+                  activeOpacity={0.7}
+                  onPress={() => setAttachMenu(true)}
+                >
+                  <Text style={styles.attachBtnIcon}>📎</Text>
+                  <Text style={styles.attachBtnText}>
+                    {safeT('quoteRequest.photoHint', 'Tap to add a photo (X-ray, intraoral, etc.)')}
+                  </Text>
+                  <Text style={styles.attachBtnArrow}>›</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
           </ScrollView>
 
           {/* Footer */}
           <View style={styles.footer}>
-            <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit} activeOpacity={0.85}>
+            <TouchableOpacity
+              style={[styles.submitBtn, uploading && styles.submitBtnDisabled]}
+              onPress={handleSubmit}
+              activeOpacity={0.85}
+              disabled={uploading}
+            >
               <Text style={styles.submitBtnText}>
                 {safeT('quoteRequest.sendBtn', `Send Request to ${cliniCount} Clinics`, { count: cliniCount })}
               </Text>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+
+        {/* ── Attach action sheet ── */}
+        <Modal
+          visible={attachMenu}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setAttachMenu(false)}
+        >
+          <Pressable style={styles.sheetOverlay} onPress={() => setAttachMenu(false)}>
+            <Pressable style={styles.sheet} onPress={e => e.stopPropagation()}>
+              <View style={styles.sheetHandle} />
+              <Text style={styles.sheetTitle}>
+                {safeT('quoteRequest.photoLabel', 'Add a photo or file')}
+              </Text>
+
+              <TouchableOpacity style={styles.sheetRow} onPress={pickPhoto}>
+                <Text style={styles.sheetRowIcon}>🖼️</Text>
+                <View style={styles.sheetRowInfo}>
+                  <Text style={styles.sheetRowLabel}>
+                    {safeT('quoteRequest.pickPhoto', 'Select Photo')}
+                  </Text>
+                  <Text style={styles.sheetRowSub}>
+                    {safeT('quoteRequest.pickPhotoSub', 'Choose from your gallery')}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.sheetRow} onPress={pickFile}>
+                <Text style={styles.sheetRowIcon}>📁</Text>
+                <View style={styles.sheetRowInfo}>
+                  <Text style={styles.sheetRowLabel}>
+                    {safeT('quoteRequest.pickFile', 'Select File / X-ray')}
+                  </Text>
+                  <Text style={styles.sheetRowSub}>
+                    {safeT('quoteRequest.pickFileSub', 'PDF or image from files')}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.sheetRow} onPress={takePhoto}>
+                <Text style={styles.sheetRowIcon}>📸</Text>
+                <View style={styles.sheetRowInfo}>
+                  <Text style={styles.sheetRowLabel}>
+                    {safeT('quoteRequest.takePhoto', 'Take Intraoral Photo')}
+                  </Text>
+                  <Text style={styles.sheetRowSub}>
+                    {safeT('quoteRequest.takePhotoSub', 'Open camera')}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.sheetCancel} onPress={() => setAttachMenu(false)}>
+                <Text style={styles.sheetCancelText}>
+                  {safeT('common.cancel', 'Cancel')}
+                </Text>
+              </TouchableOpacity>
+            </Pressable>
+          </Pressable>
+        </Modal>
       </SafeAreaView>
     );
   }
@@ -213,7 +398,6 @@ export default function QuoteRequestScreen() {
         {safeT('quoteRequest.successSub', 'You will receive offers shortly')}
       </Text>
 
-      {/* Clinic confirmation list */}
       <View style={styles.confirmList}>
         {selectedClinics.map(c => (
           <View key={c.id} style={styles.confirmRow}>
@@ -284,12 +468,41 @@ const styles = StyleSheet.create({
   },
   charCount: { fontSize: 11, color: '#9CA3AF', textAlign: 'right', marginTop: 5 },
 
-  photoPlaceholder: {
+  // Attach button (no attachment)
+  attachBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
     borderWidth: 1.5, borderColor: '#D1D5DB', borderStyle: 'dashed', borderRadius: 12,
-    paddingVertical: 20, alignItems: 'center', gap: 8, backgroundColor: '#F9FAFB',
+    paddingVertical: 16, paddingHorizontal: 14, backgroundColor: '#F9FAFB',
   },
-  photoIcon: { fontSize: 28 },
-  photoHint: { fontSize: 12, color: '#9CA3AF', textAlign: 'center' },
+  attachBtnIcon: { fontSize: 22 },
+  attachBtnText: { flex: 1, fontSize: 13, color: '#6B7280' },
+  attachBtnArrow: { fontSize: 18, color: '#9CA3AF' },
+
+  // Uploading indicator
+  uploadingBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 18, justifyContent: 'center',
+  },
+  uploadingText: { fontSize: 14, color: '#6B7280' },
+
+  // Attachment preview
+  previewBox: {
+    position: 'relative', borderRadius: 12, overflow: 'hidden',
+    borderWidth: 1, borderColor: '#E5E7EB',
+  },
+  previewImage: { width: '100%', height: 180 },
+  previewDoc: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 14, paddingVertical: 18, backgroundColor: '#F3F4F6',
+  },
+  previewDocIcon: { fontSize: 28 },
+  previewDocName: { flex: 1, fontSize: 13, color: '#374151', fontWeight: '600' },
+  removeBtn: {
+    position: 'absolute', top: 8, right: 8,
+    backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 14,
+    width: 28, height: 28, alignItems: 'center', justifyContent: 'center',
+  },
+  removeBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 
   footer: {
     backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#E5E7EB',
@@ -299,7 +512,40 @@ const styles = StyleSheet.create({
     backgroundColor: '#2563EB', borderRadius: 12,
     paddingVertical: 15, alignItems: 'center',
   },
+  submitBtnDisabled: { opacity: 0.5 },
   submitBtnText: { color: '#fff', fontWeight: '800', fontSize: 15, letterSpacing: 0.2 },
+
+  // ── Action sheet modal ──
+  sheetOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20, paddingTop: 12,
+  },
+  sheetHandle: {
+    width: 40, height: 4, borderRadius: 2, backgroundColor: '#D1D5DB',
+    alignSelf: 'center', marginBottom: 16,
+  },
+  sheetTitle: {
+    fontSize: 15, fontWeight: '700', color: '#111827',
+    paddingHorizontal: 20, marginBottom: 8,
+  },
+  sheetRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingHorizontal: 20, paddingVertical: 14,
+    borderTopWidth: 1, borderTopColor: '#F3F4F6',
+  },
+  sheetRowIcon: { fontSize: 26, width: 36, textAlign: 'center' },
+  sheetRowInfo: { flex: 1 },
+  sheetRowLabel: { fontSize: 15, fontWeight: '600', color: '#111827' },
+  sheetRowSub:   { fontSize: 12, color: '#9CA3AF', marginTop: 2 },
+  sheetCancel: {
+    marginTop: 8, marginHorizontal: 16, borderRadius: 12,
+    backgroundColor: '#F3F4F6', paddingVertical: 14, alignItems: 'center',
+  },
+  sheetCancelText: { fontSize: 15, fontWeight: '700', color: '#374151' },
 
   // ── Loading ──
   loadingTitle: {
