@@ -137,8 +137,6 @@ function statusColor(s: string) {
 export default function PatientDashboard() {
   const { user, signOut } = useAuth();
   const { t } = useLanguage();
-  // Patient is linked to a clinic — hide marketplace/request features
-  const hasClinic = !!String((user as any)?.clinicId || (user as any)?.clinicCode || '').trim();
   const locale = useDateLocale();
   const greeting = useGreeting();
   const statusLabel = useStatusLabel();
@@ -166,6 +164,8 @@ export default function PatientDashboard() {
   const [fetchError, setFetchError] = useState(false);
   const patientId = String(user?.patientId || user?.id || "").trim();
   const patientName = String(user?.name || "").trim();
+  // Once the patient is attached to a clinic, marketplace features (offers, clinic search) are hidden
+  const hasClinic = !!String((user as any)?.clinicId || "").trim();
 
   const fetchData = useCallback(async () => {
     if (!user?.token || !patientId) {
@@ -464,7 +464,7 @@ export default function PatientDashboard() {
           <Text style={styles.quickIcon}>💬</Text>
           <Text style={styles.quickLabel}>{t("nav.messages")}</Text>
         </TouchableOpacity>
-        {/* Offers quick card — only shown when patient has no clinic yet */}
+        {/* Offers quick card — hidden after patient joins a clinic */}
         {!hasClinic && (
           <TouchableOpacity
             style={[styles.quickCard, (inboxSummary.new_offers > 0 || inboxSummary.doctor_messages > 0) && styles.quickCardAlert]}

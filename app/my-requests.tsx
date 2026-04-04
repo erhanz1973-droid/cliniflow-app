@@ -246,12 +246,17 @@ export default function MyRequestsScreen() {
           <Text style={styles.backBtnText}>← {t('common.back')}</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t('treatReq.myRequests')}</Text>
-        <TouchableOpacity
-          style={styles.newBtn}
-          onPress={() => router.push('/request-treatment')}
-        >
-          <Text style={styles.newBtnText}>+</Text>
-        </TouchableOpacity>
+        {/* New request button — hidden once patient has a clinic */}
+        {!currentClinicId ? (
+          <TouchableOpacity
+            style={styles.newBtn}
+            onPress={() => router.push('/request-treatment')}
+          >
+            <Text style={styles.newBtnText}>+</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 36 }} />
+        )}
       </View>
 
       <ScrollView
@@ -268,8 +273,8 @@ export default function MyRequestsScreen() {
           </View>
         )}
 
-        {/* MORE CLINICS BANNER — shown when patient contacted < 3 distinct clinics */}
-        {!error && requests.length > 0 && (() => {
+        {/* MORE CLINICS BANNER — hidden once patient has joined a clinic */}
+        {!error && !currentClinicId && requests.length > 0 && (() => {
           const MAX = 3;
           const contacted = new Set(requests.map(r => r.clinic_id).filter(Boolean)).size;
           const remaining = MAX - contacted;
@@ -306,12 +311,15 @@ export default function MyRequestsScreen() {
             <Text style={styles.emptyIcon}>📋</Text>
             <Text style={styles.emptyTitle}>{t('treatReq.noRequests')}</Text>
             <Text style={styles.emptySub}>{t('treatReq.noRequestsSub')}</Text>
-            <TouchableOpacity
-              style={styles.newRequestBtn}
-              onPress={() => router.push('/request-treatment')}
-            >
-              <Text style={styles.newRequestBtnText}>+ {t('treatReq.newRequest')}</Text>
-            </TouchableOpacity>
+            {/* New request button — hidden once patient has a clinic */}
+            {!currentClinicId && (
+              <TouchableOpacity
+                style={styles.newRequestBtn}
+                onPress={() => router.push('/request-treatment')}
+              >
+                <Text style={styles.newRequestBtnText}>+ {t('treatReq.newRequest')}</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
