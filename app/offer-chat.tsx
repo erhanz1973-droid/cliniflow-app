@@ -219,6 +219,33 @@ export default function OfferChatScreen() {
     }
   };
 
+  const takeIntraoral = async () => {
+    if (sending) return;
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(t('common.error'), 'Camera permission required');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.85,
+    });
+    if (result.canceled || !result.assets?.length) return;
+    const asset = result.assets[0];
+    const uri = asset.uri;
+    const mime = asset.mimeType || 'image/jpeg';
+    const name = asset.fileName || `intraoral_cam_${Date.now()}.jpg`;
+
+    setSending(true);
+    try {
+      const url = await uploadAttachment(uri, mime, name, 'image');
+      await sendMessage({ attachment_url: url, attachment_type: 'image' });
+    } catch (e: any) {
+      Alert.alert(t('common.error'), e.message || 'Upload failed');
+      setSending(false);
+    }
+  };
+
   const pickXray = async () => {
     if (sending) return;
     const result = await DocumentPicker.getDocumentAsync({
@@ -381,13 +408,22 @@ export default function OfferChatScreen() {
 
         {/* Input bar */}
         <View style={styles.inputBar}>
-          {/* Intraoral photo */}
+          {/* Gallery photo */}
           <TouchableOpacity
             style={styles.attachBtn}
             onPress={pickIntraoral}
             disabled={sending}
           >
             <Text style={styles.attachBtnText}>📷</Text>
+          </TouchableOpacity>
+
+          {/* Camera — take intraoral photo */}
+          <TouchableOpacity
+            style={styles.attachBtn}
+            onPress={takeIntraoral}
+            disabled={sending}
+          >
+            <Text style={styles.attachBtnText}>📸</Text>
           </TouchableOpacity>
 
           {/* X-ray / document */}
