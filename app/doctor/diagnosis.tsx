@@ -7,6 +7,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
+import { getIcdDescription } from '../../lib/icdLabels';
 import { API_ROUTES } from '../../lib/api-routes';
 import { secureGet, securePost } from '../../lib/secure-fetch';
 import { classifyApiError } from '../../lib/api';
@@ -22,34 +23,47 @@ interface DiagnosisItem {
   is_primary?: boolean;
 }
 
+interface TreatmentItem {
+  id: string;
+  tooth_number?: string | number;
+  procedure_type: string;
+  status: string;
+  scheduled_at?: string | null;
+  chair?: string | null;
+  notes?: string | null;
+}
+
 export default function DoctorDiagnosisScreen() {
   const router = useRouter();
   const { patientId, encounterId, patientName } = useLocalSearchParams<{ patientId?: string; encounterId?: string; patientName?: string }>();
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, currentLanguage } = useLanguage();
 
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [proceeding, setProceeding] = useState(false);
   const [diagnoses, setDiagnoses] = useState<DiagnosisItem[]>([]);
+  const [treatments, setTreatments] = useState<TreatmentItem[]>([]);
   const [selectedTooth, setSelectedTooth] = useState('');
   const [selectedCode, setSelectedCode] = useState('');
   const [selectedDescription, setSelectedDescription] = useState('');
   const [activeEncounterId, setActiveEncounterId] = useState(encounterId || '');
 
-  // ── Load ALL diagnoses for this patient (encounter_diagnoses + admin JSONB) ──
+  // ── Load ALL diagnoses + treatments for this patient ──
   const loadDiagnoses = useCallback(async () => {
     if (!patientId) return;
     setLoadError(null);
     try {
       setLoading(true);
-      const res = await secureGet(API_ROUTES.doctor.patientDiagnoses(patientId), user?.token);
-      const list: DiagnosisItem[] = res?.diagnoses || [];
-      console.log('[Diagnosis] loaded diagnoses:', list.length, 'for patient:', patientId);
-      setDiagnoses(list);
+      const [diagRes, treatRes] = await Promise.all([
+        secureGet(API_ROUTES.doctor.patientDiagnoses(patientId), user?.token),
+        secureGet(API_ROUTES.doctor.patientTreatments(patientId), user?.token).catch(() => null),
+      ]);
+      setDiagnoses(diagRes?.diagnoses || []);
+      setTreatments(treatRes?.treatments || []);
     } catch (err) {
-      console.error('[Diagnosis] load diagnoses error:', err);
+      console.error('[Diagnosis] load error:', err);
       setLoadError(classifyApiError(err));
     } finally {
       setLoading(false);
@@ -268,9 +282,10 @@ export default function DoctorDiagnosisScreen() {
           />
         ) : (
           diagnoses.map((d, i) => {
-            const label = d.icd10_code && d.icd10_description
-              ? `${d.icd10_code} - ${d.icd10_description}`
-              : d.icd10_code || d.icd10_description || '—';
+            const localDesc = getIcdDescription(d.icd10_code, d.icd10_description, currentLanguage);
+            const label = d.icd10_code
+              ? `${d.icd10_code} - ${localDesc}`
+              : localDesc || '—';
             return (
               <View key={i} style={styles.diagnosisCard}>
                 <View style={styles.diagnosisCardTop}>
@@ -289,6 +304,51 @@ export default function DoctorDiagnosisScreen() {
               </View>
             );
           })
+        )}
+
+        {/* ── Treatment History ── */}
+        {treatments.length > 0 && (
+          <>
+            <Text style={styles.tanılarTitle}>{t('diagnosis.treatmentHistory') || 'Tedavi Geçmişi'}</Text>
+            {treatments.map((tr, i) => {
+              const st = String(tr.status || '').toLowerCase();
+              const isCompleted = st === 'completed' || st === 'done';
+              const isInProgress = st === 'in_progress' || st === 'active';
+              const statusBg = isCompleted ? '#D1FAE5' : isInProgress ? '#FEF3C7' : '#EFF6FF';
+              const statusColor = isCompleted ? '#065F46' : isInProgress ? '#92400E' : '#1D4ED8';
+              const statusLabel = isCompleted
+                ? (t('doctor.status.completed') || 'Tamamlandı')
+                : isInProgress
+                ? (t('doctor.status.inProgress') || 'Devam Ediyor')
+                : (t('doctor.status.scheduled') || 'Planlandı');
+              return (
+                <View key={tr.id || i} style={styles.treatmentCard}>
+                  <View style={styles.treatmentCardTop}>
+                    <Text style={styles.treatmentProc} numberOfLines={2}>
+                      {t(`treatmentPlan.proc.${tr.procedure_type}`) !== `treatmentPlan.proc.${tr.procedure_type}`
+                        ? t(`treatmentPlan.proc.${tr.procedure_type}`)
+                        : tr.procedure_type}
+                    </Text>
+                    <View style={[styles.treatmentStatus, { backgroundColor: statusBg }]}>
+                      <Text style={[styles.treatmentStatusText, { color: statusColor }]}>{statusLabel}</Text>
+                    </View>
+                  </View>
+                  {tr.tooth_number ? (
+                    <Text style={styles.treatmentSub}>{t('diagnosis.tooth') || 'Diş'}: {tr.tooth_number}</Text>
+                  ) : null}
+                  {tr.chair ? (
+                    <Text style={styles.treatmentSub}>{t('doctor.chair') || 'Koltuk'}: {tr.chair}</Text>
+                  ) : null}
+                  {tr.scheduled_at ? (
+                    <Text style={styles.treatmentSub}>
+                      📅 {new Date(tr.scheduled_at).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })}
+                    </Text>
+                  ) : null}
+                  {tr.notes ? <Text style={styles.treatmentNotes} numberOfLines={2}>{tr.notes}</Text> : null}
+                </View>
+              );
+            })}
+          </>
         )}
 
         <View style={{ height: 100 }} />
@@ -361,6 +421,18 @@ const styles = StyleSheet.create({
   primaryBadge: { backgroundColor: '#EF4444', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
   primaryBadgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
   diagnosisTooth: { fontSize: 12, color: '#6B7280', marginTop: 4 },
+
+  // Treatment history
+  treatmentCard: {
+    backgroundColor: '#fff', borderRadius: 10, padding: 14,
+    borderWidth: 1, borderColor: '#E5E7EB',
+  },
+  treatmentCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
+  treatmentProc: { fontSize: 14, fontWeight: '600', color: '#111827', flex: 1, marginRight: 8 },
+  treatmentStatus: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
+  treatmentStatusText: { fontSize: 11, fontWeight: '700' },
+  treatmentSub: { fontSize: 12, color: '#6B7280', marginTop: 2 },
+  treatmentNotes: { fontSize: 12, color: '#9CA3AF', marginTop: 4, fontStyle: 'italic' },
 
   // Bottom
   bottomBar: {

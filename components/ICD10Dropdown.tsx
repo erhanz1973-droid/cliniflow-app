@@ -22,7 +22,7 @@ export default function ICD10Dropdown({
   onCodeSelect,
   placeholder = 'ICD-10 kodu ara…',
 }: ICD10DropdownProps) {
-  const { language } = useLanguage();
+  const { currentLanguage: language } = useLanguage();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ICD10Code[]>([]);
   const [loading, setLoading] = useState(false);
