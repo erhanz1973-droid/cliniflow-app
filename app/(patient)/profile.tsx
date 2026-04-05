@@ -400,7 +400,7 @@ export default function ProfileScreen() {
           <View style={styles.divider} />
           <TouchableOpacity
             style={styles.legalBtn}
-            onPress={() => Linking.openURL("https://www.clinifly.net/terms")}
+            onPress={() => Linking.openURL("https://www.clinifly.net/terms-and-conditions")}
             activeOpacity={0.7}
           >
             <Text style={styles.legalIcon}>📄</Text>
