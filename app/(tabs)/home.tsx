@@ -1173,25 +1173,23 @@ export default function Home() {
       </Pressable>
       )}
 
-      {/* 7b. Get Quote / My Requests — hidden once patient is linked to a clinic */}
-      {!patientInfo.clinicCode && (
-        <View style={styles.quoteRow}>
-          <Pressable
-            style={[styles.quoteCard, { backgroundColor: '#2563EB' }]}
-            onPress={() => router.push('/request-treatment')}
-          >
-            <Text style={styles.quoteCardIcon}>💬</Text>
-            <Text style={styles.quoteCardLabel}>{t('home.getQuote')}</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.quoteCard, { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' }]}
-            onPress={() => router.push('/my-requests')}
-          >
-            <Text style={styles.quoteCardIcon}>📋</Text>
-            <Text style={[styles.quoteCardLabel, { color: '#374151' }]}>{t('home.myRequests')}</Text>
-          </Pressable>
-        </View>
-      )}
+      {/* 7b. Get Quote / My Requests */}
+      <View style={styles.quoteRow}>
+        <Pressable
+          style={[styles.quoteCard, { backgroundColor: '#2563EB' }]}
+          onPress={() => router.push('/request-treatment')}
+        >
+          <Text style={styles.quoteCardIcon}>💬</Text>
+          <Text style={styles.quoteCardLabel}>{t('home.getQuote')}</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.quoteCard, { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' }]}
+          onPress={() => router.push('/my-requests')}
+        >
+          <Text style={styles.quoteCardIcon}>📋</Text>
+          <Text style={[styles.quoteCardLabel, { color: '#374151' }]}>{t('home.myRequests')}</Text>
+        </Pressable>
+      </View>
 
       {/* 8. Messages */}
       <Pressable

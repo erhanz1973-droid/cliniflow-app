@@ -32,6 +32,9 @@ type ReferralData = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
+  pending:    "#f59e0b",
+  approved:   "#16a34a",
+  rejected:   "#ef4444",
   invited:    "#6366f1",
   registered: "#2563eb",
   treated:    "#16a34a",
@@ -215,7 +218,7 @@ export default function ReferralsScreen() {
                 <View style={styles.friendInfo}>
                   <Text style={styles.friendName}>{ref.name}</Text>
                   <Text style={styles.friendRole}>
-                    {ref.isInviter ? t("referrals.roleInviter") : t("referrals.roleInvited")}
+                    {ref.isInviter ? t("referrals.roleInvited") : t("referrals.roleInviter")}
                   </Text>
                   {ref.createdAt ? (
                     <Text style={styles.friendDate}>

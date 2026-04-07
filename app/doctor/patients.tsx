@@ -12,9 +12,16 @@ import { ErrorScreen, EmptyState } from '../../components/ScreenFeedback';
 
 const PAGE_SIZE = 20;
 
+interface RiskFlag {
+  type: 'critical' | 'relevant';
+  code: string;
+  label: string;
+}
+
 interface Patient {
   id: string;
   patient_id?: string;
+  patientId?: string;
   name?: string;
   full_name?: string;
   first_name?: string;
@@ -24,7 +31,10 @@ interface Patient {
   status?: string;
   department?: string;
   created_at?: string;
+  createdAt?: number;
   avatar_url?: string;
+  hasRisk?: boolean;
+  riskFlags?: RiskFlag[];
 }
 
 type FilterTab = 'All' | 'Approved' | 'Pending' | 'Rejected';
@@ -80,7 +90,7 @@ function statusColor(s: StatusBucket) {
   }
 }
 
-function fmtDate(iso?: string) {
+function fmtDate(iso?: string | number) {
   if (!iso) return '';
   try { return new Date(iso).toLocaleDateString('tr-TR'); } catch { return ''; }
 }
@@ -249,15 +259,37 @@ export default function DoctorPatientsScreen() {
 
                     {/* Info */}
                     <View style={styles.cardInfo}>
-                      <Text style={styles.cardName}>{name}</Text>
+                      <View style={styles.nameRow}>
+                        <Text style={styles.cardName}>{name}</Text>
+                        {p.hasRisk && (
+                          <View style={styles.riskBadge}>
+                            <Text style={styles.riskBadgeText}>⚠️ Risk</Text>
+                          </View>
+                        )}
+                      </View>
+                      {/* Critical flags first, then relevant */}
+                      {(p.riskFlags || []).map((flag) => {
+                        const riskKey = `risk.${flag.code}`;
+                        const riskLabel = t(riskKey) !== riskKey ? t(riskKey) : flag.label;
+                        return (
+                          <View
+                            key={flag.code}
+                            style={[styles.flagRow, flag.type === 'critical' ? styles.flagRowCritical : styles.flagRowRelevant]}
+                          >
+                            <Text style={[styles.flagText, flag.type === 'critical' ? styles.flagTextCritical : styles.flagTextRelevant]}>
+                              {flag.type === 'critical' ? '🚨' : '⚠️'} {riskLabel}
+                            </Text>
+                          </View>
+                        );
+                      })}
                       {p.phone ? (
                         <Text style={styles.cardSub}>📱 {p.phone}</Text>
                       ) : null}
                       {p.email ? (
                         <Text style={styles.cardSub} numberOfLines={1}>✉️ {p.email}</Text>
                       ) : null}
-                      {p.created_at ? (
-                        <Text style={styles.cardSub}>📅 {fmtDate(p.created_at)}</Text>
+                      {(p.created_at || p.createdAt) ? (
+                        <Text style={styles.cardSub}>📅 {fmtDate(p.created_at || p.createdAt)}</Text>
                       ) : null}
                     </View>
                   </View>
@@ -283,13 +315,13 @@ export default function DoctorPatientsScreen() {
                       <Text style={styles.actionBtnText}>{t('doctor.patients.files')}</Text>
                     </Pressable>
                     {/* Messages button — opens chat with this patient */}
-                    {p.patient_id && (
+                    {(p.patient_id || p.patientId) && (
                       <Pressable
                         style={[styles.actionBtn, styles.actionBtnMsg]}
                         onPress={() =>
                           router.push({
                             pathname: '/chat',
-                            params: { patientId: p.patient_id },
+                            params: { patientId: p.patient_id || p.patientId },
                           })
                         }
                       >
@@ -386,7 +418,16 @@ const styles = StyleSheet.create({
   statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   statusBadgeText: { fontSize: 11, fontWeight: '700' },
   cardInfo: { flex: 1 },
-  cardName: { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 4 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
+  cardName: { fontSize: 16, fontWeight: '700', color: '#111827' },
+  riskBadge: { backgroundColor: '#FEF3C7', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  riskBadgeText: { fontSize: 11, fontWeight: '700', color: '#92400E' },
+  flagRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3, marginBottom: 3 },
+  flagRowCritical: { backgroundColor: '#FEE2E2' },
+  flagRowRelevant: { backgroundColor: '#FEF3C7' },
+  flagText: { fontSize: 11, fontWeight: '600' },
+  flagTextCritical: { color: '#991B1B' },
+  flagTextRelevant: { color: '#92400E' },
   cardSub: { fontSize: 12, color: '#6B7280', marginBottom: 2 },
 
   // Action buttons

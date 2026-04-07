@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, LayoutAnimation, Platform, UIManager } from "react-native";
+import { useLanguage } from "../lib/language-context";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -17,6 +18,7 @@ interface Props {
 
 function SingleDiagnosis({ item }: { item: DiagnosisItem }) {
   const [expanded, setExpanded] = useState(false);
+  const { t } = useLanguage();
 
   const toggle = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -33,7 +35,7 @@ function SingleDiagnosis({ item }: { item: DiagnosisItem }) {
         {!!item.description && (
           <TouchableOpacity onPress={toggle} style={styles.expandBtn} activeOpacity={0.7}>
             <Text style={styles.expandBtnText}>
-              {expanded ? "Gizle ▲" : "Detaylı açıkla ▼"}
+              {expanded ? t("diagnosis.hideDetails") : t("diagnosis.showDetails")}
             </Text>
           </TouchableOpacity>
         )}
@@ -46,10 +48,12 @@ function SingleDiagnosis({ item }: { item: DiagnosisItem }) {
 }
 
 export default function DiagnosisCard({ diagnoses }: Props) {
+  const { t } = useLanguage();
+
   if (!diagnoses || diagnoses.length === 0) {
     return (
       <View style={styles.empty}>
-        <Text style={styles.emptyText}>Tanı bilgisi bulunmuyor.</Text>
+        <Text style={styles.emptyText}>{t("diagnosis.noData")}</Text>
       </View>
     );
   }

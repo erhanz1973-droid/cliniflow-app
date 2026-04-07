@@ -3,6 +3,17 @@
  * Used to display patient-friendly descriptions in the patient app.
  */
 export const ICD10_TR: Record<string, string> = {
+  // Grup başlıkları (parent kodlar)
+  "K00": "Diş gelişimi ve sürmesi bozuklukları",
+  "K01": "Gömülü ve impakte dişler",
+  "K02": "Diş çürüğü (Dental karies)",
+  "K03": "Dişlerin sert dokularının diğer hastalıkları",
+  "K04": "Pulpa ve periapikal doku hastalıkları",
+  "K05": "Gingivit ve periodontal hastalıklar",
+  "K06": "Diş eti ve dişsiz alveol kenarının diğer bozuklukları",
+  "K07": "Dentofasiyal anomaliler (maloklüzyon dahil)",
+  "K08": "Diş ve destekleyici yapıların diğer bozuklukları",
+
   // K00 — Diş gelişimi ve sürmesi bozuklukları
   "K00.0": "Dişlerin gelişim bozukluğu",
   "K00.1": "Fazla diş (Ek diş)",

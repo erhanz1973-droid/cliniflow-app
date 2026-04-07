@@ -134,15 +134,15 @@ export default function TravelScreen() {
         type: arv ? "flight_arrival" : "flight_departure",
         dateKey: dk || "0000-00-00",
         sortTs: dk ? toSortTs(dk, f.time) : 0,
-        title: `${arv ? "Geliş" : "Dönüş"} Uçuşu${pnrOrFlightNo ? " · " + pnrOrFlightNo : ""}`,
+        title: `${arv ? t("travel.arrivalFlight") : t("travel.departureFlight")}${pnrOrFlightNo ? " · " + pnrOrFlightNo : ""}`,
         rows: [
-          { label: "Nereden",  value: f.from    || "—" },
-          { label: "Nereye",   value: f.to      || "—" },
-          ...(f.airline   ? [{ label: "Havayolu",  value: f.airline  }] : []),
-          ...(f.flightNo  ? [{ label: "Uçuş No",   value: f.flightNo }] : []),
-          ...(f.pnr       ? [{ label: "PNR",        value: f.pnr      }] : []),
-          ...(f.time      ? [{ label: "Saat",        value: f.time     }] : []),
-          ...(f.note      ? [{ label: "Not",         value: f.note     }] : []),
+          { label: t("travel.from"),    value: f.from    || "—" },
+          { label: t("travel.to"),      value: f.to      || "—" },
+          ...(f.airline   ? [{ label: t("travel.airline"),  value: f.airline  }] : []),
+          ...(f.flightNo  ? [{ label: t("travel.flightNo"), value: f.flightNo }] : []),
+          ...(f.pnr       ? [{ label: t("travel.pnr"),      value: f.pnr      }] : []),
+          ...(f.time      ? [{ label: t("travel.time"),     value: f.time     }] : []),
+          ...(f.note      ? [{ label: t("travel.noteLabel"), value: f.note    }] : []),
         ],
       });
     });
@@ -153,12 +153,12 @@ export default function TravelScreen() {
       events.push({
         type: "transfer", dateKey: dk || "0000-00-00",
         sortTs: dk ? toSortTs(dk, arrival?.time) + 60_000 : 0,
-        title: "Havalimanı Transferi",
+        title: t("travel.airportTransfer"),
         rows: [
-          ...(ap.name    ? [{ label: "Sürücü", value: ap.name    }] : []),
-          ...(ap.vehicle ? [{ label: "Araç",   value: ap.vehicle }] : []),
-          ...(ap.phone   ? [{ label: "Tel", value: ap.phone }, { label: "WhatsApp", value: `https://wa.me/${ap.phone.replace(/[^0-9]/g, "")}`, isLink: true, linkLabel: "💬 WhatsApp'tan Yaz" }] : []),
-          ...(ap.notes   ? [{ label: "Not",    value: ap.notes   }] : []),
+          ...(ap.name    ? [{ label: t("travel.driver"),  value: ap.name    }] : []),
+          ...(ap.vehicle ? [{ label: t("travel.vehicle"), value: ap.vehicle }] : []),
+          ...(ap.phone   ? [{ label: "📞 Tel", value: ap.phone }, { label: "WhatsApp", value: `https://wa.me/${ap.phone.replace(/[^0-9]/g, "")}`, isLink: true, linkLabel: t("travel.whatsappWrite") }] : []),
+          ...(ap.notes   ? [{ label: t("travel.noteLabel"), value: ap.notes }] : []),
         ],
       });
     }
@@ -172,12 +172,12 @@ export default function TravelScreen() {
       events.push({
         type: "hotel", dateKey: checkInDk || "0000-00-00",
         sortTs: checkInDk ? toSortTs(checkInDk) + 120_000 : 0,
-        title: "Otel Check-in",
+        title: t("travel.hotelCheckIn"),
         rows: [
           { value: h.name },
-          ...(h.address       ? [{ label: "Adres", value: h.address }] : []),
+          ...(h.address       ? [{ label: t("travel.address"), value: h.address }] : []),
           ...(h.phone         ? [{ label: "📞 Tel", value: h.phone }] : []),
-          ...((h.googleMapLink || h.googleMapsUrl) ? [{ label: "📍 Harita", value: h.googleMapLink || h.googleMapsUrl, isLink: true }] : []),
+          ...((h.googleMapLink || h.googleMapsUrl) ? [{ label: "📍", value: h.googleMapLink || h.googleMapsUrl, isLink: true, linkLabel: t("travel.openMap") }] : []),
         ],
       });
 
@@ -186,7 +186,7 @@ export default function TravelScreen() {
         events.push({
           type: "hotel", dateKey: checkOutDk,
           sortTs: toSortTs(checkOutDk) + 120_000,
-          title: "Otel Check-out",
+          title: t("travel.hotelCheckOut"),
           rows: [{ value: h.name }],
         });
       }
@@ -207,9 +207,9 @@ export default function TravelScreen() {
           sortTs: dk ? toSortTs(dk, time || undefined) : 0,
           title: label,
           rows: [
-            { label: t("common.tooth"),   value: `${t("common.tooth")} ${tooth.toothId}` },
-            ...(time       ? [{ label: "Saat",  value: time }] : []),
-            ...(proc.status ? [{ label: "Durum", value: proc.status }] : []),
+            { label: t("common.tooth"), value: `${t("common.tooth")} ${tooth.toothId}` },
+            ...(time        ? [{ label: t("travel.time"),        value: time }] : []),
+            ...(proc.status ? [{ label: t("travel.statusLabel"), value: proc.status }] : []),
           ],
         });
       });
@@ -248,17 +248,15 @@ export default function TravelScreen() {
       >
         {/* Header */}
         <View style={styles.pageHeader}>
-          <Text style={styles.pageTitle}>Ziyaret Planım</Text>
-          <Text style={styles.pageSub}>Seyahat ve tedavi takviminiz</Text>
+          <Text style={styles.pageTitle}>{t("travel.pageTitle")}</Text>
+          <Text style={styles.pageSub}>{t("travel.pageSub")}</Text>
         </View>
 
         {/* Edit section — only shown when patient has permission */}
         {(canEdit("flights") || canEdit("hotel")) && (
           <View style={styles.editSection}>
-            <Text style={styles.editSectionTitle}>Bilgilerinizi Girin</Text>
-            <Text style={styles.editSectionSub}>
-              Kliniğin belirlediği alanları siz doldurabilirsiniz.
-            </Text>
+            <Text style={styles.editSectionTitle}>{t("travel.editSectionTitle")}</Text>
+            <Text style={styles.editSectionSub}>{t("travel.editSectionSub")}</Text>
             <View style={styles.editButtons}>
               {canEdit("flights") && (
                 <TouchableOpacity
@@ -267,7 +265,7 @@ export default function TravelScreen() {
                 >
                   <Text style={styles.editBtnIcon}>✈️</Text>
                   <Text style={styles.editBtnLabel}>
-                    {flights.length > 0 ? "Uçuş Ekle / Düzenle" : "Uçuş Bilgisi Ekle"}
+                    {flights.length > 0 ? t("travel.editFlight") : t("travel.addFlight")}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -278,7 +276,7 @@ export default function TravelScreen() {
                 >
                   <Text style={styles.editBtnIcon}>🏨</Text>
                   <Text style={styles.editBtnLabel}>
-                    {travel?.hotel?.name ? "Oteli Düzenle" : "Otel Bilgisi Ekle"}
+                    {travel?.hotel?.name ? t("travel.editHotelLabel") : t("travel.addHotelLabel")}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -296,11 +294,11 @@ export default function TravelScreen() {
                     <Text style={styles.existingItemIcon}>✈️</Text>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.existingItemTitle}>
-                        {(f.type === "ARRIVAL" || f.type === "OUTBOUND") ? "Geliş" : "Dönüş"} · {f.from} → {f.to}
+                        {(f.type === "ARRIVAL" || f.type === "OUTBOUND") ? t("travel.arrival") : t("travel.departure")} · {f.from} → {f.to}
                       </Text>
                       {f.date && <Text style={styles.existingItemSub}>{f.date}{f.time ? " " + f.time : ""}</Text>}
                     </View>
-                    <Text style={styles.existingItemEdit}>Düzenle ›</Text>
+                    <Text style={styles.existingItemEdit}>{t("travel.editLabel")}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -314,7 +312,7 @@ export default function TravelScreen() {
                   <Text style={styles.existingItemTitle}>{travel.hotel.name}</Text>
                   {travel.hotel.address && <Text style={styles.existingItemSub}>{travel.hotel.address}</Text>}
                 </View>
-                <Text style={styles.existingItemEdit}>Düzenle ›</Text>
+                <Text style={styles.existingItemEdit}>{t("travel.editLabel")}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -324,11 +322,11 @@ export default function TravelScreen() {
         {!hasAny && (
           <View style={styles.emptyBox}>
             <Text style={styles.emptyIcon}>✈️</Text>
-            <Text style={styles.emptyTitle}>Henüz plan yok</Text>
+            <Text style={styles.emptyTitle}>{t("travel.emptyTitle")}</Text>
             <Text style={styles.emptySub}>
               {canEdit("flights") || canEdit("hotel")
-                ? "Yukarıdan uçuş ve otel bilgilerinizi ekleyebilirsiniz."
-                : "Klinik ekibi planınızı ekledikten sonra burada görünecek."}
+                ? t("travel.emptySubEdit")
+                : t("travel.emptySub")}
             </Text>
           </View>
         )}

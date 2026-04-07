@@ -21,11 +21,17 @@ interface Appointment {
   status: 'scheduled' | 'in_progress' | 'completed';
 }
 
+interface RiskFlag {
+  type: 'critical' | 'relevant';
+  code: string;
+  label: string;
+}
+
 interface RecentPatient {
   id: string;
   name: string;
   hasRisk: boolean;
-  riskFlags: string[];
+  riskFlags: RiskFlag[];
   lastVisit: string | null;
 }
 
@@ -345,10 +351,24 @@ export default function DoctorDashboard() {
                         <Text style={styles.patientName}>{p.name}</Text>
                         {p.hasRisk && (
                           <View style={styles.riskBadge}>
-                            <Text style={styles.riskBadgeText}>⚠ Risk</Text>
+                            <Text style={styles.riskBadgeText}>⚠️ Risk</Text>
                           </View>
                         )}
                       </View>
+                      {(p.riskFlags || []).map((flag) => {
+                        const riskKey = `risk.${flag.code}`;
+                        const riskLabel = t(riskKey) !== riskKey ? t(riskKey) : flag.label;
+                        return (
+                          <View
+                            key={flag.code}
+                            style={[styles.flagRow, flag.type === 'critical' ? styles.flagRowCritical : styles.flagRowRelevant]}
+                          >
+                            <Text style={[styles.flagText, flag.type === 'critical' ? styles.flagTextCritical : styles.flagTextRelevant]}>
+                              {flag.type === 'critical' ? '🚨' : '⚠️'} {riskLabel}
+                            </Text>
+                          </View>
+                        );
+                      })}
                       <Text style={styles.patientSub}>
                         {t('doctor.lastVisit')}: {fmtDate(p.lastVisit)}
                       </Text>
@@ -477,6 +497,12 @@ const styles = StyleSheet.create({
   patientName: { fontSize: 15, fontWeight: '600', color: '#111827' },
   riskBadge: { backgroundColor: '#FEE2E2', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
   riskBadgeText: { color: '#DC2626', fontSize: 11, fontWeight: '700' },
+  flagRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, marginTop: 2 },
+  flagRowCritical: { backgroundColor: '#FEE2E2' },
+  flagRowRelevant: { backgroundColor: '#FEF3C7' },
+  flagText: { fontSize: 11, fontWeight: '600' },
+  flagTextCritical: { color: '#991B1B' },
+  flagTextRelevant: { color: '#92400E' },
   patientSub: { fontSize: 12, color: '#6B7280', marginTop: 2 },
 
   // Bottom nav

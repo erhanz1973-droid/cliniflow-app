@@ -5,34 +5,23 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAuth } from "../../../lib/auth";
+import { useLanguage } from "../../../lib/language-context";
 import { API_BASE } from "../../../lib/api";
 import DiagnosisCard, { DiagnosisItem } from "../../../components/DiagnosisCard";
+import { getIcd10En } from "../../../lib/icd10-en";
+import { getIcd10Tr } from "../../../lib/icd10-tr";
+import { getIcd10Ru } from "../../../lib/icd10-ru";
+import { getIcd10Ka } from "../../../lib/icd10-ka";
 
-// ─── patient-friendly diagnosis label mapper ──────────────────────────────
-const ICD_FRIENDLY: Record<string, { title: string; description: string }> = {
-  "K02":   { title: "Diş çürüğü", description: "Dişinizde bakteri kaynaklı bir çürük oluşmuş. Erken tedavi ile kolayca giderilebilir." },
-  "K02.0": { title: "Mine çürüğü", description: "Dişin en dış tabakasında (mine) başlangıç çürüğü. Erken evrede tedavi oldukça kolaydır." },
-  "K02.1": { title: "Dentin çürüğü", description: "Çürük, minenin altındaki dentin tabakasına ulaşmış. Dolgu ile tedavi edilir." },
-  "K04":   { title: "Diş siniri problemi", description: "Dişin iç kanallarını veya sinirini etkileyen bir sorun tespit edildi." },
-  "K04.0": { title: "Diş siniri iltihabı", description: "Diş sinirinde iltihaplanma var. Kanal tedavisi veya ilaç ile iyileşebilir." },
-  "K04.1": { title: "Diş siniri hasarı", description: "Dişin siniri hasar görmüş. Doktorunuz tedavi seçeneklerini değerlendirecek." },
-  "K05":   { title: "Diş eti problemi", description: "Diş etinizde iltihap veya hasar tespit edildi." },
-  "K05.0": { title: "Diş eti iltihabı (Akut)", description: "Diş etinde ani başlayan iltihap. Ağız hijyeni ve tedavi ile geçer." },
-  "K05.1": { title: "Diş eti iltihabı (Kronik)", description: "Uzun süreli diş eti iltihabı. Diş taşı temizliği ve düzenli bakım önerilir." },
-  "K08":   { title: "Diş kayıpları veya sorunları", description: "Diş kaybı veya diş yapısıyla ilgili bir sorun tespit edildi." },
-  "K08.1": { title: "Diş kaybı (Kaza/Hastalık)", description: "Kaza ya da hastalık nedeniyle diş kaybı oluşmuş." },
-  "S02":   { title: "Diş kırığı", description: "Dişte kırık veya çatlak tespit edildi." },
-};
-
-function toFriendly(code: string, rawDescription: string): DiagnosisItem {
-  const prefix4 = code?.substring(0, 4);
-  const prefix3 = code?.substring(0, 3);
-  const mapped = ICD_FRIENDLY[code] || ICD_FRIENDLY[prefix4] || ICD_FRIENDLY[prefix3];
-  return {
-    code: code || "—",
-    title: mapped?.title || rawDescription || "Diş ile ilgili bulgu",
-    description: mapped?.description,
-  };
+function getIcd10Label(
+  lang: string,
+  code: string,
+  fallback: string,
+): string {
+  if (lang === "tr") return getIcd10Tr(code, fallback);
+  if (lang === "ru") return getIcd10Ru(code, fallback);
+  if (lang === "ka") return getIcd10Ka(code, fallback);
+  return getIcd10En(code, fallback);
 }
 
 // ─── types ────────────────────────────────────────────────────────────────
@@ -57,18 +46,6 @@ function SectionTitle({ label }: { label: string }) {
   return <Text style={styles.sectionTitle}>{label}</Text>;
 }
 
-function procedureName(type: string) {
-  const map: Record<string, string> = {
-    CROWN: "Kuron", FILLING: "Dolgu", EXTRACTION: "Çekim",
-    ROOT_CANAL_TREATMENT: "Kanal Tedavisi", IMPLANT: "İmplant",
-    IMPLANT_CROWN: "İmplant Kuron", BRIDGE_UNIT: "Köprü",
-    TEMP_CROWN: "Geçici Kuron", TEMP_FILLING: "Geçici Dolgu",
-    FOLLOWUP: "Kontrol", CONSULT: "Konsültasyon",
-    LAB: "Lab / Tarama", TREATMENT: "Tedavi Randevusu",
-  };
-  return map[type] || type;
-}
-
 // ─── main screen ──────────────────────────────────────────────────────────
 export default function EncounterDetailScreen() {
   const router = useRouter();
@@ -79,7 +56,27 @@ export default function EncounterDetailScreen() {
   }>();
 
   const { user } = useAuth();
+  const { t, currentLanguage } = useLanguage();
   const patientId = paramPatientId || String(user?.patientId || user?.id || "");
+
+  const procedureName = (type: string) => {
+    const map: Record<string, string> = {
+      CROWN: t("encounter.procedure.crown"),
+      FILLING: t("encounter.procedure.filling"),
+      EXTRACTION: t("encounter.procedure.extraction"),
+      ROOT_CANAL_TREATMENT: t("encounter.procedure.rootCanal"),
+      IMPLANT: t("encounter.procedure.implant"),
+      IMPLANT_CROWN: t("encounter.procedure.implantCrown"),
+      BRIDGE_UNIT: t("encounter.procedure.bridge"),
+      TEMP_CROWN: t("encounter.procedure.tempCrown"),
+      TEMP_FILLING: t("encounter.procedure.tempFilling"),
+      FOLLOWUP: t("encounter.procedure.followup"),
+      CONSULT: t("encounter.procedure.consult"),
+      LAB: t("encounter.procedure.lab"),
+      TREATMENT: t("encounter.procedure.treatment"),
+    };
+    return map[type] || type;
+  };
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -108,7 +105,10 @@ export default function EncounterDetailScreen() {
           )
         : rawDiags;
 
-      setDiagnoses(relevant.map((d) => toFriendly(d.icd10_code || "", d.icd10_description || "")));
+      setDiagnoses(relevant.map((d) => ({
+        code: d.icd10_code || "—",
+        title: getIcd10Label(currentLanguage, d.icd10_code || "", d.icd10_description || t("encounter.findingLabel")),
+      })));
 
       // Procedures for this encounter/tooth
       const teeth: any[] = Array.isArray(json.teeth) ? json.teeth : [];
@@ -129,7 +129,7 @@ export default function EncounterDetailScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [patientId, encounterId, user?.token]);
+  }, [patientId, encounterId, user?.token, currentLanguage, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -141,7 +141,9 @@ export default function EncounterDetailScreen() {
     );
   }
 
-  const title = toothNum ? `Diş ${toothNum} – Ziyaret Detayı` : "Ziyaret Detayı";
+  const title = toothNum
+    ? t("encounter.toothVisit").replace("{toothNum}", toothNum)
+    : t("encounter.visitDetail");
 
   return (
     <ScrollView
@@ -151,27 +153,27 @@ export default function EncounterDetailScreen() {
     >
       {/* Back */}
       <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-        <Text style={styles.backText}>← Geri</Text>
+        <Text style={styles.backText}>{t("encounter.back")}</Text>
       </TouchableOpacity>
 
       <Text style={styles.screenTitle}>{title}</Text>
 
       {/* ── Diagnosis ─────────────────────────── */}
-      <SectionTitle label="🔍 Tanı" />
+      <SectionTitle label={t("encounter.diagnosisSection")} />
       <DiagnosisCard diagnoses={diagnoses} />
 
       {/* ── Treatments ────────────────────────── */}
       {procedures.length > 0 && (
         <>
-          <SectionTitle label="🦷 İşlemler" />
+          <SectionTitle label={t("encounter.treatmentsSection")} />
           {procedures.map((p, idx) => (
             <View key={p.id || idx} style={styles.procCard}>
               <Text style={styles.procName}>
                 {procedureName(p.type || p.procedure_id || "")}
               </Text>
               <Text style={styles.procMeta}>
-                Diş {p.tooth_number || "—"}
-                {p.status ? `  ·  ${p.status === "PLANNED" ? "Planlandı" : p.status === "COMPLETED" ? "Tamamlandı" : p.status}` : ""}
+                {t("encounter.toothLabel").replace("{toothNum}", String(p.tooth_number || "—"))}
+                {p.status ? `  ·  ${p.status === "PLANNED" ? t("encounter.statusPlanned") : p.status === "COMPLETED" ? t("encounter.statusCompleted") : p.status}` : ""}
               </Text>
             </View>
           ))}
@@ -180,7 +182,7 @@ export default function EncounterDetailScreen() {
 
       {diagnoses.length === 0 && procedures.length === 0 && (
         <View style={styles.empty}>
-          <Text style={styles.emptyText}>Bu ziyaret için henüz kayıt bulunmuyor.</Text>
+          <Text style={styles.emptyText}>{t("diagnosis.noData")}</Text>
         </View>
       )}
     </ScrollView>
