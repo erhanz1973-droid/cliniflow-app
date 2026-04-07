@@ -42,7 +42,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "package": "net.clinifly.patient",
+      "package": "com.clinifly.mobile",
       "versionCode": 2,
       "permissions": [
         "android.permission.CAMERA",
