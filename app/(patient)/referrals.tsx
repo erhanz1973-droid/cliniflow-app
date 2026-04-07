@@ -12,10 +12,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
+import { useRouter } from "expo-router";
 import { useAuth } from "../../lib/auth";
 import { useLanguage } from "../../lib/language-context";
 import { useDateLocale } from "../../lib/date-locale";
 import { API_BASE } from "../../lib/api";
+import UpgradeModal from "../../components/UpgradeModal";
 
 type ReferralItem = {
   id: string | number;
@@ -29,6 +31,13 @@ type ReferralData = {
   referralCode: string;
   discountPercent: number | null;
   referrals: ReferralItem[];
+};
+
+type ClinicPlan = {
+  plan: "free" | "pro";
+  referral_count: number;
+  referral_limit: number | null;
+  upgradeRequired: boolean;
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -45,10 +54,13 @@ export default function ReferralsScreen() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const locale = useDateLocale();
+  const router = useRouter();
 
   const [data, setData] = useState<ReferralData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [clinicPlan, setClinicPlan] = useState<ClinicPlan | null>(null);
+  const [upgradeModalVisible, setUpgradeModalVisible] = useState(false);
 
   const toastOpacity = useRef(new Animated.Value(0)).current;
 
@@ -57,26 +69,41 @@ export default function ReferralsScreen() {
     const patientId = String((user as any)?.patientId || (user as any)?.id || "").trim();
     if (!patientId) return;
     try {
-      const res = await fetch(
-        `${API_BASE}/api/patient/${encodeURIComponent(patientId)}/referrals`,
-        { headers: { Authorization: `Bearer ${user.token}` } },
-      );
-      if (!res.ok) { console.error("[Referrals] HTTP", res.status); return; }
-      const json = await res.json();
-      if (json.ok) {
-        const items = json.items || json.referrals || [];
-        setData({
-          referralCode:    json.referralCode || "",
-          discountPercent: json.discountPercent ?? null,
-          referrals: items.map((item: any) => ({
-            id:        item.id,
-            // partnerName = the other person in the referral pair (not the current user)
-            name:      item.partnerName || item.invitedPatientName || item.inviterPatientName || "—",
-            status:    item.status || "pending",
-            createdAt: item.createdAt ?? null,
-            isInviter: !!item.isInviter,
-          })),
-        });
+      const headers = { Authorization: `Bearer ${user.token}` };
+
+      const [refRes, planRes] = await Promise.allSettled([
+        fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/referrals`, { headers }),
+        fetch(`${API_BASE}/api/admin/plan`, { headers }),
+      ]);
+
+      if (refRes.status === "fulfilled" && refRes.value.ok) {
+        const json = await refRes.value.json();
+        if (json.ok) {
+          const items = json.items || json.referrals || [];
+          setData({
+            referralCode:    json.referralCode || "",
+            discountPercent: json.discountPercent ?? null,
+            referrals: items.map((item: any) => ({
+              id:        item.id,
+              name:      item.partnerName || item.invitedPatientName || item.inviterPatientName || "—",
+              status:    item.status || "pending",
+              createdAt: item.createdAt ?? null,
+              isInviter: !!item.isInviter,
+            })),
+          });
+        }
+      }
+
+      if (planRes.status === "fulfilled" && planRes.value.ok) {
+        const planJson = await planRes.value.json();
+        if (planJson.ok) {
+          setClinicPlan({
+            plan: planJson.plan || "free",
+            referral_count: planJson.referral_count ?? 0,
+            referral_limit: planJson.referral_limit ?? 1,
+            upgradeRequired: !!planJson.upgradeRequired,
+          });
+        }
       }
     } catch (e) {
       console.error("[Referrals] fetch error", e);
@@ -87,6 +114,13 @@ export default function ReferralsScreen() {
     setLoading(true);
     load().finally(() => setLoading(false));
   }, [load]);
+
+  // Show upgrade modal automatically if limit is reached
+  useEffect(() => {
+    if (clinicPlan?.upgradeRequired) {
+      setUpgradeModalVisible(true);
+    }
+  }, [clinicPlan?.upgradeRequired]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -117,6 +151,11 @@ export default function ReferralsScreen() {
   };
 
   const handleShare = async () => {
+    // If clinic is on free plan and limit reached, show upgrade modal instead
+    if (clinicPlan?.plan === "free" && clinicPlan?.upgradeRequired) {
+      setUpgradeModalVisible(true);
+      return;
+    }
     const message = t("referrals.shareMessage").replace("{{patientId}}", myCode);
     try {
       await Share.share({ message, title: t("referrals.shareLink") });
@@ -150,12 +189,43 @@ export default function ReferralsScreen() {
 
   return (
     <SafeAreaView style={styles.root}>
+      <UpgradeModal
+        visible={upgradeModalVisible}
+        onClose={() => setUpgradeModalVisible(false)}
+      />
+
       <ScrollView
         contentContainerStyle={styles.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         {/* Header */}
         <Text style={styles.pageTitle}>{t("referrals.title")}</Text>
+
+        {/* Plan badge */}
+        {clinicPlan && (
+          <TouchableOpacity
+            style={[
+              styles.planBanner,
+              clinicPlan.plan === "pro" ? styles.planBannerPro : styles.planBannerFree,
+            ]}
+            onPress={() => clinicPlan.plan === "free" && router.push("/pricing" as any)}
+            activeOpacity={clinicPlan.plan === "free" ? 0.75 : 1}
+          >
+            <View style={styles.planBannerLeft}>
+              <Text style={[styles.planBannerTitle, clinicPlan.plan === "pro" && styles.planBannerTitlePro]}>
+                {clinicPlan.plan === "pro" ? "✦ Pro Plan" : "Free Plan"}
+              </Text>
+              <Text style={[styles.planBannerSub, clinicPlan.plan === "pro" && styles.planBannerSubPro]}>
+                {clinicPlan.plan === "pro"
+                  ? "Unlimited referrals"
+                  : `${clinicPlan.referral_count} / ${clinicPlan.referral_limit ?? 1} referrals this month`}
+              </Text>
+            </View>
+            {clinicPlan.plan === "free" && (
+              <Text style={styles.planBannerCta}>Upgrade →</Text>
+            )}
+          </TouchableOpacity>
+        )}
 
         {/* Referral Code Card */}
         <View style={styles.card}>
@@ -361,4 +431,24 @@ const styles = StyleSheet.create({
     borderRadius: 24,
   },
   toastText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+
+  // Plan banner
+  planBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+  },
+  planBannerFree: { backgroundColor: "#FFFBEB", borderColor: "#FCD34D" },
+  planBannerPro:  { backgroundColor: "#EFF6FF", borderColor: "#93C5FD" },
+  planBannerLeft: { gap: 2 },
+  planBannerTitle: { fontSize: 14, fontWeight: "800", color: "#92400E" },
+  planBannerTitlePro: { color: "#1D4ED8" },
+  planBannerSub: { fontSize: 12, color: "#B45309" },
+  planBannerSubPro: { color: "#3B82F6" },
+  planBannerCta: { fontSize: 13, fontWeight: "700", color: "#2563EB" },
 });
