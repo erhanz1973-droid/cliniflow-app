@@ -10,6 +10,8 @@ export default function DoctorLayout() {
       <Stack.Screen name="diagnosis" />
       <Stack.Screen name="pending" />
       <Stack.Screen name="requests" />
+      <Stack.Screen name="patient-files" />
+      <Stack.Screen name="patient-chat" />
     </Stack>
   );
 }

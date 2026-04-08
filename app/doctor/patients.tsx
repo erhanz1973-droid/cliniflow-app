@@ -310,18 +310,29 @@ export default function DoctorPatientsScreen() {
                     </Pressable>
                     <Pressable
                       style={[styles.actionBtn, styles.actionBtnPurple]}
-                      onPress={() => router.push(`/doctor/patients`)}
+                      onPress={() =>
+                        router.push({
+                          pathname: '/doctor/patient-files',
+                          params: {
+                            patientId: p.patient_id || p.patientId || p.id,
+                            patientName: encodeURIComponent(p.name || ''),
+                          },
+                        })
+                      }
                     >
                       <Text style={styles.actionBtnText}>{t('doctor.patients.files')}</Text>
                     </Pressable>
-                    {/* Messages button — opens chat with this patient */}
-                    {(p.patient_id || p.patientId) && (
+                    {/* Messages button — opens doctor-specific chat (no patient tab bar) */}
+                    {(p.patient_id || p.patientId || p.id) && (
                       <Pressable
                         style={[styles.actionBtn, styles.actionBtnMsg]}
                         onPress={() =>
                           router.push({
-                            pathname: '/chat',
-                            params: { patientId: p.patient_id || p.patientId },
+                            pathname: '/doctor/patient-chat',
+                            params: {
+                              patientId: p.patient_id || p.patientId || p.id,
+                              patientName: encodeURIComponent(p.name || ''),
+                            },
                           })
                         }
                       >
