@@ -309,7 +309,7 @@ export default function DoctorDiagnosisScreen() {
         {/* ── Treatment History ── */}
         {treatments.length > 0 && (
           <>
-            <Text style={styles.tanılarTitle}>{t('diagnosis.treatmentHistory') || 'Tedavi Geçmişi'}</Text>
+            <Text style={styles.tanılarTitle}>{t('diagnosis.treatmentHistory')}</Text>
             {treatments.map((tr, i) => {
               const st = String(tr.status || '').toLowerCase();
               const isCompleted = st === 'completed' || st === 'done';
