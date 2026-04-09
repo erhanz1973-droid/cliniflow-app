@@ -14,7 +14,7 @@
       "icon": "./assets/images/icon.png",
       "supportsTablet": true,
       "bundleIdentifier": "net.clinifly.mobile",
-      "buildNumber": "3",
+      "buildNumber": "4",
       "infoPlist": {
         "NSCameraUsageDescription": "Clinifly uses the camera to capture dental images for your treatment records.",
         "NSMicrophoneUsageDescription": "Clinifly uses the microphone for video recording during consultations.",
@@ -44,7 +44,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.clinifly.mobile",
-      "versionCode": 20,
+      "versionCode": 21,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -58,7 +58,10 @@
           "data": {
             "scheme": "clinifly"
           },
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -81,7 +84,10 @@
       [
         "expo-file-system",
         {
-          "fileSystemPermissions": ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"]
+          "fileSystemPermissions": [
+            "READ_EXTERNAL_STORAGE",
+            "WRITE_EXTERNAL_STORAGE"
+          ]
         }
       ],
       "expo-notifications"
