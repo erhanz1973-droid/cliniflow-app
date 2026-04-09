@@ -11,6 +11,7 @@
       "silentLaunch": true
     },
     "ios": {
+      "icon": "./assets/images/icon.png",
       "supportsTablet": true,
       "bundleIdentifier": "net.clinifly.mobile",
       "buildNumber": "3",
