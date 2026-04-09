@@ -16,6 +16,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useAuth } from "../../lib/auth";
 import { API_BASE } from "../../lib/api";
 import { useLanguage } from "../../lib/language-context";
+import { useDateLocale } from "../../lib/date-locale";
 
 type ReferralStatus = "PENDING" | "APPROVED" | "REJECTED";
 
@@ -45,6 +46,7 @@ export default function ReferralsScreen() {
   const router = useRouter();
   const { user, isAuthReady } = useAuth();
   const { t } = useLanguage();
+  const locale = useDateLocale();
   const userPatientId = (user as any)?.patientId || "";
   
   const [patientId, setPatientId] = useState<string>(userPatientId);
@@ -408,7 +410,7 @@ export default function ReferralsScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.refName}>{displayName}</Text>
                     <Text style={styles.refMeta}>
-                      {isInviter ? t("referrals.youInvited") : t("referrals.invitedYou")} • {new Date(r.createdAt).toLocaleString("tr-TR")}
+                      {isInviter ? t("referrals.youInvited") : t("referrals.invitedYou")} • {new Date(r.createdAt).toLocaleString(locale)}
                     </Text>
                     {r.status === "APPROVED" ? (
                       <Text style={styles.discountText}>

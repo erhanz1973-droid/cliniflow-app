@@ -213,16 +213,19 @@ export default function ReferralsScreen() {
           >
             <View style={styles.planBannerLeft}>
               <Text style={[styles.planBannerTitle, clinicPlan.plan === "pro" && styles.planBannerTitlePro]}>
-                {clinicPlan.plan === "pro" ? "✦ Pro Plan" : "Free Plan"}
+                {clinicPlan.plan === "pro" ? t("referrals.planPro") : t("referrals.planFree")}
               </Text>
               <Text style={[styles.planBannerSub, clinicPlan.plan === "pro" && styles.planBannerSubPro]}>
                 {clinicPlan.plan === "pro"
-                  ? "Unlimited referrals"
-                  : `${clinicPlan.referral_count} / ${clinicPlan.referral_limit ?? 1} referrals this month`}
+                  ? t("referrals.unlimitedReferrals")
+                  : t("referrals.referralsThisMonth", {
+                      count: clinicPlan.referral_count,
+                      limit: clinicPlan.referral_limit ?? 1,
+                    })}
               </Text>
             </View>
             {clinicPlan.plan === "free" && (
-              <Text style={styles.planBannerCta}>Upgrade →</Text>
+              <Text style={styles.planBannerCta}>{t("referrals.upgradeCta")}</Text>
             )}
           </TouchableOpacity>
         )}

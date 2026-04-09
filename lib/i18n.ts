@@ -798,6 +798,11 @@ export const translations: Record<Language, Record<string, string>> = {
     "referrals.friendsList": "Davet Bağlantıları",
     "referrals.roleInviter": "Davet eden",
     "referrals.roleInvited": "Davet edilen",
+    "referrals.planFree": "Ücretsiz Plan",
+    "referrals.planPro": "✦ Pro Plan",
+    "referrals.unlimitedReferrals": "Sınırsız davet",
+    "referrals.referralsThisMonth": "Bu ay {{count}} / {{limit}} davet",
+    "referrals.upgradeCta": "Yükselt →",
 
     "risk.DRUG_ALLERGY": "İlaç / Madde Alerjisi",
     "risk.BLEEDING_RISK": "Kanama / Antikoagülan Riski",
@@ -2065,6 +2070,11 @@ export const translations: Record<Language, Record<string, string>> = {
     "referrals.friendsList": "Referral Contacts",
     "referrals.roleInviter": "Inviter",
     "referrals.roleInvited": "Invited",
+    "referrals.planFree": "Free Plan",
+    "referrals.planPro": "✦ Pro Plan",
+    "referrals.unlimitedReferrals": "Unlimited referrals",
+    "referrals.referralsThisMonth": "{{count}} / {{limit}} referrals this month",
+    "referrals.upgradeCta": "Upgrade →",
 
     "risk.DRUG_ALLERGY": "Drug / Substance Allergy",
     "risk.BLEEDING_RISK": "Bleeding / Anticoagulant Risk",
