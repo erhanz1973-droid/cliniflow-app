@@ -44,7 +44,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.clinifly.mobile",
-      "versionCode": 22,
+      "versionCode": 23,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
