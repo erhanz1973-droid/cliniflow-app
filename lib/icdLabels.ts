@@ -1,4 +1,6 @@
 import type { Language } from "./i18n";
+import { getIcd10En } from "./icd10-en";
+import { getIcd10Tr } from "./icd10-tr";
 import { getIcd10Ru } from "./icd10-ru";
 import { getIcd10Ka } from "./icd10-ka";
 
@@ -110,12 +112,9 @@ export function getIcdDescription(
   lang: Language,
 ): string {
   if (!code) return storedDescription || "";
-
-  if (lang === "ru") return getIcd10Ru(code, storedDescription || code);
-  if (lang === "ka") return getIcd10Ka(code, storedDescription || code);
-
-  const entry = ICD10_LABELS[code.trim()];
-  if (!entry) return storedDescription || code;
-  if (lang === "en") return entry.en || entry.tr || storedDescription;
-  return entry.tr || entry.en || storedDescription;
+  const fallback = storedDescription || code;
+  if (lang === "en") return getIcd10En(code, fallback);
+  if (lang === "ru") return getIcd10Ru(code, fallback);
+  if (lang === "ka") return getIcd10Ka(code, fallback);
+  return getIcd10Tr(code, fallback);
 }
