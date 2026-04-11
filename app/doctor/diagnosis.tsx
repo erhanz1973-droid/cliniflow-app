@@ -341,7 +341,10 @@ export default function DoctorDiagnosisScreen() {
                   ) : null}
                   {tr.scheduled_at ? (
                     <Text style={styles.treatmentSub}>
-                      📅 {new Date(tr.scheduled_at).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })}
+                      📅 {new Date(tr.scheduled_at).toLocaleString(
+                        currentLanguage === 'tr' ? 'tr-TR' : currentLanguage === 'ru' ? 'ru-RU' : currentLanguage === 'ka' ? 'ka-GE' : 'en-US',
+                        { dateStyle: 'short', timeStyle: 'short' }
+                      )}
                     </Text>
                   ) : null}
                   {tr.notes ? <Text style={styles.treatmentNotes} numberOfLines={2}>{tr.notes}</Text> : null}
