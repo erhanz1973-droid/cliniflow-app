@@ -311,12 +311,15 @@ export default function DoctorLogin() {
           <Text style={styles.changeRoleText}>⇄ {t('onboarding.changeRole')}</Text>
         </Pressable>
 
-        <Pressable
-          style={styles.privacyBtn}
-          onPress={() => Linking.openURL('https://www.clinifly.net/privacy-policy')}
-        >
-          <Text style={styles.privacyBtnText}>🔒 {t('login.privacyPolicy')}</Text>
-        </Pressable>
+        <Text style={styles.privacyConsent}>
+          By continuing, you agree to our{' '}
+          <Text
+            style={styles.privacyConsentLink}
+            onPress={() => Linking.openURL('https://clinifly.net/privacy')}
+          >
+            Privacy Policy
+          </Text>
+        </Text>
       </View>
     </View>
   );
@@ -419,14 +422,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#9ca3af",
   },
-  privacyBtn: {
-    alignItems: "center",
-    paddingVertical: 10,
-    marginTop: 4,
-  },
-  privacyBtnText: {
+  privacyConsent: {
+    textAlign: 'center',
+    marginTop: 10,
     fontSize: 12,
-    color: "#6B7280",
-    textDecorationLine: "underline",
+    color: '#6B7280',
+  },
+  privacyConsentLink: {
+    color: '#007AFF',
   },
 });

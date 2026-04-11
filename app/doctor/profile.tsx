@@ -432,7 +432,7 @@ export default function DoctorProfileScreen() {
           <Text style={s.cardTitle}>{t('profile.legal')}</Text>
           <TouchableOpacity
             style={s.legalBtn}
-            onPress={() => Linking.openURL('https://www.clinifly.net/privacy-policy')}
+            onPress={() => Linking.openURL('https://clinifly.net/privacy')}
             activeOpacity={0.7}
           >
             <Text style={s.legalIcon}>🔒</Text>
@@ -450,6 +450,13 @@ export default function DoctorProfileScreen() {
             <Text style={s.legalArrow}>›</Text>
           </TouchableOpacity>
         </View>
+
+        <TouchableOpacity
+          onPress={() => Linking.openURL('https://clinifly.net/privacy')}
+          style={{ marginTop: 20, alignItems: 'center' }}
+        >
+          <Text style={{ color: '#007AFF' }}>Privacy Policy</Text>
+        </TouchableOpacity>
 
         <View style={{ height: 32 }} />
       </ScrollView>
