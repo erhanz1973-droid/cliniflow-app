@@ -495,7 +495,7 @@ export default function ProfileScreen() {
             <Text style={styles.modalBodyText}>{t("profile.privacyPolicyBody")}</Text>
             <TouchableOpacity
               style={styles.privacyLinkBtn}
-              onPress={() => Linking.openURL("https://clinifly.net/privacy")}
+              onPress={() => Linking.openURL("https://www.clinifly.net/privacy-policy")}
             >
               <Text style={styles.privacyLinkText}>🌐 www.clinifly.net/privacy-policy</Text>
             </TouchableOpacity>

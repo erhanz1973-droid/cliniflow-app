@@ -234,7 +234,7 @@ export default function PatientLogin() {
           By continuing, you agree to our{' '}
           <Text
             style={styles.privacyConsentLink}
-            onPress={() => Linking.openURL('https://clinifly.net/privacy')}
+            onPress={() => Linking.openURL('https://www.clinifly.net/privacy-policy')}
           >
             Privacy Policy
           </Text>
