@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, Alert, ActivityIndicator, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../lib/auth';
@@ -310,6 +310,13 @@ export default function DoctorLogin() {
         >
           <Text style={styles.changeRoleText}>⇄ {t('onboarding.changeRole')}</Text>
         </Pressable>
+
+        <Pressable
+          style={styles.privacyBtn}
+          onPress={() => Linking.openURL('https://www.clinifly.net/privacy-policy')}
+        >
+          <Text style={styles.privacyBtnText}>🔒 {t('login.privacyPolicy')}</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -411,5 +418,15 @@ const styles = StyleSheet.create({
   changeRoleText: {
     fontSize: 13,
     color: "#9ca3af",
+  },
+  privacyBtn: {
+    alignItems: "center",
+    paddingVertical: 10,
+    marginTop: 4,
+  },
+  privacyBtnText: {
+    fontSize: 12,
+    color: "#6B7280",
+    textDecorationLine: "underline",
   },
 });

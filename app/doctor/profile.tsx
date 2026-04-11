@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  Alert, ActivityIndicator, StyleSheet, SafeAreaView, Switch, Image,
+  Alert, ActivityIndicator, StyleSheet, SafeAreaView, Switch, Image, Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -427,6 +427,30 @@ export default function DoctorProfileScreen() {
           </TouchableOpacity>
         )}
 
+        {/* Legal */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>{t('profile.legal')}</Text>
+          <TouchableOpacity
+            style={s.legalBtn}
+            onPress={() => Linking.openURL('https://www.clinifly.net/privacy-policy')}
+            activeOpacity={0.7}
+          >
+            <Text style={s.legalIcon}>🔒</Text>
+            <Text style={s.legalBtnText}>{t('profile.privacyPolicy')}</Text>
+            <Text style={s.legalArrow}>›</Text>
+          </TouchableOpacity>
+          <View style={s.legalDivider} />
+          <TouchableOpacity
+            style={s.legalBtn}
+            onPress={() => Linking.openURL('https://www.clinifly.net/terms-and-conditions')}
+            activeOpacity={0.7}
+          >
+            <Text style={s.legalIcon}>📄</Text>
+            <Text style={s.legalBtnText}>{t('profile.termsOfService') || 'Terms of Service'}</Text>
+            <Text style={s.legalArrow}>›</Text>
+          </TouchableOpacity>
+        </View>
+
         <View style={{ height: 32 }} />
       </ScrollView>
     </SafeAreaView>
@@ -521,4 +545,12 @@ const s = StyleSheet.create({
   langBtnActive: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
   langBtnText: { fontSize: 13, fontWeight: '600', color: '#374151' },
   langBtnTextActive: { color: '#fff' },
+
+  legalBtn: {
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 10,
+  },
+  legalIcon: { fontSize: 18, width: 26, textAlign: 'center' },
+  legalBtnText: { flex: 1, fontSize: 15, fontWeight: '600', color: '#111827' },
+  legalArrow: { fontSize: 20, color: '#9CA3AF' },
+  legalDivider: { height: 1, backgroundColor: '#F3F4F6', marginHorizontal: -16 },
 });
