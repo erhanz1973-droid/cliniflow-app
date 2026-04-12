@@ -109,6 +109,10 @@ const _simPending    = new Set<string>();                    // currently in-fli
 const _simFailed     = new Set<string>();                    // permanently failed (until manual retry)
 const _simSubs       = new Map<string, Array<() => void>>();
 
+// Global callbacks — fired whenever ANY simulation completes, regardless of key.
+// AiResultBubble registers here so it never misses a result due to key mismatch.
+const _globalSimCallbacks = new Set<() => void>();
+
 function subscribeSimUrl(imageUrl: string, cb: () => void): () => void {
   const arr = _simSubs.get(imageUrl) ?? [];
   _simSubs.set(imageUrl, [...arr, cb]);
@@ -119,6 +123,11 @@ function subscribeSimUrl(imageUrl: string, cb: () => void): () => void {
 
 function _notifySimSubs(imageUrl: string) {
   _simSubs.get(imageUrl)?.forEach(fn => fn());
+}
+
+/** Notify ALL mounted AiResultBubble instances that a simulation result is ready. */
+function _notifyAllSimSubs() {
+  _globalSimCallbacks.forEach(fn => fn());
 }
 
 // ─── Location helper ─────────────────────────────────────────────────────────
@@ -641,6 +650,9 @@ export default function MessagesScreen() {
 
                 console.log("[SIM] Cache key:", cacheKey.slice(0, 80));
                 console.log("FINAL SIM IMAGE:", simUrl);
+
+                // Immediately push the result to ALL mounted AiResultBubble instances.
+                _notifyAllSimSubs();
 
                 succeeded = true;
                 const label = simData.fallback ? 'fallback(original)' : simData.simulationProvider;
@@ -1291,7 +1303,7 @@ function AiResultBubble({ msg }: { msg: Message }) {
     _simCache.has(cacheKey) || !!result?.simulatedImageUrl || _simPending.has(cacheKey)
   );
 
-  // ── Sim update: poll cache + subscription ─────────────────────────────
+  // ── Sim update: global callback + poll fallback + keyed subscription ─
   useEffect(() => {
     const key = imgUrl.split("?")[0];
     console.log("[SIM] Bubble mounted | key:", key.slice(0, 80) || "(empty)");
@@ -1304,36 +1316,64 @@ function AiResultBubble({ msg }: { msg: Message }) {
       setSimTriggered(true);
     }
 
-    // ── Poll cache every 1.5 s (reliable fallback when key mismatch) ──
-    const poll = setInterval(() => {
-      // 1. Try exact key match
-      const exact = key ? _simCache.get(key) : null;
+    /**
+     * Check the module-level cache for any completed simulation.
+     * 1. Exact key match (fast path).
+     * 2. Full-scan for any non-Supabase URL (handles key-mismatch cases).
+     * Returns true if a result was applied.
+     */
+    function checkCache(): boolean {
+      // Exact match
+      const exact = key ? _simCache.get(key) : undefined;
       if (exact) {
         applySimUrl(exact, _simVariations.get(key) ?? []);
-        clearInterval(poll);
-        return;
+        return true;
       }
-      // 2. Full-scan: pick first non-Supabase URL (a real Replicate result)
-      for (const [, v] of _simCache) {
+      // Full-scan: any Replicate URL already in cache
+      for (const [k, v] of _simCache) {
         if (v && !v.includes('supabase.co')) {
-          applySimUrl(v, []);
-          clearInterval(poll);
-          return;
+          applySimUrl(v, _simVariations.get(k) ?? []);
+          return true;
         }
       }
-      // 3. Show spinner if any prediction is in-flight
-      if (_simPending.size > 0) { setSimLoading(true); setSimTriggered(true); }
-    }, 1500);
+      return false;
+    }
 
-    // ── Subscription for instant update when keys match ────────────────
+    // Check immediately on mount — covers the case where simulation already completed.
+    if (checkCache()) return;
+
+    // Show spinner if a prediction is already in-flight.
+    if (_simPending.size > 0) { setSimLoading(true); setSimTriggered(true); }
+
+    // ── Global callback: fired by _notifyAllSimSubs() when any sim finishes ──
+    const onGlobalSim = () => {
+      checkCache();
+      // Also clear loading if everything failed
+      if (_simPending.size === 0 && _simCache.size === 0) {
+        setSimLoading(false);
+      }
+    };
+    _globalSimCallbacks.add(onGlobalSim);
+
+    // ── Keyed subscription: instant update when keys match exactly ─────────
     const unsub = subscribeSimUrl(key, () => {
       const url  = _simCache.get(key) ?? null;
       const vars = _simVariations.get(key) ?? [];
-      if (url) { applySimUrl(url, vars); clearInterval(poll); }
+      if (url) { applySimUrl(url, vars); }
       else if (_simFailed.has(key)) { setSimLoading(false); setSimTriggered(false); }
     });
 
-    return () => { clearInterval(poll); unsub(); };
+    // ── Poll every 2 s as a last-resort fallback ───────────────────────────
+    const poll = setInterval(() => {
+      if (checkCache()) { clearInterval(poll); return; }
+      if (_simPending.size > 0) { setSimLoading(true); setSimTriggered(true); }
+    }, 2000);
+
+    return () => {
+      _globalSimCallbacks.delete(onGlobalSim);
+      clearInterval(poll);
+      unsub();
+    };
   }, [imgUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Clinic picker ────────────────────────────────────────────────────
