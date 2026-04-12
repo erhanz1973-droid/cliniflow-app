@@ -637,14 +637,50 @@ export default function MessagesScreen() {
               });
               const startData: Record<string, any> = await startRes.json().catch(() => ({}));
 
+              /**
+               * Commit the final simulation URL.
+               * THREE delivery paths — all must fire to guarantee the UI updates:
+               *  1. _simCache  → AiResultBubble's global-callback bridge
+               *  2. setMessages → directly injects into React message state
+               *  3. _notifyAllSimSubs → belt-and-suspenders global callback
+               */
+              const commitSimResult = (simUrl: string, simVars: SimVariation[]) => {
+                console.log("FINAL SIM IMAGE:", simUrl);
+                _simCache.set(cacheKey, simUrl);
+                if (simVars.length > 0) _simVariations.set(cacheKey, simVars);
+
+                // ── Direct state injection (most reliable path) ──────────────
+                // Finds the AI result message whose originalImageUrl matches the
+                // uploaded file and stamps simulatedImageUrl onto it.  AiResultBubble
+                // watches this field in a useEffect, so the slider appears instantly.
+                setMessages(prev => {
+                  let matched = false;
+                  const next = prev.map(m => {
+                    if (matched || !m.attachment?.aiResult) return m;
+                    const mk = (m.attachment.aiResult.originalImageUrl ?? "").split("?")[0];
+                    if (mk === cacheKey || (!mk && !matched)) {
+                      matched = true;
+                      return {
+                        ...m,
+                        attachment: {
+                          ...m.attachment,
+                          aiResult: { ...m.attachment.aiResult, simulatedImageUrl: simUrl },
+                        },
+                      } as typeof m;
+                    }
+                    return m;
+                  });
+                  return next;
+                });
+
+                _notifyAllSimSubs();
+              };
+
               // ── v6 compat: backend returned the image URL directly ─────────
               if (startData.ok && startData.simulatedImageUrl) {
                 const simUrl: string = startData.simulatedImageUrl;
                 const simVars: SimVariation[] = Array.isArray(startData.variations) ? startData.variations : [];
-                _simCache.set(cacheKey, simUrl);
-                if (simVars.length > 0) _simVariations.set(cacheKey, simVars);
-                console.log("FINAL SIM IMAGE:", simUrl);
-                _notifyAllSimSubs();
+                commitSimResult(simUrl, simVars);
                 succeeded = true;
                 console.log("[SIM] Done (direct): replicate | variations:", simVars.length);
                 return; // goes to finally
@@ -658,7 +694,6 @@ export default function MessagesScreen() {
               }
 
               const { jobId } = startData;
-
               const SIM_POLL_INTERVAL = 3000;
               const SIM_MAX_POLLS     = 35; // 35 × 3 s = 105 s max
               for (let i = 0; i < SIM_MAX_POLLS; i++) {
@@ -669,14 +704,10 @@ export default function MessagesScreen() {
                   });
                   const statusData: Record<string, any> = await statusRes.json().catch(() => ({}));
                   console.log(`[SIM POLL] ${i + 1}/${SIM_MAX_POLLS}: ${statusData.status ?? 'err'}`);
-
                   if (statusData.status === "succeeded" && statusData.simulatedImageUrl) {
                     const simUrl: string = statusData.simulatedImageUrl;
                     const simVars: SimVariation[] = Array.isArray(statusData.variations) ? statusData.variations : [];
-                    _simCache.set(cacheKey, simUrl);
-                    if (simVars.length > 0) _simVariations.set(cacheKey, simVars);
-                    console.log("FINAL SIM IMAGE:", simUrl);
-                    _notifyAllSimSubs();
+                    commitSimResult(simUrl, simVars);
                     succeeded = true;
                     console.log("[SIM] Done (polled): replicate | variations:", simVars.length);
                     break;
@@ -1326,7 +1357,19 @@ function AiResultBubble({ msg }: { msg: Message }) {
     _simCache.has(cacheKey) || !!result?.simulatedImageUrl || _simPending.has(cacheKey)
   );
 
-  // ── Sim update: global callback + poll fallback + keyed subscription ─
+  // ── Primary path: react to direct state injection from processPhotoWithAI ─
+  // setMessages() stamps simulatedImageUrl onto the message; this picks it up.
+  useEffect(() => {
+    const injected = result?.simulatedImageUrl;
+    if (injected && injected !== simUrl) {
+      console.log("[SIM] Injected via message state:", injected.slice(0, 60));
+      setSimUrl(injected);
+      setSimLoading(false);
+      setSimTriggered(true);
+    }
+  }, [result?.simulatedImageUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Fallback: global callback + poll + keyed subscription ─────────────────
   useEffect(() => {
     const key = imgUrl.split("?")[0];
     console.log("[SIM] Bubble mounted | key:", key.slice(0, 80) || "(empty)");
