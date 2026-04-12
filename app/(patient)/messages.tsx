@@ -246,6 +246,29 @@ export default function MessagesScreen() {
     (a, b) => a.createdAt - b.createdAt
   );
 
+  // Stable renderItem reference — prevents FlatList from re-rendering all rows
+  // on every parent state change. MessageBubble is React.memo'd so it skips
+  // items whose msg object reference hasn't changed.
+  const renderChatItem = useCallback(
+    ({ item, index }: { item: Message; index: number }) => {
+      const prev = allMessages[index - 1];
+      const showDay = !prev || fmtDay(prev.createdAt, locale) !== fmtDay(item.createdAt, locale);
+      return (
+        <>
+          {showDay && (
+            <View style={s.dayRow}>
+              <View style={s.dayLine} />
+              <Text style={s.dayLabel}>{fmtDay(item.createdAt, locale)}</Text>
+              <View style={s.dayLine} />
+            </View>
+          )}
+          <MessageBubble msg={item} />
+        </>
+      );
+    },
+    [allMessages, locale], // locale rarely changes; allMessages identity changes on new msgs
+  );
+
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
   const fetchMessages = useCallback(async (silent = false) => {
@@ -955,22 +978,11 @@ export default function MessagesScreen() {
           keyExtractor={(m, i) => m.id || String(i)}
           contentContainerStyle={{ padding: 12, paddingBottom: 8 }}
           showsVerticalScrollIndicator={false}
-          renderItem={({ item, index }) => {
-            const prev = allMessages[index - 1];
-            const showDay = !prev || fmtDay(prev.createdAt, locale) !== fmtDay(item.createdAt, locale);
-            return (
-              <>
-                {showDay && (
-                  <View style={s.dayRow}>
-                    <View style={s.dayLine} />
-                    <Text style={s.dayLabel}>{fmtDay(item.createdAt, locale)}</Text>
-                    <View style={s.dayLine} />
-                  </View>
-                )}
-                <MessageBubble msg={item} />
-              </>
-            );
-          }}
+          renderItem={renderChatItem}
+          initialNumToRender={10}
+          maxToRenderPerBatch={5}
+          windowSize={8}
+          removeClippedSubviews={true}
           ListEmptyComponent={
             hasClinic ? (
               <View style={s.empty}>
@@ -1679,7 +1691,7 @@ function AiResultBubble({ msg }: { msg: Message }) {
 
 // ─── MessageBubble ────────────────────────────────────────────────────────────
 
-function MessageBubble({ msg }: { msg: Message }) {
+const MessageBubble = React.memo(function MessageBubble({ msg }: { msg: Message }) {
   const locale = useDateLocale();
   const { t } = useLanguage();
 
@@ -1747,7 +1759,10 @@ function MessageBubble({ msg }: { msg: Message }) {
       </View>
     </View>
   );
-}
+// React.memo wrapper — only re-renders when msg reference changes.
+// setMessages() with our partial update returns the same object for
+// unchanged messages, so those bubbles are skipped entirely.
+}, (prev, next) => prev.msg === next.msg);
 
 // ─── IntraoralModal ───────────────────────────────────────────────────────────
 
