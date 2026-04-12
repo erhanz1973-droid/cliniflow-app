@@ -18,18 +18,30 @@ const UPLOAD_CONSENT_KEY = "@clinifly:upload_consent_accepted";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type AiResult = {
+  insights: string[];
+  overallNote?: string;
+  disclaimer: string;
+  originalImageUrl?: string;
+  simulatedImageUrl?: string;
+};
+
 type Attachment = {
   name: string; size?: number; url: string;
   mimeType: string; fileType: "image" | "pdf" | string;
+  aiResult?: AiResult;
 };
+
 type Message = {
   id: string; from: "PATIENT" | "CLINIC";
   text?: string; type: string;
   attachment?: Attachment;
   createdAt: number;
+  /** true for locally-generated loading bubbles (not persisted) */
+  _local?: boolean;
 };
 
-// ─── Intraoral photo steps (keys only; labels resolved at render time) ────────
+// ─── Intraoral photo steps ────────────────────────────────────────────────────
 
 const PHOTO_STEP_KEYS = [
   { key: "upper", icon: "⬆️" },
@@ -55,17 +67,20 @@ export default function MessagesScreen() {
   const { t } = useLanguage();
   const locale = useDateLocale();
   const router = useRouter();
-  const [messages, setMessages]             = useState<Message[]>([]);
-  const [loading, setLoading]               = useState(true);
-  const [text, setText]                     = useState("");
-  const [sending, setSending]               = useState(false);
-  const [uploading, setUploading]           = useState(false);
-  const [intraoralVisible, setIntraoralVisible] = useState(false);
-  const [intraoralStep, setIntraoralStep]   = useState(0);
-  const [intraoralPhotos, setIntraoralPhotos] = useState<Record<string, any>>({});
-  const flatRef = useRef<FlatList>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastCountRef = useRef(0);
+
+  const [messages, setMessages]                   = useState<Message[]>([]);
+  const [localMessages, setLocalMessages]         = useState<Message[]>([]);
+  const [loading, setLoading]                     = useState(true);
+  const [text, setText]                           = useState("");
+  const [sending, setSending]                     = useState(false);
+  const [uploading, setUploading]                 = useState(false);
+  const [intraoralVisible, setIntraoralVisible]   = useState(false);
+  const [intraoralStep, setIntraoralStep]         = useState(0);
+  const [intraoralPhotos, setIntraoralPhotos]     = useState<Record<string, any>>({});
+
+  const flatRef        = useRef<FlatList>(null);
+  const pollRef        = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastCountRef   = useRef(0);
 
   const patientId = String(user?.patientId || "").trim();
   const token     = user?.token;
@@ -76,6 +91,12 @@ export default function MessagesScreen() {
     Accept: "application/json",
     "Content-Type": "application/json",
   }), [token]);
+
+  // ── All messages merged (backend + local loading) ──────────────────────────
+
+  const allMessages = [...messages, ...localMessages].sort(
+    (a, b) => a.createdAt - b.createdAt
+  );
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
@@ -100,7 +121,7 @@ export default function MessagesScreen() {
   }, [token, patientId, authHeaders]);
 
   useEffect(() => {
-    markRead(); // clear badge when screen opens
+    markRead();
     fetchMessages();
     pollRef.current = setInterval(() => fetchMessages(true), 12_000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
@@ -157,9 +178,13 @@ export default function MessagesScreen() {
       );
     });
 
-  // ── Upload file ────────────────────────────────────────────────────────────
+  // ── Upload file → returns fileUrl or null ──────────────────────────────────
 
-  const uploadFile = async (uri: string, name: string, mimeType: string) => {
+  const uploadFile = async (
+    uri: string,
+    name: string,
+    mimeType: string
+  ): Promise<string | null> => {
     setUploading(true);
     try {
       const formData = new FormData();
@@ -178,15 +203,63 @@ export default function MessagesScreen() {
           { text: t("common.cancel"), style: "cancel" },
           { text: t("common.retry") ?? "Retry", onPress: () => uploadFile(uri, name, mimeType) },
         ]);
-      } else {
-        fetchMessages(true);
+        return null;
       }
+      await fetchMessages(true);
+      // Return the first uploaded file's URL
+      return json.files?.[0]?.url ?? null;
     } catch {
       Alert.alert(t("common.error"), t("messages.uploadFailed"), [
         { text: t("common.cancel"), style: "cancel" },
         { text: t("common.retry") ?? "Retry", onPress: () => uploadFile(uri, name, mimeType) },
       ]);
+      return null;
     } finally { setUploading(false); }
+  };
+
+  // ── AI photo processing pipeline ───────────────────────────────────────────
+
+  const processPhotoWithAI = async (uri: string, name: string, mimeType: string) => {
+    // Step 1 – upload image (shows in chat as patient message)
+    const fileUrl = await uploadFile(uri, name, mimeType);
+    if (!fileUrl) return; // upload failed – already alerted
+
+    // Step 2 – add local loading bubble
+    const loadingId = `ai_loading_${Date.now()}`;
+    const loadingMsg: Message = {
+      id: loadingId,
+      from: "CLINIC",
+      type: "ai_loading",
+      text: "Fotoğraf analiz ediliyor...",
+      createdAt: Date.now() + 500,
+      _local: true,
+    };
+    setLocalMessages(prev => [...prev, loadingMsg]);
+    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 150);
+
+    // Step 3 – call AI endpoint
+    try {
+      const aiRes = await fetch(`${API_BASE}/api/chat/ai-analyze`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ patientId, imageUrl: fileUrl }),
+      });
+      // Whether success or failure – the backend either saved an ai_result message
+      // or we just fall back to the original image message already in chat
+      if (!aiRes.ok) {
+        const err = await aiRes.json().catch(() => ({}));
+        if (err.error === "ai_not_configured") {
+          // AI keys not set – silently fall through (image is still uploaded)
+        }
+        // Other errors: silently fall through
+      }
+    } catch {
+      // Network / timeout – silently fall through
+    } finally {
+      // Step 4 – remove loading bubble & refresh
+      setLocalMessages(prev => prev.filter(m => m.id !== loadingId));
+      await fetchMessages(true);
+    }
   };
 
   // ── Pickers ────────────────────────────────────────────────────────────────
@@ -205,7 +278,11 @@ export default function MessagesScreen() {
     });
     if (!result.canceled && result.assets[0]) {
       const a = result.assets[0];
-      await uploadFile(a.uri, a.fileName || `photo_${Date.now()}.jpg`, a.mimeType || "image/jpeg");
+      await processPhotoWithAI(
+        a.uri,
+        a.fileName || `photo_${Date.now()}.jpg`,
+        a.mimeType || "image/jpeg"
+      );
     }
   };
 
@@ -232,14 +309,18 @@ export default function MessagesScreen() {
           options: [t("common.cancel"), t("chat.selectImage"), t("chat.selectFile"), t("chat.intraoralPhoto")],
           cancelButtonIndex: 0,
         },
-        (i) => { if (i === 1) pickImage(); else if (i === 2) pickDocument(); else if (i === 3) openGuidedCamera(); }
+        (i) => {
+          if (i === 1) pickImage();
+          else if (i === 2) pickDocument();
+          else if (i === 3) openGuidedCamera();
+        }
       );
     } else {
       Alert.alert(t("messages.addFile"), t("messages.selectSource"), [
-        { text: t("chat.selectImage"),   onPress: pickImage },
-        { text: t("chat.selectFile"),    onPress: pickDocument },
+        { text: t("chat.selectImage"),    onPress: pickImage },
+        { text: t("chat.selectFile"),     onPress: pickDocument },
         { text: t("chat.intraoralPhoto"), onPress: openGuidedCamera },
-        { text: t("common.cancel"),      style: "cancel" },
+        { text: t("common.cancel"),       style: "cancel" },
       ]);
     }
   };
@@ -255,8 +336,8 @@ export default function MessagesScreen() {
     }
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: "images", quality: 0.85 });
     if (!result.canceled && result.assets[0]) {
-      const key = PHOTO_STEPS[intraoralStep].key;
-      setIntraoralPhotos(prev => ({ ...prev, [key]: result.assets[0] }));
+      const key = PHOTO_STEP_KEYS[intraoralStep]?.key;
+      if (key) setIntraoralPhotos(prev => ({ ...prev, [key]: result.assets[0] }));
     }
   };
 
@@ -294,12 +375,12 @@ export default function MessagesScreen() {
         {/* Message list */}
         <FlatList
           ref={flatRef}
-          data={messages}
+          data={allMessages}
           keyExtractor={(m, i) => m.id || String(i)}
           contentContainerStyle={{ padding: 12, paddingBottom: 8 }}
           showsVerticalScrollIndicator={false}
           renderItem={({ item, index }) => {
-            const prev = messages[index - 1];
+            const prev = allMessages[index - 1];
             const showDay = !prev || fmtDay(prev.createdAt, locale) !== fmtDay(item.createdAt, locale);
             return (
               <>
@@ -370,11 +451,104 @@ export default function MessagesScreen() {
         photos={intraoralPhotos}
         onClose={() => setIntraoralVisible(false)}
         onCapture={captureIntraoralStep}
-        onNext={() => setIntraoralStep(p => Math.min(p + 1, PHOTO_STEPS.length - 1))}
+        onNext={() => setIntraoralStep(p => Math.min(p + 1, PHOTO_STEP_KEYS.length - 1))}
         onPrev={() => setIntraoralStep(p => Math.max(p - 1, 0))}
         onSubmit={submitIntraoralPhotos}
       />
     </KeyboardAvoidingView>
+  );
+}
+
+// ─── AiLoadingBubble ──────────────────────────────────────────────────────────
+
+function AiLoadingBubble() {
+  const [dots, setDots] = useState(".");
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDots(d => d.length >= 3 ? "." : d + ".");
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
+  return (
+    <View style={[s.bubbleWrap, s.bubbleLeft]}>
+      <Text style={s.bubbleFrom}>AI</Text>
+      <View style={[s.bubble, s.bubbleClinic, ai.loadingBubble]}>
+        <View style={ai.loadingRow}>
+          <ActivityIndicator size="small" color="#6366f1" />
+          <Text style={ai.loadingText}>Fotoğraf analiz ediliyor{dots}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ─── AiResultBubble ───────────────────────────────────────────────────────────
+
+function AiResultBubble({ msg }: { msg: Message }) {
+  const locale = useDateLocale();
+  const result = msg.attachment?.aiResult;
+  if (!result) return null;
+
+  const displayImage = result.simulatedImageUrl || result.originalImageUrl;
+
+  return (
+    <View style={[s.bubbleWrap, s.bubbleLeft]}>
+      <Text style={s.bubbleFrom}>AI</Text>
+      <View style={[s.bubble, s.bubbleClinic, ai.card]}>
+        {/* Header */}
+        <View style={ai.header}>
+          <Text style={ai.headerIcon}>✨</Text>
+          <Text style={ai.headerTitle}>AI Önizleme</Text>
+        </View>
+
+        {/* Enhanced / original image */}
+        {!!displayImage && (
+          <TouchableOpacity
+            onPress={() => {
+              const fullUrl = displayImage.startsWith("http")
+                ? displayImage
+                : `${require("../../lib/api").API_BASE}${displayImage}`;
+              Linking.openURL(fullUrl);
+            }}
+            activeOpacity={0.85}
+          >
+            <Image
+              source={{
+                uri: displayImage.startsWith("http")
+                  ? displayImage
+                  : `${require("../../lib/api").API_BASE}${displayImage}`,
+              }}
+              style={ai.image}
+              resizeMode="cover"
+            />
+          </TouchableOpacity>
+        )}
+
+        {/* Insights */}
+        {result.insights.length > 0 && (
+          <View style={ai.insightsBlock}>
+            {result.insights.map((insight, i) => (
+              <View key={i} style={ai.insightRow}>
+                <Text style={ai.bullet}>•</Text>
+                <Text style={ai.insightText}>{insight}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Overall note */}
+        {!!result.overallNote && (
+          <Text style={ai.overallNote}>{result.overallNote}</Text>
+        )}
+
+        {/* Disclaimer */}
+        <View style={ai.disclaimerBox}>
+          <Text style={ai.disclaimerText}>{result.disclaimer}</Text>
+        </View>
+
+        <Text style={[s.bubbleTime]}>{fmtTime(msg.createdAt, "tr-TR")}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -383,6 +557,13 @@ export default function MessagesScreen() {
 function MessageBubble({ msg }: { msg: Message }) {
   const locale = useDateLocale();
   const { t } = useLanguage();
+
+  // Local loading bubble
+  if (msg.type === "ai_loading") return <AiLoadingBubble />;
+
+  // AI result bubble (from backend, type = 'ai_result')
+  if (msg.type === "ai_result" || msg.attachment?.aiResult) return <AiResultBubble msg={msg} />;
+
   const isPatient = msg.from === "PATIENT";
   const att = msg.attachment;
   const isImage = att?.fileType === "image" || att?.mimeType?.startsWith("image/");
@@ -398,8 +579,17 @@ function MessageBubble({ msg }: { msg: Message }) {
           </Text>
         )}
         {isImage && att?.url ? (
-          <TouchableOpacity onPress={() => Linking.openURL(att.url)} activeOpacity={0.85}>
-            <Image source={{ uri: att.url }} style={s.attImage} resizeMode="cover" />
+          <TouchableOpacity
+            onPress={() => Linking.openURL(
+              att.url.startsWith("http") ? att.url : `${API_BASE}${att.url}`
+            )}
+            activeOpacity={0.85}
+          >
+            <Image
+              source={{ uri: att.url.startsWith("http") ? att.url : `${API_BASE}${att.url}` }}
+              style={s.attImage}
+              resizeMode="cover"
+            />
             {att.name && (
               <Text style={[s.attName, isPatient && { color: "rgba(255,255,255,0.7)" }]}
                 numberOfLines={1}>{att.name}</Text>
@@ -407,7 +597,11 @@ function MessageBubble({ msg }: { msg: Message }) {
           </TouchableOpacity>
         ) : null}
         {isPdf && att ? (
-          <TouchableOpacity style={s.pdfRow} onPress={() => Linking.openURL(att.url)} activeOpacity={0.85}>
+          <TouchableOpacity
+            style={s.pdfRow}
+            onPress={() => Linking.openURL(att.url.startsWith("http") ? att.url : `${API_BASE}${att.url}`)}
+            activeOpacity={0.85}
+          >
             <Text style={s.pdfEmoji}>📄</Text>
             <View style={{ flex: 1 }}>
               <Text style={[s.pdfName, isPatient && { color: "#dbeafe" }]} numberOfLines={2}>
@@ -469,9 +663,9 @@ function IntraoralModal({ visible, step, photos, onClose, onCapture, onNext, onP
         </View>
 
         <ScrollView contentContainerStyle={im.body} showsVerticalScrollIndicator={false}>
-          <Text style={im.stepIcon}>{currentKey.icon}</Text>
-          <Text style={im.stepLabel}>{t(`messages.intraoral.${currentKey.key}.label`)}</Text>
-          <Text style={im.stepInstruction}>{t(`messages.intraoral.${currentKey.key}.instruction`)}</Text>
+          <Text style={im.stepIcon}>{currentKey?.icon}</Text>
+          <Text style={im.stepLabel}>{t(`messages.intraoral.${currentKey?.key}.label`)}</Text>
+          <Text style={im.stepInstruction}>{t(`messages.intraoral.${currentKey?.key}.instruction`)}</Text>
 
           {photo ? (
             <Image source={{ uri: photo.uri }} style={im.preview} resizeMode="cover" />
@@ -545,7 +739,7 @@ const s = StyleSheet.create({
   bubbleLeft:    { alignItems: "flex-start" },
   bubbleRight:   { alignItems: "flex-end" },
   bubbleFrom:    { fontSize: 10, color: "#9ca3af", marginBottom: 3, marginLeft: 4 },
-  bubble:        { maxWidth: "80%", borderRadius: 16, padding: 10, paddingHorizontal: 14 },
+  bubble:        { maxWidth: "82%", borderRadius: 16, padding: 10, paddingHorizontal: 14 },
   bubblePatient: { backgroundColor: "#2563eb", borderBottomRightRadius: 4 },
   bubbleClinic:  {
     backgroundColor: "#fff", borderBottomLeftRadius: 4,
@@ -596,6 +790,41 @@ const s = StyleSheet.create({
   emptyIcon:  { fontSize: 52, marginBottom: 12 },
   emptyTitle: { fontSize: 16, fontWeight: "700", color: "#374151", marginBottom: 6 },
   emptySub:   { fontSize: 13, color: "#9ca3af", textAlign: "center", paddingHorizontal: 36, lineHeight: 20 },
+});
+
+// ─── AI bubble styles ─────────────────────────────────────────────────────────
+
+const ai = StyleSheet.create({
+  loadingBubble: { paddingVertical: 12 },
+  loadingRow:    { flexDirection: "row", alignItems: "center", gap: 10 },
+  loadingText:   { fontSize: 13, color: "#6366f1", fontWeight: "600" },
+
+  card: { maxWidth: "90%", padding: 14, gap: 10 },
+
+  header:      { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
+  headerIcon:  { fontSize: 16 },
+  headerTitle: { fontSize: 15, fontWeight: "800", color: "#111827" },
+
+  image: {
+    width: "100%", height: 200, borderRadius: 10,
+    marginVertical: 4, backgroundColor: "#f3f4f6",
+  },
+
+  insightsBlock: { gap: 6, marginTop: 4 },
+  insightRow:    { flexDirection: "row", gap: 6 },
+  bullet:        { fontSize: 14, color: "#6366f1", fontWeight: "800", marginTop: 1 },
+  insightText:   { flex: 1, fontSize: 13, color: "#374151", lineHeight: 20 },
+
+  overallNote: {
+    fontSize: 13, color: "#4b5563", fontStyle: "italic",
+    borderTopWidth: 1, borderTopColor: "#f3f4f6", paddingTop: 8, marginTop: 2,
+  },
+
+  disclaimerBox: {
+    backgroundColor: "#fef9c3", borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 7, marginTop: 4,
+  },
+  disclaimerText: { fontSize: 11, color: "#854d0e", lineHeight: 16 },
 });
 
 const im = StyleSheet.create({
