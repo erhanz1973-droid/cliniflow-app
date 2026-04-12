@@ -312,7 +312,7 @@ export default function MessagesScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: "images",
-      quality: 0.85,
+      // No quality here — compressImage() centralises all encoding at 1024px/0.75q
       allowsMultipleSelection: true,   // ENABLE_MULTI_PHOTO_PROGRESS: each photo → own AI
       selectionLimit: 5,
     });
@@ -378,7 +378,8 @@ export default function MessagesScreen() {
       Alert.alert(t("messages.permissionRequired"), t("messages.cameraPermission"));
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: "images", quality: 0.85 });
+    // No quality param — compressImage() runs at upload time in submitIntraoralPhotos
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: "images" });
     if (!result.canceled && result.assets[0]) {
       const key = PHOTO_STEP_KEYS[intraoralStep]?.key;
       if (key) setIntraoralPhotos(prev => ({ ...prev, [key]: result.assets[0] }));
@@ -391,8 +392,11 @@ export default function MessagesScreen() {
     setIntraoralVisible(false);
     setUploading(true);
     for (const [key, asset] of entries) {
+      const rawUri    = (asset as any).uri as string;
+      const rawMime   = (asset as any).mimeType as string | undefined ?? "image/jpeg";
+      const { uri: compUri, mimeType: compMime } = await compressImage(rawUri, rawMime);
       const name = `intraoral_${key}_${Date.now()}.jpg`;
-      await uploadFile((asset as any).uri, name, "image/jpeg");
+      await uploadFile(compUri, name, compMime);
     }
     setUploading(false);
   };
