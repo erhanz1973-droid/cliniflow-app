@@ -20,6 +20,14 @@ const UPLOAD_CONSENT_KEY = "@clinifly:upload_consent_accepted";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type ClinicRecommendation = {
+  id: string;
+  name: string;
+  specialty: string;
+  city?: string | null;
+  rating?: number | null;
+};
+
 type AiResult = {
   insights: string[];
   confidence?: "low" | "medium" | "high";
@@ -30,6 +38,7 @@ type AiResult = {
   disclaimer: string;
   originalImageUrl?: string;
   simulatedImageUrl?: string;
+  clinics?: ClinicRecommendation[];
 };
 
 type Attachment = {
@@ -46,6 +55,24 @@ type Message = {
   /** true for locally-generated loading bubbles (not persisted) */
   _local?: boolean;
 };
+
+// ─── Clinic contact bridge ────────────────────────────────────────────────────
+// Allows clinic cards (rendered outside MessagesScreen) to set the chat input.
+
+type ContactHandler = (prefillText: string) => void;
+const _contactHandlers: ContactHandler[] = [];
+
+function onClinicContact(fn: ContactHandler): () => void {
+  _contactHandlers.push(fn);
+  return () => {
+    const i = _contactHandlers.indexOf(fn);
+    if (i > -1) _contactHandlers.splice(i, 1);
+  };
+}
+
+function triggerClinicContact(msg: string) {
+  _contactHandlers.forEach(fn => fn(msg));
+}
 
 // ─── Intraoral photo steps ────────────────────────────────────────────────────
 
@@ -91,6 +118,15 @@ export default function MessagesScreen() {
   const patientId = String(user?.patientId || "").trim();
   const token     = user?.token;
   const { markRead } = useUnreadMessages(patientId || undefined, token || undefined);
+
+  // Register clinic-contact bridge: pre-fills text input and scrolls to bottom
+  useEffect(() => {
+    const unregister = onClinicContact((prefill) => {
+      setText(prefill);
+      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+    });
+    return unregister;
+  }, []);
 
   const authHeaders = useCallback(() => ({
     Authorization: `Bearer ${token}`,
@@ -561,6 +597,40 @@ export default function MessagesScreen() {
   );
 }
 
+// ─── ClinicCard ───────────────────────────────────────────────────────────────
+
+function ClinicCard({ clinic }: { clinic: ClinicRecommendation }) {
+  const PREFILL = "AI analiz sonucuma göre sizinle görüşmek istiyorum.";
+
+  return (
+    <View style={cl.card}>
+      <View style={cl.cardBody}>
+        <View style={cl.cardInfo}>
+          <Text style={cl.clinicName} numberOfLines={1}>{clinic.name}</Text>
+          <View style={cl.tagRow}>
+            <View style={cl.specialtyTag}>
+              <Text style={cl.specialtyText}>{clinic.specialty}</Text>
+            </View>
+            {clinic.city ? (
+              <Text style={cl.cityText}>📍 {clinic.city}</Text>
+            ) : null}
+          </View>
+          {clinic.rating != null && (
+            <Text style={cl.ratingText}>⭐ {clinic.rating.toFixed(1)}</Text>
+          )}
+        </View>
+        <TouchableOpacity
+          style={cl.ctaBtn}
+          activeOpacity={0.8}
+          onPress={() => triggerClinicContact(PREFILL)}
+        >
+          <Text style={cl.ctaBtnText}>Mesaj Gönder</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 // ─── AiLoadingBubble ──────────────────────────────────────────────────────────
 
 function AiLoadingBubble() {
@@ -688,6 +758,19 @@ function AiResultBubble({ msg }: { msg: Message }) {
         <View style={ai.disclaimerBox}>
           <Text style={ai.disclaimerText}>{result.disclaimer}</Text>
         </View>
+
+        {/* ── Clinic recommendations ── */}
+        {result.clinics && result.clinics.length > 0 && (
+          <View style={cl.section}>
+            <Text style={cl.sectionTitle}>Bu durumu değerlendirebilecek klinikler</Text>
+            {result.clinics.map((clinic) => (
+              <ClinicCard key={clinic.id} clinic={clinic} />
+            ))}
+            <Text style={cl.safetyNote}>
+              Bu klinikler yalnızca öneri niteliğindedir.
+            </Text>
+          </View>
+        )}
 
         <Text style={s.bubbleTime}>{fmtTime(msg.createdAt, "tr-TR")}</Text>
       </View>
@@ -999,6 +1082,48 @@ const ai = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 7, marginTop: 2,
   },
   disclaimerText: { fontSize: 11, color: "#854d0e", lineHeight: 16 },
+});
+
+const cl = StyleSheet.create({
+  section: {
+    borderTopWidth: 1, borderTopColor: "#e5e7eb",
+    paddingTop: 10, marginTop: 4, gap: 8,
+  },
+  sectionTitle: {
+    fontSize: 12, fontWeight: "700", color: "#374151",
+    textTransform: "uppercase", letterSpacing: 0.4,
+  },
+
+  card: {
+    borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10,
+    backgroundColor: "#fafafa", overflow: "hidden",
+  },
+  cardBody: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 10, paddingVertical: 10, gap: 8,
+  },
+  cardInfo:    { flex: 1, gap: 3 },
+  clinicName:  { fontSize: 13, fontWeight: "700", color: "#111827" },
+
+  tagRow:      { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  specialtyTag: {
+    backgroundColor: "#eff6ff", borderRadius: 20,
+    paddingHorizontal: 7, paddingVertical: 2,
+  },
+  specialtyText: { fontSize: 10, fontWeight: "600", color: "#2563eb" },
+  cityText:      { fontSize: 11, color: "#6b7280" },
+  ratingText:    { fontSize: 11, color: "#92400e", fontWeight: "600" },
+
+  ctaBtn: {
+    backgroundColor: "#2563eb", borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 8,
+    alignItems: "center",
+  },
+  ctaBtnText: { fontSize: 12, fontWeight: "700", color: "#fff" },
+
+  safetyNote: {
+    fontSize: 10, color: "#9ca3af", fontStyle: "italic", textAlign: "center",
+  },
 });
 
 const im = StyleSheet.create({
