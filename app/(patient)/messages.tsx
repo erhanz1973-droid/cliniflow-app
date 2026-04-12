@@ -614,65 +614,75 @@ export default function MessagesScreen() {
       } else {
         console.log("[AI] Analysis complete for:", photoType, "| ok:", aiData.ok, "| insights:", aiData.insights?.length ?? 0);
 
-        // ── Fire smile simulation in background (non-blocking) ──────────
-        // Starts 1.5 s after AI result so the bubble appears first.
-        // Results flow through the _simCache bridge to AiResultBubble.
+        // ── Fire smile simulation in background (async job pattern) ────
+        // 1. POST /api/chat/smile-simulation → returns jobId immediately.
+        // 2. Poll GET /api/chat/sim-status/:jobId every 3 s until done.
+        // This avoids holding a long HTTP connection that Render would drop.
         const simCacheKey = fileUrl.split("?")[0];
         if (aiData.ok && fileUrl && !_simCache.has(simCacheKey) && !_simPending.has(simCacheKey) && !_simFailed.has(simCacheKey)) {
           _simPending.add(simCacheKey);
-          _notifySimSubs(simCacheKey); // lets bubble show loading state immediately
+          _notifySimSubs(simCacheKey); // show spinner immediately
 
           setTimeout(async () => {
+            const cacheKey = fileUrl.split("?")[0];
             let succeeded = false;
             try {
-              const simRes = await fetch(`${API_BASE}/api/chat/smile-simulation`, {
+              // ── Step 1: Start the job ────────────────────────────────────
+              const startRes = await fetch(`${API_BASE}/api/chat/smile-simulation`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                body: JSON.stringify({
-                  patientId,
-                  imageUrl: fileUrl,
-                  insights: (aiData.insights as string[] | undefined)?.slice(0, 2) ?? [],
-                }),
+                body: JSON.stringify({ patientId, imageUrl: fileUrl }),
               });
-              const simData: Record<string, any> = await simRes.json().catch(() => ({}));
-              console.log("[SIM RESPONSE] ok:", simData.ok,
-                "| simulatedImageUrl:", simData.simulatedImageUrl ? simData.simulatedImageUrl.slice(0, 60) : null,
-                "| variations:", simData.variations?.length ?? 0,
-                "| fallback:", simData.fallback);
-              if (simData.ok && simData.simulatedImageUrl) {
-                const simUrl: string = simData.simulatedImageUrl;
-                const simVars: SimVariation[] = Array.isArray(simData.variations) ? simData.variations : [];
+              const startData: Record<string, any> = await startRes.json().catch(() => ({}));
+              console.log("[SIM] Start →", startData.ok ? `jobId: ${startData.jobId}` : `failed: ${startData.error}`);
 
-                // Strip query string so the cache key survives URL re-signing
-                const cacheKey = fileUrl.split("?")[0];
-                _simCache.set(cacheKey, simUrl);
-                if (simVars.length > 0) _simVariations.set(cacheKey, simVars);
-
-                console.log("[SIM] Cache key:", cacheKey.slice(0, 80));
-                console.log("FINAL SIM IMAGE:", simUrl);
-
-                // Immediately push the result to ALL mounted AiResultBubble instances.
-                _notifyAllSimSubs();
-
-                succeeded = true;
-                const label = simData.fallback ? 'fallback(original)' : simData.simulationProvider;
-                console.log("[SIM] Done:", label, "| variations:", simVars.length);
-                if (simData.debugInfo?.length) {
-                  console.warn("[SIM] Fail reasons:", JSON.stringify(simData.debugInfo));
-                }
-              } else {
-                console.warn("[SIM] No result:", JSON.stringify({
-                  status: simRes.status, ok: simData.ok,
-                  error: simData.error, message: simData.message,
-                }));
+              if (!startData.ok || !startData.jobId) {
+                console.warn("[SIM] Could not start job:", JSON.stringify(startData));
+                return; // goes to finally
               }
+
+              const { jobId } = startData;
+
+              // ── Step 2: Poll status endpoint ─────────────────────────────
+              // 35 attempts × 3 s = 105 s max (covers Replicate cold-start)
+              const SIM_POLL_INTERVAL = 3000;
+              const SIM_MAX_POLLS     = 35;
+              for (let i = 0; i < SIM_MAX_POLLS; i++) {
+                await new Promise(r => setTimeout(r, SIM_POLL_INTERVAL));
+                try {
+                  const statusRes = await fetch(`${API_BASE}/api/chat/sim-status/${jobId}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                  });
+                  const statusData: Record<string, any> = await statusRes.json().catch(() => ({}));
+                  console.log(`[SIM POLL] ${i + 1}/${SIM_MAX_POLLS}: ${statusData.status ?? 'err'}`);
+
+                  if (statusData.status === "succeeded" && statusData.simulatedImageUrl) {
+                    const simUrl: string = statusData.simulatedImageUrl;
+                    const simVars: SimVariation[] = Array.isArray(statusData.variations) ? statusData.variations : [];
+                    _simCache.set(cacheKey, simUrl);
+                    if (simVars.length > 0) _simVariations.set(cacheKey, simVars);
+                    console.log("FINAL SIM IMAGE:", simUrl);
+                    _notifyAllSimSubs(); // push to all mounted AiResultBubble instances
+                    succeeded = true;
+                    console.log("[SIM] Done: replicate | variations:", simVars.length);
+                    break;
+                  }
+                  if (statusData.status === "failed") {
+                    console.warn("[SIM] Prediction failed:", statusData.error);
+                    break;
+                  }
+                  // status === "pending" → keep polling
+                } catch (pollErr) {
+                  console.warn(`[SIM POLL ${i + 1}] error:`, (pollErr as Error)?.message);
+                }
+              }
+              if (!succeeded) console.warn("[SIM] Timed out or failed after polling");
             } catch (e) {
-              console.warn("[SIM] Network error:", (e as Error)?.message);
+              console.warn("[SIM] Start error:", (e as Error)?.message);
             } finally {
-              const cacheKey = fileUrl.split("?")[0];
               _simPending.delete(cacheKey);
               if (!succeeded) _simFailed.add(cacheKey);
-              _notifySimSubs(cacheKey);
+              _notifyAllSimSubs(); // clear spinner even on failure
             }
           }, 1500);
         }
@@ -1379,50 +1389,63 @@ function AiResultBubble({ msg }: { msg: Message }) {
   // ── Clinic picker ────────────────────────────────────────────────────
   const [showClinicModal, setShowClinicModal] = useState(false);
 
-  // ── Manual simulation trigger (fallback / retry after failure) ──────
+  // ── Manual simulation trigger (retry button) — uses async job pattern ─
   const triggerSimulation = useCallback(async () => {
     if (simLoading || !imgUrl) return;
-    // Clear failure mark so this manual attempt is allowed
-    _simFailed.delete(imgUrl);
+    const ck = imgUrl.split("?")[0];
+    _simFailed.delete(ck);
     setSimTriggered(true);
     setSimLoading(true);
-    _simPending.add(imgUrl);
+    _simPending.add(ck);
+
+    let succeeded = false;
     try {
-      const res = await fetch(`${API_BASE}/api/chat/smile-simulation`, {
+      // Step 1: start job
+      const startRes = await fetch(`${API_BASE}/api/chat/smile-simulation`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          patientId: user?.id,
-          imageUrl: imgUrl,
-          insights: result?.insights?.slice(0, 2) ?? [],
-        }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ patientId: user?.id, imageUrl: imgUrl }),
       });
-      const data: Record<string, any> = await res.json().catch(() => ({}));
-      if (data.ok && data.simulatedImageUrl) {
-        const cacheKey = imgUrl.split("?")[0];
-        _simCache.set(cacheKey, data.simulatedImageUrl);
-        if (Array.isArray(data.variations) && data.variations.length > 0) {
-          _simVariations.set(cacheKey, data.variations as SimVariation[]);
-          setSimVariations(data.variations as SimVariation[]);
-        }
-        setSimUrl(data.simulatedImageUrl);
-      } else {
-        console.warn("[SIM manual] No result:", data.error ?? data.message ?? "unknown");
-        _simFailed.add(imgUrl);
-        setSimTriggered(false);
+      const startData: Record<string, any> = await startRes.json().catch(() => ({}));
+      if (!startData.ok || !startData.jobId) {
+        console.warn("[SIM manual] Start failed:", startData.error);
+        return;
       }
-    } catch {
-      _simFailed.add(imgUrl);
-      setSimTriggered(false);
-    }
-    finally {
-      _simPending.delete(imgUrl);
+      const { jobId } = startData;
+
+      // Step 2: poll status
+      for (let i = 0; i < 35; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        try {
+          const statusRes = await fetch(`${API_BASE}/api/chat/sim-status/${jobId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const statusData: Record<string, any> = await statusRes.json().catch(() => ({}));
+          if (statusData.status === "succeeded" && statusData.simulatedImageUrl) {
+            const simVars: SimVariation[] = Array.isArray(statusData.variations) ? statusData.variations : [];
+            _simCache.set(ck, statusData.simulatedImageUrl);
+            if (simVars.length > 0) { _simVariations.set(ck, simVars); setSimVariations(simVars); }
+            setSimUrl(statusData.simulatedImageUrl);
+            succeeded = true;
+            break;
+          }
+          if (statusData.status === "failed") {
+            console.warn("[SIM manual] Prediction failed:", statusData.error);
+            break;
+          }
+        } catch (pe) {
+          console.warn("[SIM manual poll]", (pe as Error)?.message);
+        }
+      }
+      if (!succeeded) console.warn("[SIM manual] Timed out");
+    } catch (e) {
+      console.warn("[SIM manual] Start error:", (e as Error)?.message);
+    } finally {
+      _simPending.delete(ck);
+      if (!succeeded) { _simFailed.add(ck); setSimTriggered(false); }
       setSimLoading(false);
     }
-  }, [simLoading, imgUrl, result, token, user]);
+  }, [simLoading, imgUrl, token, user]);
 
   if (!result) return null;
 
