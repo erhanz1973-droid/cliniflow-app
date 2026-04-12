@@ -333,9 +333,18 @@ export default function MessagesScreen() {
   };
 
   // ── AI photo processing pipeline ───────────────────────────────────────────
+  // photoType maps to backend PHOTO_TYPE_CONTEXT keys:
+  //   'front' | 'left' | 'right' | 'upper' | 'lower' | 'general'
 
-  const processPhotoWithAI = async (uri: string, name: string, mimeType: string) => {
-    // Step 0 – compress image before upload
+  const processPhotoWithAI = async (
+    uri: string,
+    name: string,
+    mimeType: string,
+    photoType = "general"
+  ) => {
+    console.log("[AI] Triggered for:", photoType, name);
+
+    // Step 0 – compress (single pass; callers must NOT pre-compress)
     const compressed = await compressImage(uri, mimeType);
     const uploadUri      = compressed.uri;
     const uploadMimeType = compressed.mimeType;
@@ -343,9 +352,18 @@ export default function MessagesScreen() {
       ? name.replace(/\.[^.]+$/, "") + ".jpg"
       : name;
 
+    console.log("[AI] Compressed:", uploadMimeType, uploadName);
+
     // Step 1 – upload image (shows in chat as patient message)
+    // Upload is required to get a server-side URL for the AI endpoint.
+    // If it fails, we fall through without blocking the user.
     const fileUrl = await uploadFile(uploadUri, uploadName, uploadMimeType);
-    if (!fileUrl) return; // upload failed – already alerted
+    if (!fileUrl) {
+      console.warn("[AI] Upload failed — skipping AI for", photoType);
+      return;
+    }
+
+    console.log("[AI] Uploaded:", fileUrl, "→ starting analysis");
 
     // Step 2 – add local loading bubble
     const loadingId = `ai_loading_${Date.now()}`;
@@ -367,23 +385,27 @@ export default function MessagesScreen() {
       const aiRes = await fetch(`${API_BASE}/api/chat/ai-analyze`, {
         method: "POST",
         headers: authHeaders(),
-        body: JSON.stringify({ patientId, imageUrl: fileUrl }),
+        body: JSON.stringify({ patientId, imageUrl: fileUrl, photoType }),
         signal: aiController.signal,
       });
       clearTimeout(aiTimeout);
       if (!aiRes.ok) {
         const errBody = await aiRes.json().catch(() => ({}));
+        console.warn("[AI] Endpoint error:", errBody.error, photoType);
         if (errBody.error === "image_too_large") {
           Alert.alert(
             t("messages.uploadError") || "Hata",
             errBody.message || "Görsel çok büyük, lütfen tekrar çekin."
           );
         }
-        // ai_not_configured / ai_timeout / other → original image is already in chat
+        // ai_timeout / other → original image still visible in chat
+      } else {
+        console.log("[AI] Analysis complete for:", photoType);
       }
-    } catch {
+    } catch (e) {
       clearTimeout(aiTimeout);
-      // Network error or client-side abort — original image is already in chat
+      console.warn("[AI] Fetch error/abort for:", photoType, (e as Error)?.message);
+      // Network error or client abort — original image still visible
     } finally {
       // Step 4 – remove loading bubble & refresh
       setLocalMessages(prev => prev.filter(m => m.id !== loadingId));
@@ -480,15 +502,26 @@ export default function MessagesScreen() {
     const entries = Object.entries(intraoralPhotos);
     if (entries.length === 0) { Alert.alert(t("common.error"), t("messages.intraoral.noPhotoError")); return; }
     setIntraoralVisible(false);
-    setUploading(true);
-    for (const [key, asset] of entries) {
-      const rawUri    = (asset as any).uri as string;
-      const rawMime   = (asset as any).mimeType as string | undefined ?? "image/jpeg";
-      const { uri: compUri, mimeType: compMime } = await compressImage(rawUri, rawMime);
-      const name = `intraoral_${key}_${Date.now()}.jpg`;
-      await uploadFile(compUri, name, compMime);
+
+    console.log("[AI] Submitting", entries.length, "intraoral photo(s)");
+
+    // Fire each photo through the full AI pipeline independently (non-blocking).
+    // processPhotoWithAI handles: compress → upload → loading bubble → AI → refresh.
+    // A small stagger keeps loading bubbles appearing in capture order.
+    for (let i = 0; i < entries.length; i++) {
+      const [key, asset] = entries[i];
+      const rawUri  = (asset as any).uri as string;
+      const rawMime = ((asset as any).mimeType as string | undefined) ?? "image/jpeg";
+      const name    = `intraoral_${key}_${Date.now()}.jpg`;
+
+      // Fire-and-forget — do not await so photos process in parallel
+      processPhotoWithAI(rawUri, name, rawMime, key);
+
+      if (i < entries.length - 1) {
+        // Stagger successive bubbles by 250 ms so they appear in order
+        await new Promise(r => setTimeout(r, 250));
+      }
     }
-    setUploading(false);
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
