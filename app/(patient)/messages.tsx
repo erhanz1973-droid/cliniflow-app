@@ -1291,31 +1291,50 @@ function AiResultBubble({ msg }: { msg: Message }) {
     _simCache.has(cacheKey) || !!result?.simulatedImageUrl || _simPending.has(cacheKey)
   );
 
-  // ── Subscribe to auto-simulation updates from processPhotoWithAI ─────
+  // ── Sim update: poll cache + subscription ─────────────────────────────
   useEffect(() => {
-    if (!imgUrl) return;
-    const cacheKey = imgUrl.split("?")[0];
-    console.log("[SIM] Bubble subscribed | cacheKey:", cacheKey.slice(0, 80));
-    return subscribeSimUrl(cacheKey, () => {
-      const url      = _simCache.get(cacheKey) ?? null;
-      const vars     = _simVariations.get(cacheKey) ?? [];
-      const pending  = _simPending.has(imgUrl);
-      const failed   = _simFailed.has(imgUrl);
-      console.log("[SIM] Subscriber fired | url:", url ? url.slice(0, 60) : null, "| vars:", vars.length);
-      if (url) {
-        setSimUrl(url);
-        if (vars.length > 0) setSimVariations(vars);
-        setSimLoading(false);
-        setSimTriggered(true);
-      } else if (pending) {
-        setSimLoading(true);
-        setSimTriggered(true);
-      } else if (failed) {
-        setSimLoading(false);
-        setSimTriggered(false);
+    const key = imgUrl.split("?")[0];
+    console.log("[SIM] Bubble mounted | key:", key.slice(0, 80) || "(empty)");
+
+    function applySimUrl(url: string, vars: SimVariation[]) {
+      console.log("[SIM] Applying URL:", url.slice(0, 80));
+      setSimUrl(url);
+      if (vars.length > 0) setSimVariations(vars);
+      setSimLoading(false);
+      setSimTriggered(true);
+    }
+
+    // ── Poll cache every 1.5 s (reliable fallback when key mismatch) ──
+    const poll = setInterval(() => {
+      // 1. Try exact key match
+      const exact = key ? _simCache.get(key) : null;
+      if (exact) {
+        applySimUrl(exact, _simVariations.get(key) ?? []);
+        clearInterval(poll);
+        return;
       }
+      // 2. Full-scan: pick first non-Supabase URL (a real Replicate result)
+      for (const [, v] of _simCache) {
+        if (v && !v.includes('supabase.co')) {
+          applySimUrl(v, []);
+          clearInterval(poll);
+          return;
+        }
+      }
+      // 3. Show spinner if any prediction is in-flight
+      if (_simPending.size > 0) { setSimLoading(true); setSimTriggered(true); }
+    }, 1500);
+
+    // ── Subscription for instant update when keys match ────────────────
+    const unsub = subscribeSimUrl(key, () => {
+      const url  = _simCache.get(key) ?? null;
+      const vars = _simVariations.get(key) ?? [];
+      if (url) { applySimUrl(url, vars); clearInterval(poll); }
+      else if (_simFailed.has(key)) { setSimLoading(false); setSimTriggered(false); }
     });
-  }, [imgUrl]);
+
+    return () => { clearInterval(poll); unsub(); };
+  }, [imgUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Clinic picker ────────────────────────────────────────────────────
   const [showClinicModal, setShowClinicModal] = useState(false);
