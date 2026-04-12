@@ -618,13 +618,10 @@ export default function MessagesScreen() {
         // 1. POST /api/chat/smile-simulation → returns jobId immediately.
         // 2. Poll GET /api/chat/sim-status/:jobId every 3 s until done.
         // This avoids holding a long HTTP connection that Render would drop.
-        // Only run simulation when AI produced real dental insights (not vague/fallback).
-        const hasRealInsights = aiData.confidence !== "low" ||
-          (aiData.insights ?? []).some((s: string) =>
-            !s.includes("analiz edilemedi") && !s.includes("tekrar deneyin") && s.length > 20
-          );
+        // Simulation runs regardless of analysis confidence — even "low" results
+        // still have a valid image that Replicate can process.
         const simCacheKey = fileUrl.split("?")[0];
-        if (aiData.ok && hasRealInsights && fileUrl && !_simCache.has(simCacheKey) && !_simPending.has(simCacheKey) && !_simFailed.has(simCacheKey)) {
+        if (fileUrl && !_simCache.has(simCacheKey) && !_simPending.has(simCacheKey) && !_simFailed.has(simCacheKey)) {
           _simPending.add(simCacheKey);
           _notifySimSubs(simCacheKey); // show spinner immediately
 
