@@ -103,6 +103,7 @@ function triggerClinicContact(msg: string) {
 
 const _simCache   = new Map<string, string>();      // imageUrl → simulatedUrl
 const _simPending = new Set<string>();              // currently in-flight
+const _simFailed  = new Set<string>();              // permanently failed (until manual retry)
 const _simSubs    = new Map<string, Array<() => void>>();
 
 function subscribeSimUrl(imageUrl: string, cb: () => void): () => void {
@@ -604,11 +605,12 @@ export default function MessagesScreen() {
         // ── Fire smile simulation in background (non-blocking) ──────────
         // Starts 1.5 s after AI result so the bubble appears first.
         // Results flow through the _simCache bridge to AiResultBubble.
-        if (aiData.ok && fileUrl && !_simCache.has(fileUrl) && !_simPending.has(fileUrl)) {
+        if (aiData.ok && fileUrl && !_simCache.has(fileUrl) && !_simPending.has(fileUrl) && !_simFailed.has(fileUrl)) {
           _simPending.add(fileUrl);
           _notifySimSubs(fileUrl); // lets bubble show loading state immediately
 
           setTimeout(async () => {
+            let succeeded = false;
             try {
               const simRes = await fetch(`${API_BASE}/api/chat/smile-simulation`, {
                 method: "POST",
@@ -622,15 +624,21 @@ export default function MessagesScreen() {
               const simData: Record<string, any> = await simRes.json().catch(() => ({}));
               if (simData.ok && simData.simulatedImageUrl) {
                 _simCache.set(fileUrl, simData.simulatedImageUrl);
+                succeeded = true;
                 console.log("[SIM] Done:", simData.simulationProvider ?? "unknown");
               } else {
-                console.warn("[SIM] No result:", simData.error ?? "unknown");
+                // Log the full response so we can see the exact error (no_providers_configured, etc.)
+                console.warn("[SIM] No result:", JSON.stringify({
+                  status: simRes.status, ok: simData.ok,
+                  error: simData.error, message: simData.message,
+                }));
               }
             } catch (e) {
-              console.warn("[SIM] Failed:", (e as Error)?.message);
+              console.warn("[SIM] Network error:", (e as Error)?.message);
             } finally {
               _simPending.delete(fileUrl);
-              _notifySimSubs(fileUrl); // bubble updates regardless of success/fail
+              if (!succeeded) _simFailed.add(fileUrl); // allow manual retry but skip auto-retry
+              _notifySimSubs(fileUrl);
             }
           }, 1500);
         }
@@ -1262,15 +1270,20 @@ function AiResultBubble({ msg }: { msg: Message }) {
     return subscribeSimUrl(imgUrl, () => {
       const url     = _simCache.get(imgUrl) ?? null;
       const pending = _simPending.has(imgUrl);
+      const failed  = _simFailed.has(imgUrl);
       if (url) {
+        // Success: show slider
         setSimUrl(url);
         setSimLoading(false);
         setSimTriggered(true);
       } else if (pending) {
+        // In-flight: show spinner
         setSimLoading(true);
         setSimTriggered(true);
-      } else {
+      } else if (failed) {
+        // Failed: reset so manual CTA button reappears
         setSimLoading(false);
+        setSimTriggered(false);
       }
     });
   }, [imgUrl]);
@@ -1278,9 +1291,11 @@ function AiResultBubble({ msg }: { msg: Message }) {
   // ── Clinic picker ────────────────────────────────────────────────────
   const [showClinicModal, setShowClinicModal] = useState(false);
 
-  // ── Manual simulation trigger (fallback for older messages) ─────────
+  // ── Manual simulation trigger (fallback / retry after failure) ──────
   const triggerSimulation = useCallback(async () => {
-    if (simTriggered || simLoading || !imgUrl) return;
+    if (simLoading || !imgUrl) return;
+    // Clear failure mark so this manual attempt is allowed
+    _simFailed.delete(imgUrl);
     setSimTriggered(true);
     setSimLoading(true);
     _simPending.add(imgUrl);
@@ -1298,16 +1313,23 @@ function AiResultBubble({ msg }: { msg: Message }) {
         }),
       });
       const data: Record<string, any> = await res.json().catch(() => ({}));
-      if (data.simulatedImageUrl) {
+      if (data.ok && data.simulatedImageUrl) {
         _simCache.set(imgUrl, data.simulatedImageUrl);
         setSimUrl(data.simulatedImageUrl);
+      } else {
+        console.warn("[SIM manual] No result:", data.error ?? data.message ?? "unknown");
+        _simFailed.add(imgUrl);
+        setSimTriggered(false); // show button again for another manual retry
       }
-    } catch { /* non-fatal */ }
+    } catch {
+      _simFailed.add(imgUrl);
+      setSimTriggered(false);
+    }
     finally {
       _simPending.delete(imgUrl);
       setSimLoading(false);
     }
-  }, [simTriggered, simLoading, imgUrl, result, token, user]);
+  }, [simLoading, imgUrl, result, token, user]);
 
   if (!result) return null;
 
