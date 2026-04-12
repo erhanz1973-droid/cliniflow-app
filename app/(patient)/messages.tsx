@@ -22,6 +22,10 @@ const UPLOAD_CONSENT_KEY = "@clinifly:upload_consent_accepted";
 
 type AiResult = {
   insights: string[];
+  confidence?: "low" | "medium" | "high";
+  summary?: string;
+  recommendation?: string;
+  /** @deprecated use summary */
   overallNote?: string;
   disclaimer: string;
   originalImageUrl?: string;
@@ -582,47 +586,75 @@ function AiLoadingBubble() {
 
 // ─── AiResultBubble ───────────────────────────────────────────────────────────
 
+const CONFIDENCE_LABEL: Record<string, string> = {
+  low: "Düşük güven", medium: "Orta güven", high: "Yüksek güven",
+};
+const CONFIDENCE_COLOR: Record<string, string> = {
+  low: "#f59e0b", medium: "#3b82f6", high: "#10b981",
+};
+
 function AiResultBubble({ msg }: { msg: Message }) {
-  const locale = useDateLocale();
   const result = msg.attachment?.aiResult;
   if (!result) return null;
 
-  const displayImage = result.simulatedImageUrl || result.originalImageUrl;
+  const apiBase    = API_BASE;
+  const resolveUrl = (url: string) =>
+    url.startsWith("http") ? url : `${apiBase}${url}`;
+
+  const hasSimulation = !!result.simulatedImageUrl;
+  const conf          = result.confidence ?? "medium";
+  const summaryText   = result.summary || result.overallNote || "";
 
   return (
     <View style={[s.bubbleWrap, s.bubbleLeft]}>
       <Text style={s.bubbleFrom}>AI</Text>
       <View style={[s.bubble, s.bubbleClinic, ai.card]}>
-        {/* Header */}
+
+        {/* ── Header ── */}
         <View style={ai.header}>
           <Text style={ai.headerIcon}>✨</Text>
           <Text style={ai.headerTitle}>AI Önizleme</Text>
+          {result.confidence && (
+            <View style={[ai.confidenceBadge, { backgroundColor: CONFIDENCE_COLOR[conf] + "22" }]}>
+              <Text style={[ai.confidenceText, { color: CONFIDENCE_COLOR[conf] }]}>
+                {CONFIDENCE_LABEL[conf]}
+              </Text>
+            </View>
+          )}
         </View>
 
-        {/* Enhanced / original image */}
-        {!!displayImage && (
+        {/* ── Before / After or single image ── */}
+        {hasSimulation ? (
+          <View style={ai.beforeAfterRow}>
+            <View style={ai.beforeAfterItem}>
+              <Text style={ai.beforeAfterLabel}>Önce</Text>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => result.originalImageUrl && Linking.openURL(resolveUrl(result.originalImageUrl))}
+              >
+                <Image source={{ uri: resolveUrl(result.originalImageUrl!) }} style={ai.halfImage} resizeMode="cover" />
+              </TouchableOpacity>
+            </View>
+            <View style={ai.beforeAfterItem}>
+              <Text style={ai.beforeAfterLabel}>Sonra</Text>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => Linking.openURL(resolveUrl(result.simulatedImageUrl!))}
+              >
+                <Image source={{ uri: resolveUrl(result.simulatedImageUrl!) }} style={ai.halfImage} resizeMode="cover" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : result.originalImageUrl ? (
           <TouchableOpacity
-            onPress={() => {
-              const fullUrl = displayImage.startsWith("http")
-                ? displayImage
-                : `${require("../../lib/api").API_BASE}${displayImage}`;
-              Linking.openURL(fullUrl);
-            }}
             activeOpacity={0.85}
+            onPress={() => Linking.openURL(resolveUrl(result.originalImageUrl!))}
           >
-            <Image
-              source={{
-                uri: displayImage.startsWith("http")
-                  ? displayImage
-                  : `${require("../../lib/api").API_BASE}${displayImage}`,
-              }}
-              style={ai.image}
-              resizeMode="cover"
-            />
+            <Image source={{ uri: resolveUrl(result.originalImageUrl!) }} style={ai.image} resizeMode="cover" />
           </TouchableOpacity>
-        )}
+        ) : null}
 
-        {/* Insights */}
+        {/* ── Insights ── */}
         {result.insights.length > 0 && (
           <View style={ai.insightsBlock}>
             {result.insights.map((insight, i) => (
@@ -634,17 +666,30 @@ function AiResultBubble({ msg }: { msg: Message }) {
           </View>
         )}
 
-        {/* Overall note */}
-        {!!result.overallNote && (
-          <Text style={ai.overallNote}>{result.overallNote}</Text>
+        {/* ── Summary ── */}
+        {!!summaryText && (
+          <Text style={ai.summary}>{summaryText}</Text>
         )}
 
-        {/* Disclaimer */}
+        {/* ── Recommendation ── */}
+        {!!result.recommendation && (
+          <View style={ai.recommendationBox}>
+            <Text style={ai.recommendationLabel}>💡 Öneri</Text>
+            <Text style={ai.recommendationText}>{result.recommendation}</Text>
+          </View>
+        )}
+
+        {/* ── CTA ── */}
+        <Text style={ai.cta}>
+          Daha detaylı analiz için farklı açılardan fotoğraf ekleyebilirsiniz.
+        </Text>
+
+        {/* ── Disclaimer ── */}
         <View style={ai.disclaimerBox}>
           <Text style={ai.disclaimerText}>{result.disclaimer}</Text>
         </View>
 
-        <Text style={[s.bubbleTime]}>{fmtTime(msg.createdAt, "tr-TR")}</Text>
+        <Text style={s.bubbleTime}>{fmtTime(msg.createdAt, "tr-TR")}</Text>
       </View>
     </View>
   );
@@ -913,14 +958,45 @@ const ai = StyleSheet.create({
   bullet:        { fontSize: 14, color: "#6366f1", fontWeight: "800", marginTop: 1 },
   insightText:   { flex: 1, fontSize: 13, color: "#374151", lineHeight: 20 },
 
-  overallNote: {
+  // Confidence badge
+  confidenceBadge: {
+    marginLeft: "auto", borderRadius: 20,
+    paddingHorizontal: 8, paddingVertical: 2,
+  },
+  confidenceText: { fontSize: 10, fontWeight: "700" },
+
+  // Before / After layout
+  beforeAfterRow: { flexDirection: "row", gap: 8, marginVertical: 4 },
+  beforeAfterItem: { flex: 1, gap: 4 },
+  beforeAfterLabel: {
+    fontSize: 11, fontWeight: "700", color: "#6b7280",
+    textAlign: "center", textTransform: "uppercase", letterSpacing: 0.5,
+  },
+  halfImage: { width: "100%", height: 130, borderRadius: 8, backgroundColor: "#f3f4f6" },
+
+  // Summary (replaces overallNote)
+  summary: {
     fontSize: 13, color: "#4b5563", fontStyle: "italic",
+    borderTopWidth: 1, borderTopColor: "#f3f4f6", paddingTop: 8, marginTop: 2,
+  },
+
+  // Recommendation block
+  recommendationBox: {
+    backgroundColor: "#eff6ff", borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 8, gap: 3,
+  },
+  recommendationLabel: { fontSize: 11, fontWeight: "700", color: "#1d4ed8" },
+  recommendationText:  { fontSize: 13, color: "#1e40af", lineHeight: 19 },
+
+  // CTA line
+  cta: {
+    fontSize: 12, color: "#6366f1", fontStyle: "italic",
     borderTopWidth: 1, borderTopColor: "#f3f4f6", paddingTop: 8, marginTop: 2,
   },
 
   disclaimerBox: {
     backgroundColor: "#fef9c3", borderRadius: 8,
-    paddingHorizontal: 10, paddingVertical: 7, marginTop: 4,
+    paddingHorizontal: 10, paddingVertical: 7, marginTop: 2,
   },
   disclaimerText: { fontSize: 11, color: "#854d0e", lineHeight: 16 },
 });
