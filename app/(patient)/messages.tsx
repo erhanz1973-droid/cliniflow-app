@@ -8,6 +8,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as FileSystem from "expo-file-system";
+import * as Location from "expo-location";
 import * as DocumentPicker from "expo-document-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../../lib/auth";
@@ -26,6 +27,7 @@ type ClinicRecommendation = {
   specialty: string;
   city?: string | null;
   rating?: number | null;
+  distance?: string | null;   // e.g. "2.3 km" or "800 m" — null when location unavailable
 };
 
 type AiResult = {
@@ -72,6 +74,24 @@ function onClinicContact(fn: ContactHandler): () => void {
 
 function triggerClinicContact(msg: string) {
   _contactHandlers.forEach(fn => fn(msg));
+}
+
+// ─── Location helper ─────────────────────────────────────────────────────────
+
+type UserLocation = { latitude: number; longitude: number } | null;
+
+/** Requests foreground location permission and returns coords, or null if denied/error. */
+async function getUserLocation(): Promise<UserLocation> {
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") return null;
+    const pos = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,  // ~100m — fast, battery-friendly
+    });
+    return { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+  } catch {
+    return null;   // location unavailable — clinic recommendations still work without it
+  }
 }
 
 // ─── Intraoral photo steps ────────────────────────────────────────────────────
@@ -365,6 +385,12 @@ export default function MessagesScreen() {
 
     console.log("[AI] Uploaded:", fileUrl, "→ starting analysis");
 
+    // Fetch location in parallel while the loading bubble is shown (non-blocking)
+    const userLocation = await getUserLocation();
+    if (userLocation) {
+      console.log("[AI] Location acquired:", userLocation.latitude.toFixed(4), userLocation.longitude.toFixed(4));
+    }
+
     // Step 2 – add local loading bubble
     const loadingId = `ai_loading_${Date.now()}`;
     const loadingMsg: Message = {
@@ -385,7 +411,7 @@ export default function MessagesScreen() {
       const aiRes = await fetch(`${API_BASE}/api/chat/ai-analyze`, {
         method: "POST",
         headers: authHeaders(),
-        body: JSON.stringify({ patientId, imageUrl: fileUrl, photoType }),
+        body: JSON.stringify({ patientId, imageUrl: fileUrl, photoType, userLocation }),
         signal: aiController.signal,
       });
       clearTimeout(aiTimeout);
@@ -644,7 +670,11 @@ function ClinicCard({ clinic }: { clinic: ClinicRecommendation }) {
             <View style={cl.specialtyTag}>
               <Text style={cl.specialtyText}>{clinic.specialty}</Text>
             </View>
-            {clinic.city ? (
+            {clinic.distance ? (
+              <View style={cl.distanceBadge}>
+                <Text style={cl.distanceText}>📍 {clinic.distance}</Text>
+              </View>
+            ) : clinic.city ? (
               <Text style={cl.cityText}>📍 {clinic.city}</Text>
             ) : null}
           </View>
@@ -1145,6 +1175,11 @@ const cl = StyleSheet.create({
   },
   specialtyText: { fontSize: 10, fontWeight: "600", color: "#2563eb" },
   cityText:      { fontSize: 11, color: "#6b7280" },
+  distanceBadge: {
+    backgroundColor: "#f0fdf4", borderRadius: 20,
+    paddingHorizontal: 7, paddingVertical: 2,
+  },
+  distanceText:  { fontSize: 10, fontWeight: "600", color: "#15803d" },
   ratingText:    { fontSize: 11, color: "#92400e", fontWeight: "600" },
 
   ctaBtn: {
