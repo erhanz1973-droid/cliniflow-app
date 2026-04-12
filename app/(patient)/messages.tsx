@@ -231,7 +231,13 @@ export default function MessagesScreen() {
       quality?: number;    // default 0.75
     } = {}
   ): Promise<{ uri: string; mimeType: string }> => {
-    const isCompressible = mimeType === "image/jpeg" || mimeType === "image/jpg" || mimeType === "image/png";
+    // JPEG, PNG, HEIC, HEIF → all converted to JPEG for AI pipeline consistency
+    const isCompressible =
+      mimeType === "image/jpeg" ||
+      mimeType === "image/jpg"  ||
+      mimeType === "image/png"  ||
+      mimeType === "image/heic" ||
+      mimeType === "image/heif";
     if (!isCompressible) return { uri, mimeType };
 
     const { maxWidth = 1024, quality = 0.75 } = opts;
