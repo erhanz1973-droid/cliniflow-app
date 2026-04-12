@@ -6,6 +6,7 @@ import {
   Linking, Modal, ScrollView, ActionSheetIOS,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as DocumentPicker from "expo-document-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../../lib/auth";
@@ -217,11 +218,45 @@ export default function MessagesScreen() {
     } finally { setUploading(false); }
   };
 
+  // ── Image compression ──────────────────────────────────────────────────────
+
+  const compressImage = async (
+    uri: string,
+    mimeType: string
+  ): Promise<{ uri: string; mimeType: string }> => {
+    // Skip compression for non-JPEG/PNG formats
+    const isCompressible = mimeType === "image/jpeg" || mimeType === "image/jpg" || mimeType === "image/png";
+    if (!isCompressible) return { uri, mimeType };
+
+    try {
+      const result = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 1280 } }],   // max 1280px wide — enough for AI analysis
+        {
+          compress: 0.75,
+          format: ImageManipulator.SaveFormat.JPEG,
+        }
+      );
+      return { uri: result.uri, mimeType: "image/jpeg" };
+    } catch {
+      // Compression failed — send original
+      return { uri, mimeType };
+    }
+  };
+
   // ── AI photo processing pipeline ───────────────────────────────────────────
 
   const processPhotoWithAI = async (uri: string, name: string, mimeType: string) => {
+    // Step 0 – compress image before upload
+    const compressed = await compressImage(uri, mimeType);
+    const uploadUri      = compressed.uri;
+    const uploadMimeType = compressed.mimeType;
+    const uploadName     = uploadMimeType === "image/jpeg" && !name.endsWith(".jpg") && !name.endsWith(".jpeg")
+      ? name.replace(/\.[^.]+$/, "") + ".jpg"
+      : name;
+
     // Step 1 – upload image (shows in chat as patient message)
-    const fileUrl = await uploadFile(uri, name, mimeType);
+    const fileUrl = await uploadFile(uploadUri, uploadName, uploadMimeType);
     if (!fileUrl) return; // upload failed – already alerted
 
     // Step 2 – add local loading bubble
@@ -274,15 +309,20 @@ export default function MessagesScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: "images",
       quality: 0.85,
-      allowsMultipleSelection: false,
+      allowsMultipleSelection: true,   // ENABLE_MULTI_PHOTO_PROGRESS: each photo → own AI
+      selectionLimit: 5,
     });
-    if (!result.canceled && result.assets[0]) {
-      const a = result.assets[0];
-      await processPhotoWithAI(
-        a.uri,
-        a.fileName || `photo_${Date.now()}.jpg`,
-        a.mimeType || "image/jpeg"
-      );
+    if (!result.canceled && result.assets.length > 0) {
+      // Process each photo independently (non-blocking: fire-and-forget per photo)
+      for (const a of result.assets) {
+        processPhotoWithAI(
+          a.uri,
+          a.fileName || `photo_${Date.now()}.jpg`,
+          a.mimeType || "image/jpeg"
+        );
+        // Small stagger so loading bubbles appear in order
+        await new Promise(r => setTimeout(r, 200));
+      }
     }
   };
 
