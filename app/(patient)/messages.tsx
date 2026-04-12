@@ -109,6 +109,10 @@ const _simPending    = new Set<string>();                    // currently in-fli
 const _simFailed     = new Set<string>();                    // permanently failed (until manual retry)
 const _simSubs       = new Map<string, Array<() => void>>();
 
+// Only the MOST RECENTLY triggered simulation is shown in the UI.
+// Old messages never show a spinner or slider from a new photo's simulation.
+let _latestSimKey = "";
+
 // Global callbacks — fired whenever ANY simulation completes, regardless of key.
 // AiResultBubble registers here so it never misses a result due to key mismatch.
 const _globalSimCallbacks = new Set<() => void>();
@@ -623,6 +627,7 @@ export default function MessagesScreen() {
         const simCacheKey = fileUrl.split("?")[0];
         if (fileUrl && !_simCache.has(simCacheKey) && !_simPending.has(simCacheKey) && !_simFailed.has(simCacheKey)) {
           _simPending.add(simCacheKey);
+          _latestSimKey = simCacheKey; // only THIS photo shows simulation UI
           _notifySimSubs(simCacheKey); // show spinner immediately
 
           setTimeout(async () => {
@@ -1350,18 +1355,20 @@ function AiResultBubble({ msg }: { msg: Message }) {
     _simVariations.get(cacheKey) ?? []
   );
   const [activeVariation, setActiveVariation] = useState<string>('balanced');
+  // Only the latest photo's bubble shows a spinner or result.
+  const isLatest = !cacheKey || cacheKey === _latestSimKey;
   const [simLoading, setSimLoading]     = useState(
-    !_simCache.has(cacheKey) && _simPending.has(cacheKey)
+    isLatest && !_simCache.has(cacheKey) && _simPending.has(cacheKey)
   );
   const [simTriggered, setSimTriggered] = useState(
-    _simCache.has(cacheKey) || !!result?.simulatedImageUrl || _simPending.has(cacheKey)
+    isLatest && (_simCache.has(cacheKey) || !!result?.simulatedImageUrl || _simPending.has(cacheKey))
   );
 
   // ── Primary path: react to direct state injection from processPhotoWithAI ─
-  // setMessages() stamps simulatedImageUrl onto the message; this picks it up.
+  // Only applies to the bubble whose key matches the latest simulation.
   useEffect(() => {
     const injected = result?.simulatedImageUrl;
-    if (injected && injected !== simUrl) {
+    if (injected && injected !== simUrl && cacheKey === _latestSimKey) {
       console.log("[SIM] Injected via message state:", injected.slice(0, 60));
       setSimUrl(injected);
       setSimLoading(false);
@@ -1383,39 +1390,33 @@ function AiResultBubble({ msg }: { msg: Message }) {
     }
 
     /**
-     * Check the module-level cache for any completed simulation.
-     * 1. Exact key match (fast path).
-     * 2. Full-scan for any non-Supabase URL (handles key-mismatch cases).
-     * Returns true if a result was applied.
+     * Check the cache for a completed simulation for THIS bubble only.
+     * Only exact key match — no full-scan so old messages never inherit
+     * a result from a newer photo's simulation.
      */
     function checkCache(): boolean {
-      // Exact match
-      const exact = key ? _simCache.get(key) : undefined;
+      if (!key || key !== _latestSimKey) return false; // not the latest photo
+      const exact = _simCache.get(key);
       if (exact) {
         applySimUrl(exact, _simVariations.get(key) ?? []);
         return true;
       }
-      // Full-scan: any Replicate URL already in cache
-      for (const [k, v] of _simCache) {
-        if (v && !v.includes('supabase.co')) {
-          applySimUrl(v, _simVariations.get(k) ?? []);
-          return true;
-        }
-      }
       return false;
     }
 
-    // Check immediately on mount — covers the case where simulation already completed.
+    // Skip everything for old messages — they don't participate in simulation.
+    if (key && key !== _latestSimKey) return;
+
+    // Check immediately on mount — covers already-completed simulations.
     if (checkCache()) return;
 
-    // Show spinner if a prediction is already in-flight.
-    if (_simPending.size > 0) { setSimLoading(true); setSimTriggered(true); }
+    // Show spinner only if this is the active simulation key.
+    if (_simPending.has(key)) { setSimLoading(true); setSimTriggered(true); }
 
     // ── Global callback: fired by _notifyAllSimSubs() when any sim finishes ──
     const onGlobalSim = () => {
       checkCache();
-      // Also clear loading if everything failed
-      if (_simPending.size === 0 && _simCache.size === 0) {
+      if (_simPending.size === 0 && !_simCache.has(key)) {
         setSimLoading(false);
       }
     };
