@@ -101,10 +101,13 @@ function triggerClinicContact(msg: string) {
 // processPhotoWithAI fires the simulation; AiResultBubble listens for results.
 // Cache survives re-renders; subscribers are registered per mounted bubble.
 
-const _simCache   = new Map<string, string>();      // imageUrl → simulatedUrl
-const _simPending = new Set<string>();              // currently in-flight
-const _simFailed  = new Set<string>();              // permanently failed (until manual retry)
-const _simSubs    = new Map<string, Array<() => void>>();
+type SimVariation = { id: string; label: string; url: string };
+
+const _simCache      = new Map<string, string>();            // imageUrl → primary (balanced) url
+const _simVariations = new Map<string, SimVariation[]>();    // imageUrl → all 3 variations
+const _simPending    = new Set<string>();                    // currently in-flight
+const _simFailed     = new Set<string>();                    // permanently failed (until manual retry)
+const _simSubs       = new Map<string, Array<() => void>>();
 
 function subscribeSimUrl(imageUrl: string, cb: () => void): () => void {
   const arr = _simSubs.get(imageUrl) ?? [];
@@ -622,12 +625,29 @@ export default function MessagesScreen() {
                 }),
               });
               const simData: Record<string, any> = await simRes.json().catch(() => ({}));
+              console.log("[SIM RESPONSE] ok:", simData.ok,
+                "| simulatedImageUrl:", simData.simulatedImageUrl ? simData.simulatedImageUrl.slice(0, 60) : null,
+                "| variations:", simData.variations?.length ?? 0,
+                "| fallback:", simData.fallback);
               if (simData.ok && simData.simulatedImageUrl) {
-                _simCache.set(fileUrl, simData.simulatedImageUrl);
+                const simUrl: string = simData.simulatedImageUrl;
+                const simVars: SimVariation[] = Array.isArray(simData.variations) ? simData.variations : [];
+
+                // Store in bridge cache (for late-mounted bubbles)
+                _simCache.set(fileUrl, simUrl);
+                if (simVars.length > 0) _simVariations.set(fileUrl, simVars);
+
+                // Also notify ALL subscribers — log cache key so we can spot mismatches
+                console.log("[SIM] Cache key (fileUrl):", fileUrl.slice(0, 80));
+                console.log("FINAL SIM IMAGE:", simUrl);
+
                 succeeded = true;
-                console.log("[SIM] Done:", simData.simulationProvider ?? "unknown");
+                const label = simData.fallback ? 'fallback(original)' : simData.simulationProvider;
+                console.log("[SIM] Done:", label, "| variations:", simVars.length);
+                if (simData.debugInfo?.length) {
+                  console.warn("[SIM] Fail reasons:", JSON.stringify(simData.debugInfo));
+                }
               } else {
-                // Log the full response so we can see the exact error (no_providers_configured, etc.)
                 console.warn("[SIM] No result:", JSON.stringify({
                   status: simRes.status, ok: simData.ok,
                   error: simData.error, message: simData.message,
@@ -1257,6 +1277,10 @@ function AiResultBubble({ msg }: { msg: Message }) {
   const [simUrl, setSimUrl]             = useState<string | null>(
     _simCache.get(imgUrl) ?? result?.simulatedImageUrl ?? null
   );
+  const [simVariations, setSimVariations] = useState<SimVariation[]>(
+    _simVariations.get(imgUrl) ?? []
+  );
+  const [activeVariation, setActiveVariation] = useState<string>('balanced');
   const [simLoading, setSimLoading]     = useState(
     !_simCache.has(imgUrl) && _simPending.has(imgUrl)
   );
@@ -1267,21 +1291,22 @@ function AiResultBubble({ msg }: { msg: Message }) {
   // ── Subscribe to auto-simulation updates from processPhotoWithAI ─────
   useEffect(() => {
     if (!imgUrl) return;
+    console.log("[SIM] Bubble subscribed | imgUrl:", imgUrl.slice(0, 80));
     return subscribeSimUrl(imgUrl, () => {
-      const url     = _simCache.get(imgUrl) ?? null;
-      const pending = _simPending.has(imgUrl);
-      const failed  = _simFailed.has(imgUrl);
+      const url      = _simCache.get(imgUrl) ?? null;
+      const vars     = _simVariations.get(imgUrl) ?? [];
+      const pending  = _simPending.has(imgUrl);
+      const failed   = _simFailed.has(imgUrl);
+      console.log("[SIM] Subscriber fired | url:", url ? url.slice(0, 60) : null, "| vars:", vars.length);
       if (url) {
-        // Success: show slider
         setSimUrl(url);
+        if (vars.length > 0) setSimVariations(vars);
         setSimLoading(false);
         setSimTriggered(true);
       } else if (pending) {
-        // In-flight: show spinner
         setSimLoading(true);
         setSimTriggered(true);
       } else if (failed) {
-        // Failed: reset so manual CTA button reappears
         setSimLoading(false);
         setSimTriggered(false);
       }
@@ -1315,11 +1340,15 @@ function AiResultBubble({ msg }: { msg: Message }) {
       const data: Record<string, any> = await res.json().catch(() => ({}));
       if (data.ok && data.simulatedImageUrl) {
         _simCache.set(imgUrl, data.simulatedImageUrl);
+        if (Array.isArray(data.variations) && data.variations.length > 0) {
+          _simVariations.set(imgUrl, data.variations as SimVariation[]);
+          setSimVariations(data.variations as SimVariation[]);
+        }
         setSimUrl(data.simulatedImageUrl);
       } else {
         console.warn("[SIM manual] No result:", data.error ?? data.message ?? "unknown");
         _simFailed.add(imgUrl);
-        setSimTriggered(false); // show button again for another manual retry
+        setSimTriggered(false);
       }
     } catch {
       _simFailed.add(imgUrl);
@@ -1336,8 +1365,17 @@ function AiResultBubble({ msg }: { msg: Message }) {
   const resolveUrl = (url: string) =>
     url.startsWith("http") ? url : `${API_BASE}${url}`;
 
-  const hasSimulation = !!simUrl;
-  const conf          = result.confidence ?? "medium";
+  // If only the fallback variation is present, treat it as no simulation (hide slider tabs)
+  const isFallbackOnly = simVariations.length === 1 && simVariations[0].id === 'original';
+
+  // Active variation URL: prefer the selected variation; fall back to primary simUrl
+  const activeSimUrl = (!isFallbackOnly && simVariations.length > 0)
+    ? (simVariations.find(v => v.id === activeVariation) ?? simVariations[0])?.url ?? simUrl
+    : simUrl;
+
+  const hasSimulation = !!activeSimUrl && activeSimUrl !== (result.originalImageUrl ?? "");
+  if (simUrl) console.log("[SIM RENDER] simUrl:", simUrl.slice(0, 60), "| activeSimUrl:", activeSimUrl?.slice(0, 60), "| hasSimulation:", hasSimulation);
+  const conf = result.confidence ?? "medium";
   const visibleInsights = (result.insights ?? []).slice(0, 3);
 
   // Prefill message sent to clinic
@@ -1379,16 +1417,35 @@ function AiResultBubble({ msg }: { msg: Message }) {
           )}
         </View>
 
-        {/* ── 1. Simulation: slider / loading / image + CTA ── */}
+        {/* ── 1. Simulation: slider + variation tabs / loading / image + CTA ── */}
         {hasSimulation ? (
-          <BeforeAfterSlider
-            beforeUrl={resolveUrl(result.originalImageUrl!)}
-            afterUrl={resolveUrl(simUrl!)}
-          />
+          <View>
+            {/* Variation pill tabs — only show when we have real AI variations */}
+            {simVariations.length > 1 && !isFallbackOnly && (
+              <View style={ai.varTabRow}>
+                {simVariations.map(v => (
+                  <TouchableOpacity
+                    key={v.id}
+                    style={[ai.varTab, activeVariation === v.id && ai.varTabActive]}
+                    onPress={() => setActiveVariation(v.id)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[ai.varTabText, activeVariation === v.id && ai.varTabTextActive]}>
+                      {v.id === 'balanced' ? `${v.label} ⭐` : v.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+            <BeforeAfterSlider
+              beforeUrl={resolveUrl(result.originalImageUrl!)}
+              afterUrl={resolveUrl(activeSimUrl!)}
+            />
+          </View>
         ) : simLoading ? (
           <View style={ai.simLoadingBox}>
             <ActivityIndicator size="small" color="#6366f1" />
-            <Text style={ai.simLoadingText}>Gülüşünüz simüle ediliyor…</Text>
+            <Text style={ai.simLoadingText}>3 gülüş varyasyonu oluşturuluyor…</Text>
           </View>
         ) : result.originalImageUrl ? (
           <View>
@@ -1823,6 +1880,22 @@ const ai = StyleSheet.create({
     alignItems: "center", marginTop: 8,
   },
   simCtaText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+
+  // Variation tabs
+  varTabRow: {
+    flexDirection: "row", gap: 6, marginBottom: 8,
+    flexWrap: "wrap",
+  },
+  varTab: {
+    paddingVertical: 5, paddingHorizontal: 12,
+    borderRadius: 20, borderWidth: 1.5,
+    borderColor: "#d1d5db", backgroundColor: "#f9fafb",
+  },
+  varTabActive: {
+    borderColor: "#6366f1", backgroundColor: "#eef2ff",
+  },
+  varTabText: { fontSize: 13, color: "#6b7280", fontWeight: "500" },
+  varTabTextActive: { color: "#4f46e5", fontWeight: "700" },
 });
 
 const cl = StyleSheet.create({
