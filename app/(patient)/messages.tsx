@@ -1,23 +1,43 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams, useNavigation } from "expo-router";
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
   ActivityIndicator, KeyboardAvoidingView, Platform, Alert, Image,
   Linking, Modal, ScrollView, ActionSheetIOS,
+  PanResponder, Animated,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Location from "expo-location";
 import * as DocumentPicker from "expo-document-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../../lib/auth";
 import { API_BASE } from "../../lib/api";
+import { onIntraoralPhotoReady } from "../../lib/photoCallbacks";
 import { useDateLocale } from "../../lib/date-locale";
 import { useUnreadMessages } from "../../lib/useUnreadMessages";
 import { useLanguage } from "../../lib/language-context";
 
-const UPLOAD_CONSENT_KEY = "@clinifly:upload_consent_accepted";
+const UPLOAD_CONSENT_KEY       = "@clinifly:upload_consent_accepted";
+const PREFERRED_DESTINATION_KEY = "@clinifly:preferredDestination";
+
+// ─── Destination options ──────────────────────────────────────────────────────
+
+type DestinationOption = {
+  id: string;          // "nearby" | ISO-2 country code used in DB
+  label: string;
+  flag: string;
+};
+
+const DESTINATION_OPTIONS: DestinationOption[] = [
+  { id: "nearby",   label: "Yakın",     flag: "📍" },
+  { id: "TR",       label: "Türkiye",   flag: "🇹🇷" },
+  { id: "GE",       label: "Gürcistan", flag: "🇬🇪" },
+  { id: "DE",       label: "Almanya",   flag: "🇩🇪" },
+  { id: "AE",       label: "Dubai",     flag: "🇦🇪" },
+  { id: "GB",       label: "İngiltere", flag: "🇬🇧" },
+];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -120,6 +140,8 @@ export default function MessagesScreen() {
   const { t } = useLanguage();
   const locale = useDateLocale();
   const router = useRouter();
+  const navigation = useNavigation();
+  const { openCamera } = useLocalSearchParams<{ openCamera?: string }>();
 
   const [messages, setMessages]                   = useState<Message[]>([]);
   const [localMessages, setLocalMessages]         = useState<Message[]>([]);
@@ -130,13 +152,16 @@ export default function MessagesScreen() {
   const [intraoralVisible, setIntraoralVisible]   = useState(false);
   const [intraoralStep, setIntraoralStep]         = useState(0);
   const [intraoralPhotos, setIntraoralPhotos]     = useState<Record<string, any>>({});
+  const [preferredDestination, setPreferredDestination] = useState<string>("nearby");
 
-  const flatRef        = useRef<FlatList>(null);
-  const pollRef        = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastCountRef   = useRef(0);
+  const flatRef           = useRef<FlatList>(null);
+  const pollRef           = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastCountRef      = useRef(0);
+  const autoCameraFiredRef = useRef(false);
 
-  const patientId = String(user?.patientId || "").trim();
-  const token     = user?.token;
+  const patientId  = String(user?.patientId || "").trim();
+  const token      = user?.token;
+  const hasClinic  = !!user?.clinicId;
   const { markRead } = useUnreadMessages(patientId || undefined, token || undefined);
 
   // Register clinic-contact bridge: pre-fills text input and scrolls to bottom
@@ -147,6 +172,29 @@ export default function MessagesScreen() {
     });
     return unregister;
   }, []);
+
+  // Register intraoral camera bridge — always calls the latest processPhotoWithAI via ref
+  useEffect(() => {
+    onIntraoralPhotoReady((uri, name, mimeType, photoType) => {
+      processPhotoRef.current?.(uri, name, mimeType, photoType);
+    });
+  }, []);
+
+  // Load persisted destination preference
+  useEffect(() => {
+    AsyncStorage.getItem(PREFERRED_DESTINATION_KEY).then(val => {
+      if (val) setPreferredDestination(val);
+    });
+  }, []);
+
+  const selectDestination = useCallback(async (id: string) => {
+    setPreferredDestination(id);
+    await AsyncStorage.setItem(PREFERRED_DESTINATION_KEY, id);
+  }, []);
+
+  // Ref so pickImage() / processPhotoWithAI() are always latest inside effects/bridges
+  const pickImageRef       = useRef<() => Promise<void>>();
+  const processPhotoRef    = useRef<typeof processPhotoWithAI>();
 
   const authHeaders = useCallback(() => ({
     Authorization: `Bearer ${token}`,
@@ -247,6 +295,23 @@ export default function MessagesScreen() {
     name: string,
     mimeType: string
   ): Promise<string | null> => {
+    // ── Pre-flight: read file size ───────────────────────────────────
+    let sizeKB = 0;
+    try {
+      const info = await FileSystem.getInfoAsync(uri, { size: true });
+      const size = info.exists && "size" in info ? (info as any).size as number : 0;
+      sizeKB = Math.round(size / 1024);
+      if (size === 0) {
+        console.error("[UPLOAD ERROR] File is 0 bytes, aborting upload:", uri);
+        Alert.alert("Hata", "Fotoğraf işlenemedi, lütfen tekrar deneyin.");
+        return null;
+      }
+    } catch (sizeErr) {
+      console.warn("[UPLOAD] Could not read file size:", (sizeErr as Error)?.message);
+    }
+
+    console.log("[UPLOAD START]:", { uri, sizeKB, mimeType, name, endpoint: `${API_BASE}/api/chat/upload` });
+
     setUploading(true);
     try {
       const formData = new FormData();
@@ -259,7 +324,14 @@ export default function MessagesScreen() {
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         body: formData,
       });
-      const json = await res.json().catch(() => ({}));
+
+      console.log("[UPLOAD RESPONSE STATUS]:", res.status);
+      const rawText = await res.text().catch((e) => `[text() failed: ${(e as Error).message}]`);
+      console.log("[UPLOAD RESPONSE RAW]:", rawText.slice(0, 600));
+
+      let json: Record<string, any> = {};
+      try { json = JSON.parse(rawText); } catch { /* non-JSON response already logged */ }
+
       if (!res.ok) {
         Alert.alert(t("chat.uploadError"), json.message || json.error || t("messages.uploadFailed"), [
           { text: t("common.cancel"), style: "cancel" },
@@ -268,15 +340,62 @@ export default function MessagesScreen() {
         return null;
       }
       await fetchMessages(true);
-      // Return the first uploaded file's URL
       return json.files?.[0]?.url ?? null;
-    } catch {
+    } catch (uploadErr) {
+      const err = uploadErr as Error;
+      console.error("[UPLOAD ERROR FULL]:", { message: err?.message, stack: err?.stack });
       Alert.alert(t("common.error"), t("messages.uploadFailed"), [
         { text: t("common.cancel"), style: "cancel" },
         { text: t("common.retry") ?? "Retry", onPress: () => uploadFile(uri, name, mimeType) },
       ]);
       return null;
     } finally { setUploading(false); }
+  };
+
+  // ── AI-only upload (no clinic_id / messages DB write required) ────────────
+  // Uses a dedicated backend endpoint that stores the photo in Supabase Storage
+  // and returns a signed URL for the ai-analyze endpoint to fetch.
+  const uploadForAI = async (
+    uri: string,
+    name: string,
+    mimeType: string
+  ): Promise<string | null> => {
+    try {
+      const info = await FileSystem.getInfoAsync(uri, { size: true });
+      const size = info.exists && "size" in info ? (info as any).size as number : 0;
+      if (size === 0) {
+        console.error("[AI UPLOAD] 0-byte file, aborting:", uri);
+        return null;
+      }
+      console.log("[AI UPLOAD START]:", { sizeKB: Math.round(size / 1024), name, mimeType });
+    } catch { /* non-fatal — proceed and let server validate */ }
+
+    const formData = new FormData();
+    formData.append("file", { uri, name, type: mimeType } as any);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/chat/ai-upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        body: formData,
+      });
+      console.log("[AI UPLOAD RESPONSE STATUS]:", res.status);
+      const rawText = await res.text().catch((e) => `[text() failed: ${(e as Error).message}]`);
+      console.log("[AI UPLOAD RESPONSE RAW]:", rawText.slice(0, 400));
+
+      let json: Record<string, any> = {};
+      try { json = JSON.parse(rawText); } catch { /* already logged */ }
+
+      if (!res.ok || !json.url) {
+        console.error("[AI UPLOAD] Failed:", json.error ?? json.message ?? rawText.slice(0, 200));
+        return null;
+      }
+      console.log("[AI UPLOAD] OK →", json.url.slice(0, 80), "...");
+      return json.url as string;
+    } catch (err) {
+      console.error("[AI UPLOAD ERROR]:", (err as Error)?.message);
+      return null;
+    }
   };
 
   // ── Image compression ──────────────────────────────────────────────────────
@@ -312,14 +431,33 @@ export default function MessagesScreen() {
 
       const durationMs = Date.now() - _t0;
 
-      // ── Size check — read file size via FileSystem ──────────────────
-      let sizeKB = 0;
-      try {
-        const info = await FileSystem.getInfoAsync(result.uri, { size: true });
-        sizeKB = info.exists && "size" in info ? Math.round((info as any).size / 1024) : 0;
-      } catch { /* non-fatal */ }
+      // ── Size check via legacy FileSystem API ────────────────────────
+      const readSizeKB = async (fileUri: string): Promise<number> => {
+        try {
+          const info = await FileSystem.getInfoAsync(fileUri, { size: true });
+          if (info.exists && "size" in info && (info as any).size > 0) {
+            return Math.round((info as any).size / 1024);
+          }
+        } catch { /* non-fatal */ }
+        return 0;
+      };
+
+      let sizeKB = await readSizeKB(result.uri);
+
+      // On some iOS versions the manipulator temp file isn't immediately
+      // stat-able; give it one retry before treating it as 0-byte.
+      if (sizeKB === 0) {
+        await new Promise(r => setTimeout(r, 100));
+        sizeKB = await readSizeKB(result.uri);
+      }
 
       console.log(`[compress] ${durationMs}ms | ${sizeKB}KB | ${maxWidth}px | q${quality}`);
+
+      // ── Guard: never return a 0-byte result ─────────────────────────
+      if (sizeKB === 0) {
+        console.warn("[compress] 0KB result after compress — falling back to original");
+        return { uri, mimeType };
+      }
 
       // ── Safety re-compress if still > 1 MB ─────────────────────────
       const ONE_MB_KB = 1024;
@@ -331,15 +469,13 @@ export default function MessagesScreen() {
             [],                           // already resized — no second resize needed
             { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
           );
-          let reSizeKB = 0;
-          try {
-            const reInfo = await FileSystem.getInfoAsync(reResult.uri, { size: true });
-            reSizeKB = reInfo.exists && "size" in reInfo ? Math.round((reInfo as any).size / 1024) : 0;
-          } catch { /* non-fatal */ }
+          const reSizeKB = await readSizeKB(reResult.uri);
           console.log(`[compress] re-compress → ${reSizeKB}KB | q0.6`);
-          return { uri: reResult.uri, mimeType: "image/jpeg" };
+          if (reSizeKB > 0) {
+            return { uri: reResult.uri, mimeType: "image/jpeg" };
+          }
+          console.warn("[compress] re-compress produced 0KB, using first-pass result");
         } catch {
-          // Re-compress failed — continue with first pass result
           console.warn("[compress] re-compress failed, using first-pass result");
         }
       }
@@ -374,16 +510,14 @@ export default function MessagesScreen() {
 
     console.log("[AI] Compressed:", uploadMimeType, uploadName);
 
-    // Step 1 – upload image (shows in chat as patient message)
-    // Upload is required to get a server-side URL for the AI endpoint.
-    // If it fails, we fall through without blocking the user.
-    const fileUrl = await uploadFile(uploadUri, uploadName, uploadMimeType);
+    // Step 1 – upload image for AI (dedicated endpoint, no clinic_id required)
+    const fileUrl = await uploadForAI(uploadUri, uploadName, uploadMimeType);
     if (!fileUrl) {
       console.warn("[AI] Upload failed — skipping AI for", photoType);
       return;
     }
 
-    console.log("[AI] Uploaded:", fileUrl, "→ starting analysis");
+    console.log("[AI] Uploaded:", fileUrl.slice(0, 80), "… → starting analysis");
 
     // Fetch location in parallel while the loading bubble is shown (non-blocking)
     const userLocation = await getUserLocation();
@@ -411,22 +545,40 @@ export default function MessagesScreen() {
       const aiRes = await fetch(`${API_BASE}/api/chat/ai-analyze`, {
         method: "POST",
         headers: authHeaders(),
-        body: JSON.stringify({ patientId, imageUrl: fileUrl, photoType, userLocation }),
+        body: JSON.stringify({
+          patientId,
+          imageUrl: fileUrl,
+          photoType,
+          userLocation,
+          preferredCountry: preferredDestination !== "nearby" ? preferredDestination : null,
+        }),
         signal: aiController.signal,
       });
       clearTimeout(aiTimeout);
+
+      // Always read raw text first so we can log it regardless of status
+      const rawText = await aiRes.text().catch((e) => `[text() failed: ${(e as Error).message}]`);
+      console.log(`[AI STATUS] ${aiRes.status} | photoType=${photoType}`);
+      console.log("[AI RESPONSE RAW]:", rawText.slice(0, 800)); // cap at 800 chars
+
+      let aiData: Record<string, any> = {};
+      try {
+        aiData = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.error("[AI PARSE ERROR] Not valid JSON:", rawText.slice(0, 400));
+      }
+
       if (!aiRes.ok) {
-        const errBody = await aiRes.json().catch(() => ({}));
-        console.warn("[AI] Endpoint error:", errBody.error, photoType);
-        if (errBody.error === "image_too_large") {
+        console.warn("[AI] Endpoint error:", aiData.error ?? "(no error field)", "|", aiData.message ?? "", "| photoType:", photoType);
+        if (aiData.error === "image_too_large") {
           Alert.alert(
             t("messages.uploadError") || "Hata",
-            errBody.message || "Görsel çok büyük, lütfen tekrar çekin."
+            aiData.message || "Görsel çok büyük, lütfen tekrar çekin."
           );
         }
         // ai_timeout / other → original image still visible in chat
       } else {
-        console.log("[AI] Analysis complete for:", photoType);
+        console.log("[AI] Analysis complete for:", photoType, "| ok:", aiData.ok, "| insights:", aiData.insights?.length ?? 0);
       }
     } catch (e) {
       clearTimeout(aiTimeout);
@@ -468,6 +620,46 @@ export default function MessagesScreen() {
     }
   };
 
+  // ── Camera capture for AI (used by auto-trigger and attach menu) ──────────
+
+  const capturePhotoForAI = async () => {
+    if (!await checkUploadConsent()) return;
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(t("messages.permissionRequired"), t("messages.cameraPermission") || "Kamera erişimine izin verin.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: "images",
+      // No quality param — compressImage() handles all encoding
+    });
+    if (!result.canceled && result.assets[0]) {
+      const a = result.assets[0];
+      processPhotoWithAI(
+        a.uri,
+        a.fileName || `photo_${Date.now()}.jpg`,
+        a.mimeType || "image/jpeg"
+      );
+    }
+  };
+
+  // Keep refs current so effects/bridges always call the latest versions
+  pickImageRef.current    = capturePhotoForAI;
+  processPhotoRef.current = processPhotoWithAI;
+
+  // Auto-open camera when navigated from profile with openCamera=true (fires once)
+  useEffect(() => {
+    if (openCamera !== "true" || autoCameraFiredRef.current) return;
+    autoCameraFiredRef.current = true;
+    // Short delay lets the screen fully mount before the camera opens
+    const timer = setTimeout(() => {
+      pickImageRef.current?.();
+      // Clear the param so back-navigation doesn't re-trigger
+      navigation.setParams({ openCamera: undefined } as any);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [openCamera, navigation]);
+
   const pickDocument = async () => {
     if (!await checkUploadConsent()) return;
     const result = await DocumentPicker.getDocumentAsync({
@@ -485,24 +677,31 @@ export default function MessagesScreen() {
   };
 
   const showAttachMenu = () => {
+    const CAMERA_LABEL  = t("chat.takePhoto")     || "📷 Fotoğraf Çek";
+    const GALLERY_LABEL = t("chat.selectImage")   || "🖼️ Galeriden Seç";
+    const FILE_LABEL    = t("chat.selectFile")    || "📄 Dosya Seç";
+    const INTRA_LABEL   = t("chat.intraoralPhoto")|| "🦷 Ağız İçi Fotoğraf";
+
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options: [t("common.cancel"), t("chat.selectImage"), t("chat.selectFile"), t("chat.intraoralPhoto")],
+          options: [t("common.cancel"), CAMERA_LABEL, GALLERY_LABEL, FILE_LABEL, INTRA_LABEL],
           cancelButtonIndex: 0,
         },
         (i) => {
-          if (i === 1) pickImage();
-          else if (i === 2) pickDocument();
-          else if (i === 3) openGuidedCamera();
+          if (i === 1) capturePhotoForAI();
+          else if (i === 2) pickImage();
+          else if (i === 3) pickDocument();
+          else if (i === 4) openGuidedCamera();
         }
       );
     } else {
       Alert.alert(t("messages.addFile"), t("messages.selectSource"), [
-        { text: t("chat.selectImage"),    onPress: pickImage },
-        { text: t("chat.selectFile"),     onPress: pickDocument },
-        { text: t("chat.intraoralPhoto"), onPress: openGuidedCamera },
-        { text: t("common.cancel"),       style: "cancel" },
+        { text: CAMERA_LABEL,  onPress: capturePhotoForAI },
+        { text: GALLERY_LABEL, onPress: pickImage },
+        { text: FILE_LABEL,    onPress: pickDocument },
+        { text: INTRA_LABEL,   onPress: openGuidedCamera },
+        { text: t("common.cancel"), style: "cancel" },
       ]);
     }
   };
@@ -569,6 +768,30 @@ export default function MessagesScreen() {
           <Text style={s.headerSub}>{t("messages.subtitle")}</Text>
         </View>
 
+        {/* Destination selector — below header, always visible */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={ds.row}
+          contentContainerStyle={ds.rowContent}
+          alwaysBounceHorizontal={false}
+        >
+          {DESTINATION_OPTIONS.map(opt => {
+            const active = preferredDestination === opt.id;
+            return (
+              <TouchableOpacity
+                key={opt.id}
+                style={[ds.chip, active && ds.chipActive]}
+                onPress={() => selectDestination(opt.id)}
+                activeOpacity={0.7}
+              >
+                <Text style={ds.chipFlag}>{opt.flag}</Text>
+                <Text style={[ds.chipLabel, active && ds.chipLabelActive]}>{opt.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
         {/* Message list */}
         <FlatList
           ref={flatRef}
@@ -593,13 +816,40 @@ export default function MessagesScreen() {
             );
           }}
           ListEmptyComponent={
-            <View style={s.empty}>
-              <Text style={s.emptyIcon}>💬</Text>
-              <Text style={s.emptyTitle}>{t("chat.noMessages")}</Text>
-              <Text style={s.emptySub}>{t("messages.emptySub")}</Text>
-            </View>
+            hasClinic ? (
+              <View style={s.empty}>
+                <Text style={s.emptyIcon}>💬</Text>
+                <Text style={s.emptyTitle}>{t("chat.noMessages")}</Text>
+                <Text style={s.emptySub}>{t("messages.emptySub")}</Text>
+              </View>
+            ) : null   // no clinic → full empty state shown below
           }
         />
+
+        {/* No-clinic empty state — replaces input bar */}
+        {!hasClinic && allMessages.length === 0 && (
+          <View style={s.noClinicState}>
+            <Text style={s.noClinicIcon}>🦷</Text>
+            <Text style={s.noClinicTitle}>Henüz bir kliniğiniz yok</Text>
+            <Text style={s.noClinicSub}>
+              Diş fotoğrafınızı yükleyin, analiz edelim ve size uygun klinikleri önerelim
+            </Text>
+            <TouchableOpacity
+              style={s.noClinicPrimary}
+              activeOpacity={0.85}
+              onPress={capturePhotoForAI}
+            >
+              <Text style={s.noClinicPrimaryTxt}>🦷 Diş Fotoğrafı Çek</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={s.noClinicSecondary}
+              activeOpacity={0.85}
+              onPress={() => router.push("/clinic-onboarding" as any)}
+            >
+              <Text style={s.noClinicSecondaryTxt}>🏥 Klinik Bul</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Upload indicator */}
         {uploading && (
@@ -609,8 +859,8 @@ export default function MessagesScreen() {
           </View>
         )}
 
-        {/* Input bar */}
-        <View style={s.inputBar}>
+        {/* Input bar — hidden when no clinic and no messages */}
+        {(hasClinic || allMessages.length > 0) && <View style={s.inputBar}>
           <TouchableOpacity
             style={s.attachBtn}
             onPress={showAttachMenu}
@@ -638,7 +888,7 @@ export default function MessagesScreen() {
               ? <ActivityIndicator size="small" color="#fff" />
               : <Text style={s.sendIcon}>➤</Text>}
           </TouchableOpacity>
-        </View>
+        </View>}
       </View>
 
       {/* Intraoral Modal */}
@@ -717,26 +967,296 @@ function AiLoadingBubble() {
   );
 }
 
+// ─── BeforeAfterSlider ───────────────────────────────────────────────────────
+// Interactive drag-to-reveal comparison for original vs AI-simulated images.
+
+function BeforeAfterSlider({
+  beforeUrl,
+  afterUrl,
+}: {
+  beforeUrl: string;
+  afterUrl: string;
+}) {
+  const containerRef = useRef<View>(null);
+  const containerX   = useRef(0);
+  const containerW   = useRef(260); // fallback; updated by onLayout
+  const dividerAnim  = useRef(new Animated.Value(0.5)).current; // 0–1 ratio
+  const [ratio, setRatio] = useState(0.5);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder:  () => true,
+      onPanResponderGrant: () => {},
+      onPanResponderMove: (_, gs) => {
+        const w   = containerW.current;
+        const raw = gs.moveX - containerX.current;
+        const clamped = Math.max(0.05, Math.min(0.95, raw / w));
+        dividerAnim.setValue(clamped);
+        setRatio(clamped);
+      },
+      onPanResponderRelease: () => {},
+    })
+  ).current;
+
+  const SLIDER_HEIGHT = 220;
+
+  return (
+    <View style={bas.wrapper}>
+      {/* Container that clips and compares the two images */}
+      <View
+        ref={containerRef}
+        style={bas.container}
+        onLayout={(e) => {
+          containerW.current = e.nativeEvent.layout.width;
+          containerRef.current?.measure((_fx, _fy, _w, _h, px) => {
+            containerX.current = px;
+          });
+        }}
+      >
+        {/* After image — full width, underneath */}
+        <Image
+          source={{ uri: afterUrl }}
+          style={[StyleSheet.absoluteFill, { borderRadius: bas.container.borderRadius }]}
+          resizeMode="cover"
+        />
+
+        {/* Before image — clipped to left of divider */}
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              borderRadius: bas.container.borderRadius,
+              overflow: "hidden",
+              width: dividerAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: ["0%", "100%"],
+              }),
+            },
+          ]}
+        >
+          <Image
+            source={{ uri: beforeUrl }}
+            style={{ width: containerW.current || 260, height: SLIDER_HEIGHT }}
+            resizeMode="cover"
+          />
+        </Animated.View>
+
+        {/* Divider line */}
+        <Animated.View
+          style={[
+            bas.divider,
+            {
+              left: dividerAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: ["0%", "100%"],
+              }),
+            },
+          ]}
+          {...panResponder.panHandlers}
+        >
+          <View style={bas.handle}>
+            <Text style={bas.handleArrows}>‹ ›</Text>
+          </View>
+        </Animated.View>
+
+        {/* Labels */}
+        <View style={bas.labelLeft} pointerEvents="none">
+          <Text style={bas.label}>Önce</Text>
+        </View>
+        <View style={bas.labelRight} pointerEvents="none">
+          <Text style={bas.label}>Sonra</Text>
+        </View>
+      </View>
+
+      {/* AI disclaimer for the simulation */}
+      <Text style={bas.simDisclaimer}>
+        Bu görsel AI tarafından oluşturulmuş bir önizlemedir.
+      </Text>
+    </View>
+  );
+}
+
+const bas = StyleSheet.create({
+  wrapper:   { gap: 6 },
+  container: {
+    width: "100%", height: 220,
+    borderRadius: 12, overflow: "hidden",
+    backgroundColor: "#e5e7eb",
+  },
+  divider: {
+    position: "absolute",
+    top: 0, bottom: 0,
+    width: 3,
+    backgroundColor: "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  handle: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: "#fff",
+    justifyContent: "center", alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.25, shadowRadius: 4, elevation: 8,
+  },
+  handleArrows: { fontSize: 15, fontWeight: "700", color: "#374151", lineHeight: 18 },
+  labelLeft: {
+    position: "absolute", top: 8, left: 8,
+  },
+  labelRight: {
+    position: "absolute", top: 8, right: 8,
+  },
+  label: {
+    backgroundColor: "rgba(0,0,0,0.55)",
+    color: "#fff", fontSize: 11, fontWeight: "700",
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
+    textTransform: "uppercase", letterSpacing: 0.5,
+    overflow: "hidden",
+  },
+  simDisclaimer: {
+    fontSize: 10, color: "#9ca3af", fontStyle: "italic", textAlign: "center",
+  },
+});
+
 // ─── AiResultBubble ───────────────────────────────────────────────────────────
 
-const CONFIDENCE_LABEL: Record<string, string> = {
-  low: "Düşük güven", medium: "Orta güven", high: "Yüksek güven",
-};
 const CONFIDENCE_COLOR: Record<string, string> = {
   low: "#f59e0b", medium: "#3b82f6", high: "#10b981",
 };
 
+// ── Clinic Selector Modal ─────────────────────────────────────────────────────
+
+function ClinicSelectorModal({
+  clinics,
+  onSelect,
+  onClose,
+}: {
+  clinics: ClinicRecommendation[];
+  onSelect: (clinic: ClinicRecommendation) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
+      <TouchableOpacity style={cm.overlay} activeOpacity={1} onPress={onClose} />
+      <View style={cm.sheet}>
+        <View style={cm.handle} />
+        <Text style={cm.title}>Klinik Seç</Text>
+        <Text style={cm.subtitle}>AI analizini hangi kliniğe gönderelim?</Text>
+
+        {clinics.map((clinic) => (
+          <TouchableOpacity
+            key={clinic.id}
+            style={cm.row}
+            activeOpacity={0.75}
+            onPress={() => onSelect(clinic)}
+          >
+            <View style={cm.rowInfo}>
+              <Text style={cm.rowName} numberOfLines={1}>{clinic.name}</Text>
+              <View style={cm.rowMeta}>
+                {!!clinic.specialty && (
+                  <Text style={cm.rowSpecialty}>{clinic.specialty}</Text>
+                )}
+                {!!clinic.distance && (
+                  <Text style={cm.rowDistance}>📍 {clinic.distance}</Text>
+                )}
+              </View>
+            </View>
+            <View style={cm.selectBtn}>
+              <Text style={cm.selectBtnText}>Seç</Text>
+            </View>
+          </TouchableOpacity>
+        ))}
+
+        <TouchableOpacity style={cm.cancelBtn} onPress={onClose}>
+          <Text style={cm.cancelText}>Vazgeç</Text>
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+}
+
+// ── Main bubble ───────────────────────────────────────────────────────────────
+
 function AiResultBubble({ msg }: { msg: Message }) {
   const result = msg.attachment?.aiResult;
+  const { token, user } = useAuth();
+  const router = useRouter();
+
+  // ── Simulation state (lazy — not auto-run) ───────────────────────────
+  const [simUrl, setSimUrl]             = useState<string | null>(result?.simulatedImageUrl ?? null);
+  const [simLoading, setSimLoading]     = useState(false);
+  const [simTriggered, setSimTriggered] = useState(!!result?.simulatedImageUrl);
+
+  // ── Clinic picker ────────────────────────────────────────────────────
+  const [showClinicModal, setShowClinicModal] = useState(false);
+
+  // ── Engagement tracking: auto-trigger simulation after 2 s ──────────
+  const engageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const triggerSimulation = useCallback(async () => {
+    if (simTriggered || simLoading || !result?.originalImageUrl) return;
+    setSimTriggered(true);
+    setSimLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/chat/smile-simulation`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          patientId: user?.id,
+          imageUrl: result.originalImageUrl,
+          insights: result.insights?.slice(0, 2) ?? [],
+        }),
+      });
+      const data: Record<string, any> = await res.json().catch(() => ({}));
+      if (data.simulatedImageUrl) setSimUrl(data.simulatedImageUrl);
+    } catch { /* non-fatal — slider stays hidden */ }
+    finally { setSimLoading(false); }
+  }, [simTriggered, simLoading, result, token, user]);
+
+  useEffect(() => {
+    if (simTriggered) return;
+    engageTimerRef.current = setTimeout(() => triggerSimulation(), 2000);
+    return () => { if (engageTimerRef.current) clearTimeout(engageTimerRef.current); };
+  }, [triggerSimulation, simTriggered]);
+
   if (!result) return null;
 
-  const apiBase    = API_BASE;
   const resolveUrl = (url: string) =>
-    url.startsWith("http") ? url : `${apiBase}${url}`;
+    url.startsWith("http") ? url : `${API_BASE}${url}`;
 
-  const hasSimulation = !!result.simulatedImageUrl;
+  const hasSimulation = !!simUrl;
   const conf          = result.confidence ?? "medium";
-  const summaryText   = result.summary || result.overallNote || "";
+  const visibleInsights = (result.insights ?? []).slice(0, 3);
+
+  // Prefill message sent to clinic
+  const prefillMessage = [
+    "Merhaba! AI diş analizi yaptırdım.",
+    ...(visibleInsights.length > 0 ? [`Bulgular: ${visibleInsights[0]}`] : []),
+    "Sizinle görüşmek istiyorum.",
+  ].join(" ");
+
+  const handleSendToClinic = () => {
+    if (result.clinics && result.clinics.length > 0) {
+      setShowClinicModal(true);
+    } else {
+      // No pre-loaded clinic list — fill text input for current clinic
+      triggerClinicContact(prefillMessage);
+    }
+  };
+
+  const handleSelectClinic = (_clinic: ClinicRecommendation) => {
+    setShowClinicModal(false);
+    triggerClinicContact(prefillMessage);
+  };
 
   return (
     <View style={[s.bubbleWrap, s.bubbleLeft]}>
@@ -746,51 +1266,55 @@ function AiResultBubble({ msg }: { msg: Message }) {
         {/* ── Header ── */}
         <View style={ai.header}>
           <Text style={ai.headerIcon}>✨</Text>
-          <Text style={ai.headerTitle}>AI Önizleme</Text>
+          <Text style={ai.headerTitle}>Diş Analizi</Text>
           {result.confidence && (
             <View style={[ai.confidenceBadge, { backgroundColor: CONFIDENCE_COLOR[conf] + "22" }]}>
               <Text style={[ai.confidenceText, { color: CONFIDENCE_COLOR[conf] }]}>
-                {CONFIDENCE_LABEL[conf]}
+                {conf === "high" ? "Yüksek güven" : conf === "medium" ? "Orta güven" : "Düşük güven"}
               </Text>
             </View>
           )}
         </View>
 
-        {/* ── Before / After or single image ── */}
+        {/* ── 1. Simulation: slider / loading / image + CTA ── */}
         {hasSimulation ? (
-          <View style={ai.beforeAfterRow}>
-            <View style={ai.beforeAfterItem}>
-              <Text style={ai.beforeAfterLabel}>Önce</Text>
-              <TouchableOpacity
-                activeOpacity={0.85}
-                onPress={() => result.originalImageUrl && Linking.openURL(resolveUrl(result.originalImageUrl))}
-              >
-                <Image source={{ uri: resolveUrl(result.originalImageUrl!) }} style={ai.halfImage} resizeMode="cover" />
-              </TouchableOpacity>
-            </View>
-            <View style={ai.beforeAfterItem}>
-              <Text style={ai.beforeAfterLabel}>Sonra</Text>
-              <TouchableOpacity
-                activeOpacity={0.85}
-                onPress={() => Linking.openURL(resolveUrl(result.simulatedImageUrl!))}
-              >
-                <Image source={{ uri: resolveUrl(result.simulatedImageUrl!) }} style={ai.halfImage} resizeMode="cover" />
-              </TouchableOpacity>
-            </View>
+          <BeforeAfterSlider
+            beforeUrl={resolveUrl(result.originalImageUrl!)}
+            afterUrl={resolveUrl(simUrl!)}
+          />
+        ) : simLoading ? (
+          <View style={ai.simLoadingBox}>
+            <ActivityIndicator size="small" color="#6366f1" />
+            <Text style={ai.simLoadingText}>Gülüşünüz simüle ediliyor…</Text>
           </View>
         ) : result.originalImageUrl ? (
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => Linking.openURL(resolveUrl(result.originalImageUrl!))}
-          >
-            <Image source={{ uri: resolveUrl(result.originalImageUrl!) }} style={ai.image} resizeMode="cover" />
-          </TouchableOpacity>
+          <View>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => Linking.openURL(resolveUrl(result.originalImageUrl!))}
+            >
+              <Image
+                source={{ uri: resolveUrl(result.originalImageUrl!) }}
+                style={ai.image}
+                resizeMode="cover"
+              />
+            </TouchableOpacity>
+            {!simTriggered && (
+              <TouchableOpacity
+                style={ai.simCtaBtn}
+                onPress={triggerSimulation}
+                activeOpacity={0.8}
+              >
+                <Text style={ai.simCtaText}>👁 Gülüşümü nasıl görünecek?</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         ) : null}
 
-        {/* ── Insights ── */}
-        {result.insights.length > 0 && (
+        {/* ── 2. Insights (max 3) ── */}
+        {visibleInsights.length > 0 && (
           <View style={ai.insightsBlock}>
-            {result.insights.map((insight, i) => (
+            {visibleInsights.map((insight, i) => (
               <View key={i} style={ai.insightRow}>
                 <Text style={ai.bullet}>•</Text>
                 <Text style={ai.insightText}>{insight}</Text>
@@ -799,44 +1323,45 @@ function AiResultBubble({ msg }: { msg: Message }) {
           </View>
         )}
 
-        {/* ── Summary ── */}
-        {!!summaryText && (
-          <Text style={ai.summary}>{summaryText}</Text>
-        )}
-
-        {/* ── Recommendation ── */}
-        {!!result.recommendation && (
-          <View style={ai.recommendationBox}>
-            <Text style={ai.recommendationLabel}>💡 Öneri</Text>
-            <Text style={ai.recommendationText}>{result.recommendation}</Text>
-          </View>
-        )}
-
-        {/* ── CTA ── */}
-        <Text style={ai.cta}>
-          Daha detaylı analiz için farklı açılardan fotoğraf ekleyebilirsiniz.
-        </Text>
-
-        {/* ── Disclaimer ── */}
-        <View style={ai.disclaimerBox}>
-          <Text style={ai.disclaimerText}>{result.disclaimer}</Text>
+        {/* ── 3. Key message ── */}
+        <View style={ai.keyMsgBox}>
+          <Text style={ai.keyMsgText}>
+            Bu durum genellikle basit diş tedavileriyle iyileştirilebilir.
+          </Text>
         </View>
 
-        {/* ── Clinic recommendations ── */}
-        {result.clinics && result.clinics.length > 0 && (
-          <View style={cl.section}>
-            <Text style={cl.sectionTitle}>Bu durumu değerlendirebilecek klinikler</Text>
-            {result.clinics.map((clinic) => (
-              <ClinicCard key={clinic.id} clinic={clinic} />
-            ))}
-            <Text style={cl.safetyNote}>
-              Bu klinikler yalnızca öneri niteliğindedir.
-            </Text>
-          </View>
-        )}
+        {/* ── 4. Primary CTA ── */}
+        <TouchableOpacity
+          style={ai.primaryBtn}
+          onPress={handleSendToClinic}
+          activeOpacity={0.85}
+        >
+          <Text style={ai.primaryBtnText}>Bu sonucu bir kliniğe gönder</Text>
+        </TouchableOpacity>
+
+        {/* ── 5. Secondary CTA ── */}
+        <TouchableOpacity
+          style={ai.secondaryBtn}
+          onPress={() => router.push("/clinic-onboarding" as any)}
+          activeOpacity={0.7}
+        >
+          <Text style={ai.secondaryBtnText}>Yakındaki klinikleri gör</Text>
+        </TouchableOpacity>
+
+        {/* ── Disclaimer ── */}
+        <Text style={ai.disclaimerInline}>{result.disclaimer}</Text>
 
         <Text style={s.bubbleTime}>{fmtTime(msg.createdAt, "tr-TR")}</Text>
       </View>
+
+      {/* ── Clinic picker modal ── */}
+      {showClinicModal && result.clinics && result.clinics.length > 0 && (
+        <ClinicSelectorModal
+          clinics={result.clinics}
+          onSelect={handleSelectClinic}
+          onClose={() => setShowClinicModal(false)}
+        />
+      )}
     </View>
   );
 }
@@ -1079,6 +1604,41 @@ const s = StyleSheet.create({
   emptyIcon:  { fontSize: 52, marginBottom: 12 },
   emptyTitle: { fontSize: 16, fontWeight: "700", color: "#374151", marginBottom: 6 },
   emptySub:   { fontSize: 13, color: "#9ca3af", textAlign: "center", paddingHorizontal: 36, lineHeight: 20 },
+
+  // No-clinic empty state
+  noClinicState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+    paddingBottom: 40,
+  },
+  noClinicIcon:  { fontSize: 64, marginBottom: 20 },
+  noClinicTitle: {
+    fontSize: 20, fontWeight: "800", color: "#111827",
+    textAlign: "center", marginBottom: 12,
+  },
+  noClinicSub: {
+    fontSize: 14, color: "#6b7280", textAlign: "center",
+    lineHeight: 22, marginBottom: 36, paddingHorizontal: 8,
+  },
+  noClinicPrimary: {
+    backgroundColor: "#2563eb",
+    borderRadius: 14, paddingVertical: 16, paddingHorizontal: 32,
+    width: "100%", alignItems: "center", marginBottom: 12,
+  },
+  noClinicPrimaryTxt: {
+    color: "#fff", fontSize: 16, fontWeight: "700",
+  },
+  noClinicSecondary: {
+    backgroundColor: "#f0fdf4",
+    borderRadius: 14, paddingVertical: 15, paddingHorizontal: 32,
+    width: "100%", alignItems: "center",
+    borderWidth: 1.5, borderColor: "#86efac",
+  },
+  noClinicSecondaryTxt: {
+    color: "#15803d", fontSize: 16, fontWeight: "700",
+  },
 });
 
 // ─── AI bubble styles ─────────────────────────────────────────────────────────
@@ -1120,31 +1680,46 @@ const ai = StyleSheet.create({
   },
   halfImage: { width: "100%", height: 130, borderRadius: 8, backgroundColor: "#f3f4f6" },
 
-  // Summary (replaces overallNote)
-  summary: {
-    fontSize: 13, color: "#4b5563", fontStyle: "italic",
-    borderTopWidth: 1, borderTopColor: "#f3f4f6", paddingTop: 8, marginTop: 2,
+  // Key message block (conversion hook)
+  keyMsgBox: {
+    backgroundColor: "#f5f3ff", borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10, marginTop: 2,
+  },
+  keyMsgText: { fontSize: 13, color: "#4338ca", lineHeight: 20, fontWeight: "600" },
+
+  // Primary CTA button
+  primaryBtn: {
+    backgroundColor: "#4f46e5", borderRadius: 12,
+    paddingVertical: 13, alignItems: "center", marginTop: 4,
+  },
+  primaryBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+
+  // Secondary CTA (text link style)
+  secondaryBtn: { alignItems: "center", paddingVertical: 8 },
+  secondaryBtnText: {
+    fontSize: 13, color: "#6366f1", fontWeight: "600",
+    textDecorationLine: "underline",
   },
 
-  // Recommendation block
-  recommendationBox: {
-    backgroundColor: "#eff6ff", borderRadius: 8,
-    paddingHorizontal: 10, paddingVertical: 8, gap: 3,
-  },
-  recommendationLabel: { fontSize: 11, fontWeight: "700", color: "#1d4ed8" },
-  recommendationText:  { fontSize: 13, color: "#1e40af", lineHeight: 19 },
-
-  // CTA line
-  cta: {
-    fontSize: 12, color: "#6366f1", fontStyle: "italic",
-    borderTopWidth: 1, borderTopColor: "#f3f4f6", paddingTop: 8, marginTop: 2,
+  // Inline disclaimer (replaces yellowed box)
+  disclaimerInline: {
+    fontSize: 10, color: "#9ca3af", fontStyle: "italic",
+    textAlign: "center", lineHeight: 15,
   },
 
-  disclaimerBox: {
-    backgroundColor: "#fef9c3", borderRadius: 8,
-    paddingHorizontal: 10, paddingVertical: 7, marginTop: 2,
+  // Smile simulation UI
+  simLoadingBox: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: "#f5f3ff", borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10, marginVertical: 4,
   },
-  disclaimerText: { fontSize: 11, color: "#854d0e", lineHeight: 16 },
+  simLoadingText: { fontSize: 13, color: "#6366f1", flex: 1 },
+  simCtaBtn: {
+    backgroundColor: "#6366f1", borderRadius: 10,
+    paddingVertical: 10, paddingHorizontal: 14,
+    alignItems: "center", marginTop: 8,
+  },
+  simCtaText: { color: "#fff", fontSize: 14, fontWeight: "600" },
 });
 
 const cl = StyleSheet.create({
@@ -1192,6 +1767,47 @@ const cl = StyleSheet.create({
   safetyNote: {
     fontSize: 10, color: "#9ca3af", fontStyle: "italic", textAlign: "center",
   },
+});
+
+// ─── Clinic Selector Modal styles ────────────────────────────────────────────
+const cm = StyleSheet.create({
+  overlay: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  sheet: {
+    position: "absolute", bottom: 0, left: 0, right: 0,
+    backgroundColor: "#fff", borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingHorizontal: 20, paddingBottom: 36, paddingTop: 12, gap: 4,
+  },
+  handle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: "#d1d5db", alignSelf: "center", marginBottom: 12,
+  },
+  title:    { fontSize: 17, fontWeight: "800", color: "#111827", marginBottom: 2 },
+  subtitle: { fontSize: 13, color: "#6b7280", marginBottom: 10 },
+
+  row: {
+    flexDirection: "row", alignItems: "center",
+    borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 11, gap: 10,
+    backgroundColor: "#fafafa", marginBottom: 8,
+  },
+  rowInfo:      { flex: 1, gap: 3 },
+  rowName:      { fontSize: 14, fontWeight: "700", color: "#111827" },
+  rowMeta:      { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  rowSpecialty: { fontSize: 11, color: "#2563eb", fontWeight: "600" },
+  rowDistance:  { fontSize: 11, color: "#15803d", fontWeight: "600" },
+
+  selectBtn: {
+    backgroundColor: "#4f46e5", borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 7,
+  },
+  selectBtnText: { fontSize: 13, fontWeight: "700", color: "#fff" },
+
+  cancelBtn: {
+    alignItems: "center", paddingVertical: 12, marginTop: 4,
+  },
+  cancelText: { fontSize: 14, color: "#9ca3af" },
 });
 
 const im = StyleSheet.create({
@@ -1246,4 +1862,47 @@ const im = StyleSheet.create({
   submitBtnText: { color: "#fff" },
 
   hint: { fontSize: 11, color: "#9ca3af", textAlign: "center", lineHeight: 17 },
+});
+
+// ─── Destination selector styles ──────────────────────────────────────────────
+
+const ds = StyleSheet.create({
+  row: {
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e7eb",
+  },
+  rowContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 10,
+  },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 13,
+    borderRadius: 28,
+    borderWidth: 2,
+    borderColor: "#d1d5db",
+    backgroundColor: "#f3f4f6",
+    minHeight: 48,
+  },
+  chipActive: {
+    backgroundColor: "#dbeafe",
+    borderColor: "#2563eb",
+  },
+  chipFlag: { fontSize: 18, lineHeight: 22 },
+  chipLabel: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111827",
+    lineHeight: 20,
+  },
+  chipLabelActive: {
+    color: "#1d4ed8",
+  },
 });
