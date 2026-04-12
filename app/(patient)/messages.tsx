@@ -7,6 +7,7 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
+import * as FileSystem from "expo-file-system";
 import * as DocumentPicker from "expo-document-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../../lib/auth";
@@ -219,25 +220,68 @@ export default function MessagesScreen() {
   };
 
   // ── Image compression ──────────────────────────────────────────────────────
+  // Single source of truth for all image flows.
+  // Options allow future callers (e.g. intraoral vs AI) to tune per-context.
 
   const compressImage = async (
     uri: string,
-    mimeType: string
+    mimeType: string,
+    opts: {
+      maxWidth?: number;   // default 1024 — future: front-camera may use 800
+      quality?: number;    // default 0.75
+    } = {}
   ): Promise<{ uri: string; mimeType: string }> => {
     const isCompressible = mimeType === "image/jpeg" || mimeType === "image/jpg" || mimeType === "image/png";
     if (!isCompressible) return { uri, mimeType };
 
+    const { maxWidth = 1024, quality = 0.75 } = opts;
+    const _t0 = Date.now();
+
     try {
       const result = await ImageManipulator.manipulateAsync(
         uri,
-        [{ resize: { width: 1024 } }],   // 1024px — reduces base64 payload ~36% vs 1280px
-        {
-          compress: 0.75,                 // 0.75 quality (within 0.7–0.8 target range)
-          format: ImageManipulator.SaveFormat.JPEG,
-        }
+        [{ resize: { width: maxWidth } }],
+        { compress: quality, format: ImageManipulator.SaveFormat.JPEG }
       );
+
+      const durationMs = Date.now() - _t0;
+
+      // ── Size check — read file size via FileSystem ──────────────────
+      let sizeKB = 0;
+      try {
+        const info = await FileSystem.getInfoAsync(result.uri, { size: true });
+        sizeKB = info.exists && "size" in info ? Math.round((info as any).size / 1024) : 0;
+      } catch { /* non-fatal */ }
+
+      console.log(`[compress] ${durationMs}ms | ${sizeKB}KB | ${maxWidth}px | q${quality}`);
+
+      // ── Safety re-compress if still > 1 MB ─────────────────────────
+      const ONE_MB_KB = 1024;
+      if (sizeKB > ONE_MB_KB) {
+        console.log(`[compress] ${sizeKB}KB > 1MB — re-compressing at q0.6`);
+        try {
+          const reResult = await ImageManipulator.manipulateAsync(
+            result.uri,
+            [],                           // already resized — no second resize needed
+            { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
+          );
+          let reSizeKB = 0;
+          try {
+            const reInfo = await FileSystem.getInfoAsync(reResult.uri, { size: true });
+            reSizeKB = reInfo.exists && "size" in reInfo ? Math.round((reInfo as any).size / 1024) : 0;
+          } catch { /* non-fatal */ }
+          console.log(`[compress] re-compress → ${reSizeKB}KB | q0.6`);
+          return { uri: reResult.uri, mimeType: "image/jpeg" };
+        } catch {
+          // Re-compress failed — continue with first pass result
+          console.warn("[compress] re-compress failed, using first-pass result");
+        }
+      }
+
       return { uri: result.uri, mimeType: "image/jpeg" };
-    } catch {
+    } catch (err) {
+      // Compression failed entirely — fall back to original, never block the user
+      console.warn("[compress] failed, using original:", (err as Error)?.message);
       return { uri, mimeType };
     }
   };
