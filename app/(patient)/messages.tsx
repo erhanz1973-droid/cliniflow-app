@@ -608,9 +608,10 @@ export default function MessagesScreen() {
         // ── Fire smile simulation in background (non-blocking) ──────────
         // Starts 1.5 s after AI result so the bubble appears first.
         // Results flow through the _simCache bridge to AiResultBubble.
-        if (aiData.ok && fileUrl && !_simCache.has(fileUrl) && !_simPending.has(fileUrl) && !_simFailed.has(fileUrl)) {
-          _simPending.add(fileUrl);
-          _notifySimSubs(fileUrl); // lets bubble show loading state immediately
+        const simCacheKey = fileUrl.split("?")[0];
+        if (aiData.ok && fileUrl && !_simCache.has(simCacheKey) && !_simPending.has(simCacheKey) && !_simFailed.has(simCacheKey)) {
+          _simPending.add(simCacheKey);
+          _notifySimSubs(simCacheKey); // lets bubble show loading state immediately
 
           setTimeout(async () => {
             let succeeded = false;
@@ -633,12 +634,12 @@ export default function MessagesScreen() {
                 const simUrl: string = simData.simulatedImageUrl;
                 const simVars: SimVariation[] = Array.isArray(simData.variations) ? simData.variations : [];
 
-                // Store in bridge cache (for late-mounted bubbles)
-                _simCache.set(fileUrl, simUrl);
-                if (simVars.length > 0) _simVariations.set(fileUrl, simVars);
+                // Strip query string so the cache key survives URL re-signing
+                const cacheKey = fileUrl.split("?")[0];
+                _simCache.set(cacheKey, simUrl);
+                if (simVars.length > 0) _simVariations.set(cacheKey, simVars);
 
-                // Also notify ALL subscribers — log cache key so we can spot mismatches
-                console.log("[SIM] Cache key (fileUrl):", fileUrl.slice(0, 80));
+                console.log("[SIM] Cache key:", cacheKey.slice(0, 80));
                 console.log("FINAL SIM IMAGE:", simUrl);
 
                 succeeded = true;
@@ -656,9 +657,10 @@ export default function MessagesScreen() {
             } catch (e) {
               console.warn("[SIM] Network error:", (e as Error)?.message);
             } finally {
-              _simPending.delete(fileUrl);
-              if (!succeeded) _simFailed.add(fileUrl); // allow manual retry but skip auto-retry
-              _notifySimSubs(fileUrl);
+              const cacheKey = fileUrl.split("?")[0];
+              _simPending.delete(cacheKey);
+              if (!succeeded) _simFailed.add(cacheKey);
+              _notifySimSubs(cacheKey);
             }
           }, 1500);
         }
@@ -1271,30 +1273,32 @@ function AiResultBubble({ msg }: { msg: Message }) {
   const { token, user } = useAuth();
   const router = useRouter();
 
-  const imgUrl = result?.originalImageUrl ?? "";
+  const imgUrl  = result?.originalImageUrl ?? "";
+  const cacheKey = imgUrl.split("?")[0];   // stable key — survives URL re-signing
 
   // ── Simulation state — initialised from bridge cache or stored result ─
   const [simUrl, setSimUrl]             = useState<string | null>(
-    _simCache.get(imgUrl) ?? result?.simulatedImageUrl ?? null
+    _simCache.get(cacheKey) ?? result?.simulatedImageUrl ?? null
   );
   const [simVariations, setSimVariations] = useState<SimVariation[]>(
-    _simVariations.get(imgUrl) ?? []
+    _simVariations.get(cacheKey) ?? []
   );
   const [activeVariation, setActiveVariation] = useState<string>('balanced');
   const [simLoading, setSimLoading]     = useState(
-    !_simCache.has(imgUrl) && _simPending.has(imgUrl)
+    !_simCache.has(cacheKey) && _simPending.has(cacheKey)
   );
   const [simTriggered, setSimTriggered] = useState(
-    _simCache.has(imgUrl) || !!result?.simulatedImageUrl || _simPending.has(imgUrl)
+    _simCache.has(cacheKey) || !!result?.simulatedImageUrl || _simPending.has(cacheKey)
   );
 
   // ── Subscribe to auto-simulation updates from processPhotoWithAI ─────
   useEffect(() => {
     if (!imgUrl) return;
-    console.log("[SIM] Bubble subscribed | imgUrl:", imgUrl.slice(0, 80));
-    return subscribeSimUrl(imgUrl, () => {
-      const url      = _simCache.get(imgUrl) ?? null;
-      const vars     = _simVariations.get(imgUrl) ?? [];
+    const cacheKey = imgUrl.split("?")[0];
+    console.log("[SIM] Bubble subscribed | cacheKey:", cacheKey.slice(0, 80));
+    return subscribeSimUrl(cacheKey, () => {
+      const url      = _simCache.get(cacheKey) ?? null;
+      const vars     = _simVariations.get(cacheKey) ?? [];
       const pending  = _simPending.has(imgUrl);
       const failed   = _simFailed.has(imgUrl);
       console.log("[SIM] Subscriber fired | url:", url ? url.slice(0, 60) : null, "| vars:", vars.length);
@@ -1339,9 +1343,10 @@ function AiResultBubble({ msg }: { msg: Message }) {
       });
       const data: Record<string, any> = await res.json().catch(() => ({}));
       if (data.ok && data.simulatedImageUrl) {
-        _simCache.set(imgUrl, data.simulatedImageUrl);
+        const cacheKey = imgUrl.split("?")[0];
+        _simCache.set(cacheKey, data.simulatedImageUrl);
         if (Array.isArray(data.variations) && data.variations.length > 0) {
-          _simVariations.set(imgUrl, data.variations as SimVariation[]);
+          _simVariations.set(cacheKey, data.variations as SimVariation[]);
           setSimVariations(data.variations as SimVariation[]);
         }
         setSimUrl(data.simulatedImageUrl);
