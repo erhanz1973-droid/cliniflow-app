@@ -224,22 +224,20 @@ export default function MessagesScreen() {
     uri: string,
     mimeType: string
   ): Promise<{ uri: string; mimeType: string }> => {
-    // Skip compression for non-JPEG/PNG formats
     const isCompressible = mimeType === "image/jpeg" || mimeType === "image/jpg" || mimeType === "image/png";
     if (!isCompressible) return { uri, mimeType };
 
     try {
       const result = await ImageManipulator.manipulateAsync(
         uri,
-        [{ resize: { width: 1280 } }],   // max 1280px wide — enough for AI analysis
+        [{ resize: { width: 1024 } }],   // 1024px — reduces base64 payload ~36% vs 1280px
         {
-          compress: 0.75,
+          compress: 0.75,                 // 0.75 quality (within 0.7–0.8 target range)
           format: ImageManipulator.SaveFormat.JPEG,
         }
       );
       return { uri: result.uri, mimeType: "image/jpeg" };
     } catch {
-      // Compression failed — send original
       return { uri, mimeType };
     }
   };
@@ -272,24 +270,30 @@ export default function MessagesScreen() {
     setLocalMessages(prev => [...prev, loadingMsg]);
     setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 150);
 
-    // Step 3 – call AI endpoint
+    // Step 3 – call AI endpoint (20 s client-side timeout)
+    const aiController = new AbortController();
+    const aiTimeout = setTimeout(() => aiController.abort(), 20_000);
     try {
       const aiRes = await fetch(`${API_BASE}/api/chat/ai-analyze`, {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({ patientId, imageUrl: fileUrl }),
+        signal: aiController.signal,
       });
-      // Whether success or failure – the backend either saved an ai_result message
-      // or we just fall back to the original image message already in chat
+      clearTimeout(aiTimeout);
       if (!aiRes.ok) {
-        const err = await aiRes.json().catch(() => ({}));
-        if (err.error === "ai_not_configured") {
-          // AI keys not set – silently fall through (image is still uploaded)
+        const errBody = await aiRes.json().catch(() => ({}));
+        if (errBody.error === "image_too_large") {
+          Alert.alert(
+            t("messages.uploadError") || "Hata",
+            errBody.message || "Görsel çok büyük, lütfen tekrar çekin."
+          );
         }
-        // Other errors: silently fall through
+        // ai_not_configured / ai_timeout / other → original image is already in chat
       }
     } catch {
-      // Network / timeout – silently fall through
+      clearTimeout(aiTimeout);
+      // Network error or client-side abort — original image is already in chat
     } finally {
       // Step 4 – remove loading bubble & refresh
       setLocalMessages(prev => prev.filter(m => m.id !== loadingId));
