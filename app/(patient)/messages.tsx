@@ -96,6 +96,27 @@ function triggerClinicContact(msg: string) {
   _contactHandlers.forEach(fn => fn(msg));
 }
 
+// ─── Smile-simulation bridge ─────────────────────────────────────────────────
+// Keyed by originalImageUrl (stable, unique per AI analysis).
+// processPhotoWithAI fires the simulation; AiResultBubble listens for results.
+// Cache survives re-renders; subscribers are registered per mounted bubble.
+
+const _simCache   = new Map<string, string>();      // imageUrl → simulatedUrl
+const _simPending = new Set<string>();              // currently in-flight
+const _simSubs    = new Map<string, Array<() => void>>();
+
+function subscribeSimUrl(imageUrl: string, cb: () => void): () => void {
+  const arr = _simSubs.get(imageUrl) ?? [];
+  _simSubs.set(imageUrl, [...arr, cb]);
+  return () => {
+    _simSubs.set(imageUrl, (_simSubs.get(imageUrl) ?? []).filter(fn => fn !== cb));
+  };
+}
+
+function _notifySimSubs(imageUrl: string) {
+  _simSubs.get(imageUrl)?.forEach(fn => fn());
+}
+
 // ─── Location helper ─────────────────────────────────────────────────────────
 
 type UserLocation = { latitude: number; longitude: number } | null;
@@ -579,6 +600,40 @@ export default function MessagesScreen() {
         // ai_timeout / other → original image still visible in chat
       } else {
         console.log("[AI] Analysis complete for:", photoType, "| ok:", aiData.ok, "| insights:", aiData.insights?.length ?? 0);
+
+        // ── Fire smile simulation in background (non-blocking) ──────────
+        // Starts 1.5 s after AI result so the bubble appears first.
+        // Results flow through the _simCache bridge to AiResultBubble.
+        if (aiData.ok && fileUrl && !_simCache.has(fileUrl) && !_simPending.has(fileUrl)) {
+          _simPending.add(fileUrl);
+          _notifySimSubs(fileUrl); // lets bubble show loading state immediately
+
+          setTimeout(async () => {
+            try {
+              const simRes = await fetch(`${API_BASE}/api/chat/smile-simulation`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  patientId,
+                  imageUrl: fileUrl,
+                  insights: (aiData.insights as string[] | undefined)?.slice(0, 2) ?? [],
+                }),
+              });
+              const simData: Record<string, any> = await simRes.json().catch(() => ({}));
+              if (simData.ok && simData.simulatedImageUrl) {
+                _simCache.set(fileUrl, simData.simulatedImageUrl);
+                console.log("[SIM] Done:", simData.simulationProvider ?? "unknown");
+              } else {
+                console.warn("[SIM] No result:", simData.error ?? "unknown");
+              }
+            } catch (e) {
+              console.warn("[SIM] Failed:", (e as Error)?.message);
+            } finally {
+              _simPending.delete(fileUrl);
+              _notifySimSubs(fileUrl); // bubble updates regardless of success/fail
+            }
+          }, 1500);
+        }
       }
     } catch (e) {
       clearTimeout(aiTimeout);
@@ -1188,21 +1243,47 @@ function AiResultBubble({ msg }: { msg: Message }) {
   const { token, user } = useAuth();
   const router = useRouter();
 
-  // ── Simulation state (lazy — not auto-run) ───────────────────────────
-  const [simUrl, setSimUrl]             = useState<string | null>(result?.simulatedImageUrl ?? null);
-  const [simLoading, setSimLoading]     = useState(false);
-  const [simTriggered, setSimTriggered] = useState(!!result?.simulatedImageUrl);
+  const imgUrl = result?.originalImageUrl ?? "";
+
+  // ── Simulation state — initialised from bridge cache or stored result ─
+  const [simUrl, setSimUrl]             = useState<string | null>(
+    _simCache.get(imgUrl) ?? result?.simulatedImageUrl ?? null
+  );
+  const [simLoading, setSimLoading]     = useState(
+    !_simCache.has(imgUrl) && _simPending.has(imgUrl)
+  );
+  const [simTriggered, setSimTriggered] = useState(
+    _simCache.has(imgUrl) || !!result?.simulatedImageUrl || _simPending.has(imgUrl)
+  );
+
+  // ── Subscribe to auto-simulation updates from processPhotoWithAI ─────
+  useEffect(() => {
+    if (!imgUrl) return;
+    return subscribeSimUrl(imgUrl, () => {
+      const url     = _simCache.get(imgUrl) ?? null;
+      const pending = _simPending.has(imgUrl);
+      if (url) {
+        setSimUrl(url);
+        setSimLoading(false);
+        setSimTriggered(true);
+      } else if (pending) {
+        setSimLoading(true);
+        setSimTriggered(true);
+      } else {
+        setSimLoading(false);
+      }
+    });
+  }, [imgUrl]);
 
   // ── Clinic picker ────────────────────────────────────────────────────
   const [showClinicModal, setShowClinicModal] = useState(false);
 
-  // ── Engagement tracking: auto-trigger simulation after 2 s ──────────
-  const engageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
+  // ── Manual simulation trigger (fallback for older messages) ─────────
   const triggerSimulation = useCallback(async () => {
-    if (simTriggered || simLoading || !result?.originalImageUrl) return;
+    if (simTriggered || simLoading || !imgUrl) return;
     setSimTriggered(true);
     setSimLoading(true);
+    _simPending.add(imgUrl);
     try {
       const res = await fetch(`${API_BASE}/api/chat/smile-simulation`, {
         method: "POST",
@@ -1212,21 +1293,21 @@ function AiResultBubble({ msg }: { msg: Message }) {
         },
         body: JSON.stringify({
           patientId: user?.id,
-          imageUrl: result.originalImageUrl,
-          insights: result.insights?.slice(0, 2) ?? [],
+          imageUrl: imgUrl,
+          insights: result?.insights?.slice(0, 2) ?? [],
         }),
       });
       const data: Record<string, any> = await res.json().catch(() => ({}));
-      if (data.simulatedImageUrl) setSimUrl(data.simulatedImageUrl);
-    } catch { /* non-fatal — slider stays hidden */ }
-    finally { setSimLoading(false); }
-  }, [simTriggered, simLoading, result, token, user]);
-
-  useEffect(() => {
-    if (simTriggered) return;
-    engageTimerRef.current = setTimeout(() => triggerSimulation(), 2000);
-    return () => { if (engageTimerRef.current) clearTimeout(engageTimerRef.current); };
-  }, [triggerSimulation, simTriggered]);
+      if (data.simulatedImageUrl) {
+        _simCache.set(imgUrl, data.simulatedImageUrl);
+        setSimUrl(data.simulatedImageUrl);
+      }
+    } catch { /* non-fatal */ }
+    finally {
+      _simPending.delete(imgUrl);
+      setSimLoading(false);
+    }
+  }, [simTriggered, simLoading, imgUrl, result, token, user]);
 
   if (!result) return null;
 
