@@ -240,9 +240,20 @@ export default function MessagesScreen() {
     "Content-Type": "application/json",
   }), [token]);
 
-  // ── All messages merged (backend + local loading) ──────────────────────────
-
-  const allMessages = [...messages, ...localMessages].sort(
+  // ── All messages merged (backend + local) ────────────────────────────────
+  // Local ai_result messages are suppressed once the server version arrives
+  // (matched by originalImageUrl base path) to avoid duplicates.
+  const _serverAiKeys = new Set(
+    messages
+      .filter(m => m.attachment?.aiResult?.originalImageUrl)
+      .map(m => m.attachment!.aiResult!.originalImageUrl!.split("?")[0])
+  );
+  const _filteredLocal = localMessages.filter(m => {
+    if (!m._local || m.type !== "ai_result") return true;
+    const k = (m.attachment?.aiResult?.originalImageUrl ?? "").split("?")[0];
+    return !k || !_serverAiKeys.has(k); // hide local when server version exists
+  });
+  const allMessages = [...messages, ..._filteredLocal].sort(
     (a, b) => a.createdAt - b.createdAt
   );
 
@@ -641,6 +652,36 @@ export default function MessagesScreen() {
       } else {
         console.log("[AI] Analysis complete for:", photoType, "| ok:", aiData.ok, "| insights:", aiData.insights?.length ?? 0);
 
+        // ── Add AI result as a LOCAL message immediately ────────────────
+        // The backend also inserts this into the DB, but insertMessageToSupabase
+        // can fail silently when the patient has no clinic_id. Using a local
+        // message guarantees the AiResultBubble mounts right away, which is
+        // required for the simulation delivery paths (global callbacks / setMessages)
+        // to find the correct bubble.  The de-duplication in allMessages suppresses
+        // the local copy once fetchMessages brings the server version.
+        const localAiMsgId = `ai_result_local_${Date.now()}`;
+        const localAiMsg: Message = {
+          id:        localAiMsgId,
+          from:      "CLINIC",
+          type:      "ai_result",
+          text:      "",
+          createdAt: Date.now() + 500,
+          _local:    true,
+          attachment: {
+            aiResult: {
+              insights:       aiData.insights       ?? [],
+              confidence:     aiData.confidence     ?? "medium",
+              summary:        aiData.summary        ?? "",
+              recommendation: aiData.recommendation ?? "",
+              disclaimer:     aiData.disclaimer     ?? "",
+              originalImageUrl: fileUrl,            // ← must match simCacheKey
+              clinics:        aiData.clinics        ?? [],
+            },
+          },
+        };
+        setLocalMessages(prev => [...prev, localAiMsg]);
+        setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+
         // ── Fire smile simulation in background (async job pattern) ────
         // 1. POST /api/chat/smile-simulation → returns jobId immediately.
         // 2. Poll GET /api/chat/sim-status/:jobId every 3 s until done.
@@ -678,19 +719,14 @@ export default function MessagesScreen() {
                 _simCache.set(cacheKey, simUrl);
                 if (simVars.length > 0) _simVariations.set(cacheKey, simVars);
 
-                // ── Direct state injection (most reliable path) ──────────────
-                // Finds the AI result message whose originalImageUrl matches the
-                // uploaded file and stamps simulatedImageUrl onto it.  AiResultBubble
-                // watches this field in a useEffect, so the slider appears instantly.
-                setMessages(prev => {
+                /** Stamp simulatedImageUrl on the aiResult attachment in a state array. */
+                const stampSimUrl = (arr: Message[]): { next: Message[]; matched: boolean } => {
                   let matched = false;
-                  const next = prev.map(m => {
+                  const next = arr.map(m => {
                     if (matched || !m.attachment?.aiResult) return m;
                     const mk = (m.attachment.aiResult.originalImageUrl ?? "").split("?")[0];
-                    const keyMatch = mk === cacheKey || (!mk && !matched);
-                    if (keyMatch) {
+                    if (mk === cacheKey || (!mk && !matched)) {
                       matched = true;
-                      console.log("[SIM] setMessages matched msg | mk:", mk.slice(0, 60) || "(empty)");
                       return {
                         ...m,
                         attachment: {
@@ -701,8 +737,22 @@ export default function MessagesScreen() {
                     }
                     return m;
                   });
-                  if (!matched) console.warn("[SIM] setMessages: NO aiResult message matched cacheKey:", cacheKey.slice(0, 60));
-                  return next;
+                  return { next, matched };
+                };
+
+                // ── Path A: stamp onto server messages (if message is in DB) ──
+                setMessages(prev => {
+                  const { next, matched } = stampSimUrl(prev);
+                  if (matched) console.log("[SIM] setMessages: matched server message ✓");
+                  else console.warn("[SIM] setMessages: no server aiResult matched — relying on local message");
+                  return matched ? next : prev;
+                });
+
+                // ── Path B: stamp onto local messages (guaranteed to exist) ──
+                setLocalMessages(prev => {
+                  const { next, matched } = stampSimUrl(prev);
+                  if (matched) console.log("[SIM] setLocalMessages: matched local message ✓");
+                  return matched ? next : prev;
                 });
 
                 _notifyAllSimSubs();
