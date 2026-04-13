@@ -673,7 +673,8 @@ export default function MessagesScreen() {
                *  3. _notifyAllSimSubs → belt-and-suspenders global callback
                */
               const commitSimResult = (simUrl: string, simVars: SimVariation[]) => {
-                console.log("FINAL SIM IMAGE:", simUrl);
+                console.log("FINAL SIM IMAGE:", simUrl.slice(0, 80));
+                console.log("[SIM] commitSimResult | cacheKey:", cacheKey.slice(0, 80), "| _latestSimKey:", _latestSimKey.slice(0, 80));
                 _simCache.set(cacheKey, simUrl);
                 if (simVars.length > 0) _simVariations.set(cacheKey, simVars);
 
@@ -686,8 +687,10 @@ export default function MessagesScreen() {
                   const next = prev.map(m => {
                     if (matched || !m.attachment?.aiResult) return m;
                     const mk = (m.attachment.aiResult.originalImageUrl ?? "").split("?")[0];
-                    if (mk === cacheKey || (!mk && !matched)) {
+                    const keyMatch = mk === cacheKey || (!mk && !matched);
+                    if (keyMatch) {
                       matched = true;
+                      console.log("[SIM] setMessages matched msg | mk:", mk.slice(0, 60) || "(empty)");
                       return {
                         ...m,
                         attachment: {
@@ -698,6 +701,7 @@ export default function MessagesScreen() {
                     }
                     return m;
                   });
+                  if (!matched) console.warn("[SIM] setMessages: NO aiResult message matched cacheKey:", cacheKey.slice(0, 60));
                   return next;
                 });
 
@@ -1377,10 +1381,12 @@ function AiResultBubble({ msg }: { msg: Message }) {
   );
 
   // ── Primary path: react to direct state injection from processPhotoWithAI ─
-  // Only applies to the bubble whose key matches the latest simulation.
+  // commitSimResult stamps simulatedImageUrl onto the message object in React
+  // state.  This effect picks it up regardless of _latestSimKey so the result
+  // is never blocked by a stale key comparison.
   useEffect(() => {
     const injected = result?.simulatedImageUrl;
-    if (injected && injected !== simUrl && cacheKey === _latestSimKey) {
+    if (injected && injected !== simUrl) {
       console.log("[SIM] Injected via message state:", injected.slice(0, 60));
       setSimUrl(injected);
       setSimLoading(false);
@@ -1391,7 +1397,8 @@ function AiResultBubble({ msg }: { msg: Message }) {
   // ── Fallback: global callback + poll + keyed subscription ─────────────────
   useEffect(() => {
     const key = imgUrl.split("?")[0];
-    console.log("[SIM] Bubble mounted | key:", key.slice(0, 80) || "(empty)");
+    const isLatestKey = !key || key === _latestSimKey;
+    console.log("[SIM] Bubble mounted | key:", key.slice(0, 80) || "(empty)", "| isLatest:", isLatestKey);
 
     function applySimUrl(url: string, vars: SimVariation[]) {
       console.log("[SIM] Applying URL:", url.slice(0, 80));
@@ -1402,32 +1409,35 @@ function AiResultBubble({ msg }: { msg: Message }) {
     }
 
     /**
-     * Check the cache for a completed simulation for THIS bubble only.
-     * Only exact key match — no full-scan so old messages never inherit
-     * a result from a newer photo's simulation.
+     * Check _simCache for a result keyed to THIS bubble.
+     * Deliberately does NOT check _latestSimKey — any completed result for
+     * this exact key should be shown (the _latestSimKey guard is only for
+     * deciding whether to show a spinner, not for delivering results).
      */
     function checkCache(): boolean {
-      if (!key || key !== _latestSimKey) return false; // not the latest photo
-      const exact = _simCache.get(key);
-      if (exact) {
-        applySimUrl(exact, _simVariations.get(key) ?? []);
+      if (!key) return false;
+      const cached = _simCache.get(key);
+      if (cached) {
+        applySimUrl(cached, _simVariations.get(key) ?? []);
         return true;
       }
       return false;
     }
 
-    // Skip everything for old messages — they don't participate in simulation.
-    if (key && key !== _latestSimKey) return;
-
-    // Check immediately on mount — covers already-completed simulations.
+    // Deliver any already-completed result for this exact key.
     if (checkCache()) return;
+
+    // ── For old messages: no spinner, no new-sim listeners ────────────────
+    // They get their result via checkCache() above (already-done sims) or
+    // via the primary useEffect above (setMessages injection).
+    if (key && key !== _latestSimKey) return;
 
     // Show spinner only if this is the active simulation key.
     if (_simPending.has(key)) { setSimLoading(true); setSimTriggered(true); }
 
     // ── Global callback: fired by _notifyAllSimSubs() when any sim finishes ──
     const onGlobalSim = () => {
-      checkCache();
+      if (checkCache()) return;
       if (_simPending.size === 0 && !_simCache.has(key)) {
         setSimLoading(false);
       }
@@ -1445,7 +1455,7 @@ function AiResultBubble({ msg }: { msg: Message }) {
     // ── Poll every 2 s as a last-resort fallback ───────────────────────────
     const poll = setInterval(() => {
       if (checkCache()) { clearInterval(poll); return; }
-      if (_simPending.size > 0) { setSimLoading(true); setSimTriggered(true); }
+      if (_simPending.size > 0 && isLatestKey) { setSimLoading(true); setSimTriggered(true); }
     }, 2000);
 
     return () => {
