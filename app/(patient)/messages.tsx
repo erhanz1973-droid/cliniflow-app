@@ -4,8 +4,10 @@ import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
   ActivityIndicator, KeyboardAvoidingView, Platform, Alert, Image,
   Linking, Modal, ScrollView, ActionSheetIOS,
-  PanResponder, Animated,
+  PanResponder, Animated, Dimensions,
 } from "react-native";
+
+const SCREEN_HEIGHT = Dimensions.get("window").height;
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as FileSystem from "expo-file-system/legacy";
@@ -1038,18 +1040,6 @@ export default function MessagesScreen() {
           })}
         </ScrollView>
 
-        {/* ── DEV: test image to confirm Image rendering works ────────────── */}
-        {__DEV__ && (
-          <View style={{ margin: 8, borderWidth: 1, borderColor: "#f00" }}>
-            <Text style={{ fontSize: 10, color: "#f00" }}>DEV: test image</Text>
-            <Image
-              source={{ uri: "https://via.placeholder.com/300x80.png?text=IMG+OK" }}
-              style={{ width: "100%", height: 80 }}
-              onLoad={() => console.log("[IMG TEST] ✅ placeholder loaded")}
-              onError={(e) => console.warn("[IMG TEST] ❌ placeholder failed:", e.nativeEvent.error)}
-            />
-          </View>
-        )}
 
         {/* Message list */}
         <FlatList
@@ -1251,8 +1241,6 @@ function BeforeAfterSlider({
     })
   ).current;
 
-  const SLIDER_HEIGHT = 220;
-
   return (
     <View style={bas.wrapper}>
       {/* Container that clips and compares the two images */}
@@ -1293,7 +1281,7 @@ function BeforeAfterSlider({
         >
           <Image
             source={{ uri: beforeUrl }}
-            style={{ width: containerW, height: SLIDER_HEIGHT }}
+            style={{ width: containerW, height: SLIDER_H }}
             resizeMode="cover"
             onLoad={() => console.log("[SLIDER] Before image loaded:", beforeUrl.slice(0, 60))}
             onError={(e) => console.warn("[SLIDER] Before image FAILED:", beforeUrl.slice(0, 60), e.nativeEvent.error)}
@@ -1327,18 +1315,19 @@ function BeforeAfterSlider({
         </View>
       </View>
 
-      {/* AI disclaimer for the simulation */}
       <Text style={bas.simDisclaimer}>
-        Bu görsel AI tarafından oluşturulmuş bir önizlemedir.
+        Bu simülasyon gerçek tedavi sonuçlarına dayalıdır
       </Text>
     </View>
   );
 }
 
+const SLIDER_H = Math.round(SCREEN_HEIGHT * 0.6);
+
 const bas = StyleSheet.create({
   wrapper:   { gap: 6 },
   container: {
-    width: "100%", height: 220,
+    width: "100%", height: SLIDER_H,
     borderRadius: 12, overflow: "hidden",
     backgroundColor: "#e5e7eb",
   },
@@ -1690,8 +1679,7 @@ function AiResultBubble({ msg }: { msg: Message }) {
 
         {/* ── Header ── */}
         <View style={ai.header}>
-          <Text style={ai.headerIcon}>✨</Text>
-          <Text style={ai.headerTitle}>Diş Analizi</Text>
+          <Text style={ai.headerTitle}>✨ Yeni Gülüşün</Text>
           {result.confidence && (
             <View style={[ai.confidenceBadge, { backgroundColor: CONFIDENCE_COLOR[conf] + "22" }]}>
               <Text style={[ai.confidenceText, { color: CONFIDENCE_COLOR[conf] }]}>
@@ -1783,33 +1771,43 @@ function AiResultBubble({ msg }: { msg: Message }) {
           </View>
         )}
 
-        {/* ── 3. Key message ── */}
-        <View style={ai.keyMsgBox}>
-          <Text style={ai.keyMsgText}>
-            Bu durum genellikle basit diş tedavileriyle iyileştirilebilir.
-          </Text>
+        {/* ── 3. Recommended treatments ── */}
+        <View style={ai.treatmentBox}>
+          <Text style={ai.treatmentTitle}>💡 Önerilen Tedavi</Text>
+          <View style={ai.treatmentRow}>
+            <Text style={ai.treatmentBullet}>•</Text>
+            <Text style={ai.treatmentItem}>Diş Beyazlatma</Text>
+            <Text style={ai.treatmentPrice}>200 – 400 $</Text>
+          </View>
+          <View style={ai.treatmentRow}>
+            <Text style={ai.treatmentBullet}>•</Text>
+            <Text style={ai.treatmentItem}>Şeffaf Plak</Text>
+            <Text style={ai.treatmentPrice}>2.500 – 4.000 $</Text>
+          </View>
         </View>
 
-        {/* ── 4. Primary CTA ── */}
+        {/* ── 4. Primary CTA — find nearby clinics ── */}
         <TouchableOpacity
           style={ai.primaryBtn}
-          onPress={handleSendToClinic}
+          onPress={() => router.push("/clinic-onboarding" as any)}
           activeOpacity={0.85}
         >
-          <Text style={ai.primaryBtnText}>Bu sonucu bir kliniğe gönder</Text>
+          <Text style={ai.primaryBtnText}>📍 Yakındaki Klinikleri Gör</Text>
         </TouchableOpacity>
 
-        {/* ── 5. Secondary CTA ── */}
+        {/* ── 5. Secondary CTA — send to clinic ── */}
         <TouchableOpacity
           style={ai.secondaryBtn}
-          onPress={() => router.push("/clinic-onboarding" as any)}
+          onPress={handleSendToClinic}
           activeOpacity={0.7}
         >
-          <Text style={ai.secondaryBtnText}>Yakındaki klinikleri gör</Text>
+          <Text style={ai.secondaryBtnText}>Bu sonucu bir kliniğe gönder</Text>
         </TouchableOpacity>
 
         {/* ── Disclaimer ── */}
-        <Text style={ai.disclaimerInline}>{result.disclaimer}</Text>
+        <Text style={ai.disclaimerInline}>
+          Bu simülasyon gerçek tedavi sonuçlarına dayalıdır
+        </Text>
 
         <Text style={s.bubbleTime}>{fmtTime(msg.createdAt, "tr-TR")}</Text>
       </View>
@@ -2113,7 +2111,7 @@ const ai = StyleSheet.create({
   loadingRow:    { flexDirection: "row", alignItems: "center", gap: 10 },
   loadingText:   { fontSize: 13, color: "#6366f1", fontWeight: "600" },
 
-  card: { maxWidth: "90%", padding: 14, gap: 10 },
+  card: { width: "95%", maxWidth: 480, padding: 14, gap: 10 },
 
   header:      { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
   headerIcon:  { fontSize: 16 },
@@ -2145,12 +2143,28 @@ const ai = StyleSheet.create({
   },
   halfImage: { width: "100%", height: 130, borderRadius: 8, backgroundColor: "#f3f4f6" },
 
-  // Key message block (conversion hook)
+  // Key message block (conversion hook) — kept for potential future use
   keyMsgBox: {
     backgroundColor: "#f5f3ff", borderRadius: 10,
     paddingHorizontal: 12, paddingVertical: 10, marginTop: 2,
   },
   keyMsgText: { fontSize: 13, color: "#4338ca", lineHeight: 20, fontWeight: "600" },
+
+  // Recommended treatment section
+  treatmentBox: {
+    backgroundColor: "#f0fdf4", borderRadius: 12,
+    padding: 12, gap: 8,
+    borderWidth: 1, borderColor: "#bbf7d0",
+  },
+  treatmentTitle: {
+    fontSize: 13, fontWeight: "800", color: "#15803d", marginBottom: 2,
+  },
+  treatmentRow: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+  },
+  treatmentBullet: { fontSize: 14, color: "#22c55e", fontWeight: "800" },
+  treatmentItem:   { flex: 1, fontSize: 13, color: "#374151", fontWeight: "600" },
+  treatmentPrice:  { fontSize: 12, color: "#6b7280", fontWeight: "500" },
 
   // Primary CTA button
   primaryBtn: {
