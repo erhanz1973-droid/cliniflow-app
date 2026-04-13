@@ -804,7 +804,11 @@ export default function MessagesScreen() {
                     break;
                   }
                   if (statusData.status === "failed") {
-                    console.warn("[SIM] Prediction failed:", statusData.error);
+                    if (statusData.rateLimited || statusData.billingRequired) {
+                      console.warn("[SIM] Rate-limited (429) — Replicate account needs more credit (needs ≥$5)");
+                    } else {
+                      console.warn("[SIM] Prediction failed:", statusData.error);
+                    }
                     break;
                   }
                 } catch (pollErr) {
@@ -1467,6 +1471,8 @@ function AiResultBubble({ msg }: { msg: Message }) {
   const [simTriggered, setSimTriggered] = useState(
     isLatest && (!!_cached || !!result?.simulatedImageUrl || _simPending.has(msgKey) || _simPending.has(urlKey))
   );
+  // Set to true when backend returns 429 — shows "try again" hint instead of generic error
+  const rateLimitedRef = useRef(false);
 
   // ── Primary path: react to direct state injection from processPhotoWithAI ─
   // commitSimResult stamps simulatedImageUrl onto the message object in React
@@ -1608,16 +1614,26 @@ function AiResultBubble({ msg }: { msg: Message }) {
               break;
             }
             if (statusData.status === "failed") {
-              console.warn("[SIM manual] Prediction failed:", statusData.error);
+              if (statusData.rateLimited || statusData.billingRequired) {
+                console.warn("[SIM manual] Rate-limited (429) — add Replicate credit to proceed");
+                rateLimitedRef.current = true;
+              } else {
+                console.warn("[SIM manual] Prediction failed:", statusData.error);
+              }
               break;
             }
           } catch (pe) {
             console.warn("[SIM manual poll]", (pe as Error)?.message);
           }
         }
-        if (!succeeded) console.warn("[SIM manual] Timed out");
+        if (!succeeded) console.warn("[SIM manual] Timed out or failed after polling");
       } else {
-        console.warn("[SIM manual] Start failed:", startData.error);
+        if (startData.rateLimited || startData.billingRequired) {
+          rateLimitedRef.current = true;
+          console.warn("[SIM manual] Rate-limited on job start");
+        } else {
+          console.warn("[SIM manual] Start failed:", startData.error);
+        }
       }
     } catch (e) {
       console.warn("[SIM manual] Start error:", (e as Error)?.message);
@@ -1729,7 +1745,21 @@ function AiResultBubble({ msg }: { msg: Message }) {
                 onError={(e) => console.warn("[IMG] AI original FAILED:", resolveUrl(result.originalImageUrl!).slice(0, 60), e.nativeEvent.error)}
               />
             </TouchableOpacity>
-            {!simTriggered && (
+            {!simTriggered && rateLimitedRef.current && (
+              <View style={ai.rateLimitBanner}>
+                <Text style={ai.rateLimitText}>
+                  Simülasyon geçici olarak yavaşlatıldı. Birkaç saniye bekleyip tekrar deneyin.
+                </Text>
+                <TouchableOpacity
+                  style={[ai.simCtaBtn, { marginTop: 6 }]}
+                  onPress={() => { rateLimitedRef.current = false; triggerSimulation(); }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={ai.simCtaText}>Tekrar Dene</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {!simTriggered && !rateLimitedRef.current && (
               <TouchableOpacity
                 style={ai.simCtaBtn}
                 onPress={triggerSimulation}
@@ -2155,6 +2185,11 @@ const ai = StyleSheet.create({
     alignItems: "center", marginTop: 8,
   },
   simCtaText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  rateLimitBanner: {
+    backgroundColor: "#fef3c7", borderRadius: 8, padding: 10, marginTop: 8,
+    borderWidth: 1, borderColor: "#fde68a",
+  },
+  rateLimitText: { color: "#92400e", fontSize: 12, lineHeight: 18 },
 
   // Variation tabs
   varTabRow: {
