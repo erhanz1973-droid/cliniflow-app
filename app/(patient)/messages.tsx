@@ -683,19 +683,21 @@ export default function MessagesScreen() {
         setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
 
         // ── Fire smile simulation in background (async job pattern) ────
-        // 1. POST /api/chat/smile-simulation → returns jobId immediately.
-        // 2. Poll GET /api/chat/sim-status/:jobId every 3 s until done.
-        // This avoids holding a long HTTP connection that Render would drop.
-        // Simulation runs regardless of analysis confidence — even "low" results
-        // still have a valid image that Replicate can process.
-        const simCacheKey = fileUrl.split("?")[0];
-        if (fileUrl && !_simCache.has(simCacheKey) && !_simPending.has(simCacheKey) && !_simFailed.has(simCacheKey)) {
-          _simPending.add(simCacheKey);
-          _latestSimKey = simCacheKey; // only THIS photo shows simulation UI
-          _notifySimSubs(simCacheKey); // show spinner immediately
+        // Key insight: use the LOCAL message's stable ID (localAiMsgId) as the
+        // primary cache key — it never changes and directly targets the mounted
+        // AiResultBubble via msg.id lookup.
+        // We also store under the URL-base key so that server messages (fetched
+        // later from the DB) can still find the result via originalImageUrl.
+        const simMsgId  = localAiMsgId;             // primary: stable message ID
+        const simUrlKey = fileUrl.split("?")[0];    // fallback: URL base for server msgs
+        if (fileUrl && !_simCache.has(simMsgId) && !_simPending.has(simMsgId) && !_simFailed.has(simMsgId)) {
+          _simPending.add(simMsgId);
+          _latestSimKey = simMsgId; // only THIS photo shows simulation UI
+          _notifySimSubs(simMsgId); // show spinner immediately
 
           setTimeout(async () => {
-            const cacheKey = fileUrl.split("?")[0];
+            const msgId  = simMsgId;   // close over stable message ID
+            const urlKey = simUrlKey;  // close over URL key (server msg fallback)
             let succeeded = false;
             try {
               // ── Step 1: Start the job ────────────────────────────────────
@@ -708,24 +710,45 @@ export default function MessagesScreen() {
 
               /**
                * Commit the final simulation URL.
-               * THREE delivery paths — all must fire to guarantee the UI updates:
-               *  1. _simCache  → AiResultBubble's global-callback bridge
-               *  2. setMessages → directly injects into React message state
-               *  3. _notifyAllSimSubs → belt-and-suspenders global callback
+               * Delivery paths:
+               *  1. _simCache[msgId]  → AiResultBubble.checkCache (by msg.id — reliable)
+               *  2. _simCache[urlKey] → AiResultBubble.checkCache (by URL — server msg fallback)
+               *  3. setLocalMessages  → stamps URL directly on the local bubble by ID
+               *  4. setMessages       → stamps URL on server bubble by URL (if message is in DB)
+               *  5. _notifyAllSimSubs → global callback triggers checkCache on every bubble
                */
               const commitSimResult = (simUrl: string, simVars: SimVariation[]) => {
                 console.log("FINAL SIM IMAGE:", simUrl.slice(0, 80));
-                console.log("[SIM] commitSimResult | cacheKey:", cacheKey.slice(0, 80), "| _latestSimKey:", _latestSimKey.slice(0, 80));
-                _simCache.set(cacheKey, simUrl);
-                if (simVars.length > 0) _simVariations.set(cacheKey, simVars);
+                console.log("[SIM] commit | msgId:", msgId.slice(0, 40), "| urlKey:", urlKey.slice(0, 60));
 
-                /** Stamp simulatedImageUrl on the aiResult attachment in a state array. */
-                const stampSimUrl = (arr: Message[]): { next: Message[]; matched: boolean } => {
+                // Store under BOTH keys
+                _simCache.set(msgId, simUrl);
+                _simCache.set(urlKey, simUrl);
+                if (simVars.length > 0) {
+                  _simVariations.set(msgId, simVars);
+                  _simVariations.set(urlKey, simVars);
+                }
+
+                // ── Path 1: stamp local message by EXACT ID (always works) ──
+                setLocalMessages(prev => prev.map(m => {
+                  if (m.id !== msgId || !m.attachment?.aiResult) return m;
+                  console.log("[SIM] setLocalMessages: matched by msgId ✓");
+                  return {
+                    ...m,
+                    attachment: {
+                      ...m.attachment,
+                      aiResult: { ...m.attachment.aiResult, simulatedImageUrl: simUrl },
+                    },
+                  } as typeof m;
+                }));
+
+                // ── Path 2: stamp server message by URL (if DB insert succeeded) ──
+                setMessages(prev => {
                   let matched = false;
-                  const next = arr.map(m => {
+                  const next = prev.map(m => {
                     if (matched || !m.attachment?.aiResult) return m;
                     const mk = (m.attachment.aiResult.originalImageUrl ?? "").split("?")[0];
-                    if (mk === cacheKey || (!mk && !matched)) {
+                    if (mk === urlKey) {
                       matched = true;
                       return {
                         ...m,
@@ -737,21 +760,7 @@ export default function MessagesScreen() {
                     }
                     return m;
                   });
-                  return { next, matched };
-                };
-
-                // ── Path A: stamp onto server messages (if message is in DB) ──
-                setMessages(prev => {
-                  const { next, matched } = stampSimUrl(prev);
-                  if (matched) console.log("[SIM] setMessages: matched server message ✓");
-                  else console.warn("[SIM] setMessages: no server aiResult matched — relying on local message");
-                  return matched ? next : prev;
-                });
-
-                // ── Path B: stamp onto local messages (guaranteed to exist) ──
-                setLocalMessages(prev => {
-                  const { next, matched } = stampSimUrl(prev);
-                  if (matched) console.log("[SIM] setLocalMessages: matched local message ✓");
+                  if (matched) console.log("[SIM] setMessages: matched server message by URL ✓");
                   return matched ? next : prev;
                 });
 
@@ -806,8 +815,8 @@ export default function MessagesScreen() {
             } catch (e) {
               console.warn("[SIM] Start error:", (e as Error)?.message);
             } finally {
-              _simPending.delete(cacheKey);
-              if (!succeeded) _simFailed.add(cacheKey);
+              _simPending.delete(msgId);
+              if (!succeeded) _simFailed.add(msgId);
               _notifyAllSimSubs(); // clear spinner even on failure
             }
           }, 1500);
@@ -1430,23 +1439,28 @@ function AiResultBubble({ msg }: { msg: Message }) {
   const router = useRouter();
 
   const imgUrl  = result?.originalImageUrl ?? "";
-  const cacheKey = imgUrl.split("?")[0];   // stable key — survives URL re-signing
+  // Primary key: stable message ID (matches _simCache set by commitSimResult).
+  // Fallback key: URL base (for server messages whose ID differs from localAiMsgId).
+  const msgKey  = msg.id;
+  const urlKey  = imgUrl.split("?")[0];
+
+  const _cached = _simCache.get(msgKey) ?? _simCache.get(urlKey) ?? null;
 
   // ── Simulation state — initialised from bridge cache or stored result ─
   const [simUrl, setSimUrl]             = useState<string | null>(
-    _simCache.get(cacheKey) ?? result?.simulatedImageUrl ?? null
+    _cached ?? result?.simulatedImageUrl ?? null
   );
   const [simVariations, setSimVariations] = useState<SimVariation[]>(
-    _simVariations.get(cacheKey) ?? []
+    _simVariations.get(msgKey) ?? _simVariations.get(urlKey) ?? []
   );
   const [activeVariation, setActiveVariation] = useState<string>('balanced');
   // Only the latest photo's bubble shows a spinner or result.
-  const isLatest = !cacheKey || cacheKey === _latestSimKey;
+  const isLatest = msgKey === _latestSimKey || (!msgKey && urlKey === _latestSimKey);
   const [simLoading, setSimLoading]     = useState(
-    isLatest && !_simCache.has(cacheKey) && _simPending.has(cacheKey)
+    isLatest && !_cached && (_simPending.has(msgKey) || _simPending.has(urlKey))
   );
   const [simTriggered, setSimTriggered] = useState(
-    isLatest && (_simCache.has(cacheKey) || !!result?.simulatedImageUrl || _simPending.has(cacheKey))
+    isLatest && (!!_cached || !!result?.simulatedImageUrl || _simPending.has(msgKey) || _simPending.has(urlKey))
   );
 
   // ── Primary path: react to direct state injection from processPhotoWithAI ─
@@ -1465,74 +1479,81 @@ function AiResultBubble({ msg }: { msg: Message }) {
 
   // ── Fallback: global callback + poll + keyed subscription ─────────────────
   useEffect(() => {
-    const key = imgUrl.split("?")[0];
-    const isLatestKey = !key || key === _latestSimKey;
-    console.log("[SIM] Bubble mounted | key:", key.slice(0, 80) || "(empty)", "| isLatest:", isLatestKey);
+    // Primary lookup key = message ID (set by commitSimResult → _simCache.set(msgId))
+    // Fallback lookup key = URL base (for server messages with DB-generated IDs)
+    const id  = msg.id;
+    const url = imgUrl.split("?")[0];
+    const isLatestKey = id === _latestSimKey || (!id && url === _latestSimKey);
+    console.log("[SIM] Bubble mounted | msgId:", id.slice(0, 40), "| isLatest:", isLatestKey);
 
-    function applySimUrl(url: string, vars: SimVariation[]) {
-      console.log("[SIM] Applying URL:", url.slice(0, 80));
-      setSimUrl(url);
+    function applySimUrl(simUrlVal: string, vars: SimVariation[]) {
+      console.log("[SIM] Applying URL:", simUrlVal.slice(0, 80));
+      setSimUrl(simUrlVal);
       if (vars.length > 0) setSimVariations(vars);
       setSimLoading(false);
       setSimTriggered(true);
     }
 
-    /**
-     * Check _simCache for a result keyed to THIS bubble.
-     * Deliberately does NOT check _latestSimKey — any completed result for
-     * this exact key should be shown (the _latestSimKey guard is only for
-     * deciding whether to show a spinner, not for delivering results).
-     */
+    /** Check _simCache by msg.id first, then by URL key as fallback. */
     function checkCache(): boolean {
-      if (!key) return false;
-      const cached = _simCache.get(key);
+      const byId  = id  ? _simCache.get(id)  : null;
+      const byUrl = url ? _simCache.get(url) : null;
+      const cached = byId || byUrl;
       if (cached) {
-        applySimUrl(cached, _simVariations.get(key) ?? []);
+        const vars = _simVariations.get(id) ?? _simVariations.get(url) ?? [];
+        applySimUrl(cached, vars);
         return true;
       }
       return false;
     }
 
-    // Deliver any already-completed result for this exact key.
+    // Deliver any already-completed result immediately on mount.
     if (checkCache()) return;
 
     // ── For old messages: no spinner, no new-sim listeners ────────────────
-    // They get their result via checkCache() above (already-done sims) or
-    // via the primary useEffect above (setMessages injection).
-    if (key && key !== _latestSimKey) return;
+    if (!isLatestKey) return;
 
-    // Show spinner only if this is the active simulation key.
-    if (_simPending.has(key)) { setSimLoading(true); setSimTriggered(true); }
+    // Show spinner if simulation is in-flight.
+    if (_simPending.has(id) || _simPending.has(url)) { setSimLoading(true); setSimTriggered(true); }
 
     // ── Global callback: fired by _notifyAllSimSubs() when any sim finishes ──
     const onGlobalSim = () => {
       if (checkCache()) return;
-      if (_simPending.size === 0 && !_simCache.has(key)) {
-        setSimLoading(false);
-      }
+      const noPending = !_simPending.has(id) && !_simPending.has(url);
+      const noCache   = !_simCache.has(id) && !_simCache.has(url);
+      if (noPending && noCache) setSimLoading(false);
     };
     _globalSimCallbacks.add(onGlobalSim);
 
-    // ── Keyed subscription: instant update when keys match exactly ─────────
-    const unsub = subscribeSimUrl(key, () => {
-      const url  = _simCache.get(key) ?? null;
-      const vars = _simVariations.get(key) ?? [];
-      if (url) { applySimUrl(url, vars); }
-      else if (_simFailed.has(key)) { setSimLoading(false); setSimTriggered(false); }
+    // ── Keyed subscriptions (both ID and URL keys) ─────────────────────────
+    const unsubId  = subscribeSimUrl(id, () => {
+      const u = _simCache.get(id) ?? null;
+      const v = _simVariations.get(id) ?? [];
+      if (u) applySimUrl(u, v);
+      else if (_simFailed.has(id)) { setSimLoading(false); setSimTriggered(false); }
     });
+    const unsubUrl = url ? subscribeSimUrl(url, () => {
+      const u = _simCache.get(url) ?? null;
+      const v = _simVariations.get(url) ?? [];
+      if (u) applySimUrl(u, v);
+      else if (_simFailed.has(url)) { setSimLoading(false); setSimTriggered(false); }
+    }) : () => {};
 
     // ── Poll every 2 s as a last-resort fallback ───────────────────────────
     const poll = setInterval(() => {
       if (checkCache()) { clearInterval(poll); return; }
-      if (_simPending.size > 0 && isLatestKey) { setSimLoading(true); setSimTriggered(true); }
+      if (isLatestKey && (_simPending.has(id) || _simPending.has(url))) {
+        setSimLoading(true); setSimTriggered(true);
+      }
     }, 2000);
 
     return () => {
       _globalSimCallbacks.delete(onGlobalSim);
       clearInterval(poll);
-      unsub();
+      unsubId();
+      unsubUrl();
     };
-  }, [imgUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [msg.id, imgUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Clinic picker ────────────────────────────────────────────────────
   const [showClinicModal, setShowClinicModal] = useState(false);
