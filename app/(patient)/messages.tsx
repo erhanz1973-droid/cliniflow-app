@@ -1439,7 +1439,8 @@ function ClinicSelectorModal({
 
 function AiResultBubble({ msg }: { msg: Message }) {
   const result = msg.attachment?.aiResult;
-  const { token, user } = useAuth();
+  const { user } = useAuth();
+  const token = user?.token;
   const router = useRouter();
 
   const imgUrl  = result?.originalImageUrl ?? "";
@@ -1577,7 +1578,7 @@ function AiResultBubble({ msg }: { msg: Message }) {
       const startRes = await fetch(`${API_BASE}/api/chat/smile-simulation`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ patientId: user?.id, imageUrl: imgUrl }),
+        body: JSON.stringify({ patientId: user?.patientId, imageUrl: imgUrl }),
       });
       const startData: Record<string, any> = await startRes.json().catch(() => ({}));
 
