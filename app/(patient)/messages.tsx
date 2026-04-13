@@ -975,6 +975,19 @@ export default function MessagesScreen() {
           })}
         </ScrollView>
 
+        {/* ── DEV: test image to confirm Image rendering works ────────────── */}
+        {__DEV__ && (
+          <View style={{ margin: 8, borderWidth: 1, borderColor: "#f00" }}>
+            <Text style={{ fontSize: 10, color: "#f00" }}>DEV: test image</Text>
+            <Image
+              source={{ uri: "https://via.placeholder.com/300x80.png?text=IMG+OK" }}
+              style={{ width: "100%", height: 80 }}
+              onLoad={() => console.log("[IMG TEST] ✅ placeholder loaded")}
+              onError={(e) => console.warn("[IMG TEST] ❌ placeholder failed:", e.nativeEvent.error)}
+            />
+          </View>
+        )}
+
         {/* Message list */}
         <FlatList
           ref={flatRef}
@@ -985,8 +998,8 @@ export default function MessagesScreen() {
           renderItem={renderChatItem}
           initialNumToRender={10}
           maxToRenderPerBatch={5}
-          windowSize={8}
-          removeClippedSubviews={true}
+          windowSize={10}
+          removeClippedSubviews={false}
           ListEmptyComponent={
             hasClinic ? (
               <View style={s.empty}>
@@ -1151,7 +1164,8 @@ function BeforeAfterSlider({
 }) {
   const containerRef = useRef<View>(null);
   const containerX   = useRef(0);
-  const containerW   = useRef(260); // fallback; updated by onLayout
+  // Use state so the Before image re-renders at the correct width after layout.
+  const [containerW, setContainerW] = useState(280);
   const dividerAnim  = useRef(new Animated.Value(0.5)).current; // 0–1 ratio
   const [ratio, setRatio] = useState(0.5);
 
@@ -1180,8 +1194,9 @@ function BeforeAfterSlider({
         ref={containerRef}
         style={bas.container}
         onLayout={(e) => {
-          containerW.current = e.nativeEvent.layout.width;
-          containerRef.current?.measure((_fx, _fy, _w, _h, px) => {
+          const w = e.nativeEvent.layout.width;
+          setContainerW(w);
+          containerRef.current?.measure((_fx, _fy, _ww, _h, px) => {
             containerX.current = px;
           });
         }}
@@ -1191,6 +1206,8 @@ function BeforeAfterSlider({
           source={{ uri: afterUrl }}
           style={[StyleSheet.absoluteFill, { borderRadius: bas.container.borderRadius }]}
           resizeMode="cover"
+          onLoad={() => console.log("[SLIDER] After image loaded:", afterUrl.slice(0, 60))}
+          onError={(e) => console.warn("[SLIDER] After image FAILED:", afterUrl.slice(0, 60), e.nativeEvent.error)}
         />
 
         {/* Before image — clipped to left of divider */}
@@ -1209,8 +1226,10 @@ function BeforeAfterSlider({
         >
           <Image
             source={{ uri: beforeUrl }}
-            style={{ width: containerW.current || 260, height: SLIDER_HEIGHT }}
+            style={{ width: containerW, height: SLIDER_HEIGHT }}
             resizeMode="cover"
+            onLoad={() => console.log("[SLIDER] Before image loaded:", beforeUrl.slice(0, 60))}
+            onError={(e) => console.warn("[SLIDER] Before image FAILED:", beforeUrl.slice(0, 60), e.nativeEvent.error)}
           />
         </Animated.View>
 
@@ -1630,6 +1649,8 @@ function AiResultBubble({ msg }: { msg: Message }) {
                 source={{ uri: resolveUrl(result.originalImageUrl!) }}
                 style={ai.image}
                 resizeMode="cover"
+                onLoad={() => console.log("[IMG] AI original loaded:", resolveUrl(result.originalImageUrl!).slice(0, 60))}
+                onError={(e) => console.warn("[IMG] AI original FAILED:", resolveUrl(result.originalImageUrl!).slice(0, 60), e.nativeEvent.error)}
               />
             </TouchableOpacity>
             {!simTriggered && (
@@ -1736,6 +1757,8 @@ const MessageBubble = React.memo(function MessageBubble({ msg }: { msg: Message 
               source={{ uri: att.url.startsWith("http") ? att.url : `${API_BASE}${att.url}` }}
               style={s.attImage}
               resizeMode="cover"
+              onLoad={() => console.log("[IMG] chat attachment loaded")}
+              onError={(e) => console.warn("[IMG] chat attachment FAILED:", att.url.slice(0, 60), e.nativeEvent.error)}
             />
             {att.name && (
               <Text style={[s.attName, isPatient && { color: "rgba(255,255,255,0.7)" }]}
