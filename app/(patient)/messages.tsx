@@ -1221,11 +1221,14 @@ function BeforeAfterSlider({
   beforeUrl: string;
   afterUrl: string;
 }) {
-  const containerRef = useRef<View>(null);
-  const containerX   = useRef(0);
-  // Use state so the Before image re-renders at the correct width after layout.
+  const containerRef  = useRef<View>(null);
+  const containerX    = useRef(0);
+  // containerWRef is used by the pan responder (created once, needs .current).
+  // containerW state is used by the Before <Image> so it re-renders at the
+  // correct width after onLayout fires.
+  const containerWRef = useRef(280);
   const [containerW, setContainerW] = useState(280);
-  const dividerAnim  = useRef(new Animated.Value(0.5)).current; // 0–1 ratio
+  const dividerAnim   = useRef(new Animated.Value(0.5)).current; // 0–1 ratio
   const [ratio, setRatio] = useState(0.5);
 
   const panResponder = useRef(
@@ -1234,7 +1237,7 @@ function BeforeAfterSlider({
       onMoveShouldSetPanResponder:  () => true,
       onPanResponderGrant: () => {},
       onPanResponderMove: (_, gs) => {
-        const w   = containerW.current;
+        const w   = containerWRef.current; // always up-to-date ref, not stale state
         const raw = gs.moveX - containerX.current;
         const clamped = Math.max(0.05, Math.min(0.95, raw / w));
         dividerAnim.setValue(clamped);
@@ -1254,7 +1257,8 @@ function BeforeAfterSlider({
         style={bas.container}
         onLayout={(e) => {
           const w = e.nativeEvent.layout.width;
-          setContainerW(w);
+          containerWRef.current = w; // for pan responder math
+          setContainerW(w);          // for Before image width (triggers re-render)
           containerRef.current?.measure((_fx, _fy, _ww, _h, px) => {
             containerX.current = px;
           });
