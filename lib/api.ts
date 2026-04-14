@@ -58,6 +58,11 @@ function authHeaders(): Record<string, string> {
   return headers;
 }
 
+/** For multipart uploads (do not set Content-Type — boundary is set by fetch). */
+export function getAuthHeaders(): Record<string, string> {
+  return authHeaders();
+}
+
 // =====================
 // SAFE JSON
 // =====================
