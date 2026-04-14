@@ -38,8 +38,8 @@ export async function processTeeth(params: ProcessTeethParams): Promise<string> 
     : await uploadLocalImageForAi(lowerUri);
 
   const [upperAI, lowerAI] = await Promise.all([
-    runAI(upperRemote, patientId),
-    runAI(lowerRemote, patientId),
+    runAI(upperRemote, patientId, "upper"),
+    runAI(lowerRemote, patientId, "lower"),
   ]);
 
   return mergeTeeth(originalRemote, upperAI, lowerAI, mouth, patientId);
