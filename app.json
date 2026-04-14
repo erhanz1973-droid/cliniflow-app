@@ -14,7 +14,7 @@
       "icon": "./assets/images/icon.png",
       "supportsTablet": true,
       "bundleIdentifier": "net.clinifly.mobile",
-      "buildNumber": "4",
+      "buildNumber": "8",
       "infoPlist": {
         "NSCameraUsageDescription": "Clinifly uses the camera to capture dental images for your treatment records.",
         "NSMicrophoneUsageDescription": "Clinifly uses the microphone for video recording during consultations.",

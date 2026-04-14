@@ -42,3 +42,6 @@ app-example
 /ios
 /android
 .DS_Store
+
+# Accidental nested copy (do not commit)
+cliniflow-app/

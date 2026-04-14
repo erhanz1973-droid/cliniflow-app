@@ -356,6 +356,28 @@ export default function ProfileScreen() {
         )}
       </View>
 
+      {/* AI DENTAL ANALYSIS */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>AI Diş Analizi</Text>
+        <TouchableOpacity
+          style={styles.aiAnalysisBtn}
+          activeOpacity={0.85}
+          onPress={() =>
+            router.push({
+              pathname: "/(patient)/messages" as any,
+              params: { openCamera: "true" },
+            })
+          }
+        >
+          <Text style={styles.aiAnalysisIcon}>🦷</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.aiAnalysisTitle}>Diş Fotoğrafı Çek</Text>
+            <Text style={styles.aiAnalysisSub}>AI analizi ile klinik önerisi al</Text>
+          </View>
+          <Text style={styles.menuBtnArrow}>›</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* LANGUAGE */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{t("profile.language")}</Text>
@@ -594,6 +616,14 @@ const styles = StyleSheet.create({
   },
   joinCodeTitle: { fontSize: 15, fontWeight: "700", color: "#15803D", marginBottom: 2 },
   joinCodeSub: { fontSize: 12, color: "#16A34A", lineHeight: 17 },
+  // AI dental analysis button
+  aiAnalysisBtn: {
+    backgroundColor: "#EFF6FF", borderRadius: 14, borderWidth: 1, borderColor: "#BFDBFE",
+    padding: 16, flexDirection: "row", alignItems: "center", gap: 12,
+  },
+  aiAnalysisIcon: { fontSize: 22 },
+  aiAnalysisTitle: { fontSize: 15, fontWeight: "700", color: "#1D4ED8", marginBottom: 2 },
+  aiAnalysisSub: { fontSize: 12, color: "#3B82F6", lineHeight: 17 },
   // Join modal
   joinModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
   joinModalSheet: {
