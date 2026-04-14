@@ -22,7 +22,7 @@ function clampMouthToImage(m: MouthBox, imageWidth: number, imageHeight: number)
 
 /**
  * Mouth region from a face box (ideal) or full-image fallback when face is missing.
- * Ratios align with backend heuristic (see `getSpecFallbackMouthRectFromFullImage` in `index.cjs`).
+ * Ratios align with backend heuristic (mouth height 35% of face box — more lower teeth coverage).
  */
 export function getMouthRegion(
   face: FaceBox | null,
@@ -34,7 +34,7 @@ export function getMouthRegion(
       originX: face.x + face.width * 0.2,
       originY: face.y + face.height * 0.55,
       width: face.width * 0.6,
-      height: face.height * 0.3,
+      height: face.height * 0.35,
     };
     return clampMouthToImage(raw, imageWidth, imageHeight);
   }

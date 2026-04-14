@@ -29,7 +29,7 @@ export function approximateMouthFromFace(face: FaceBounds): MouthRect {
   const originX = Math.round(face.x + face.width * 0.2);
   const originY = Math.round(face.y + face.height * 0.55);
   const width = Math.round(face.width * 0.6);
-  const height = Math.round(face.height * 0.3);
+  const height = Math.round(face.height * 0.35);
   return { originX, originY, width, height };
 }
 
