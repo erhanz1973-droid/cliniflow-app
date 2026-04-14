@@ -172,25 +172,62 @@ export default function MyRequestsScreen() {
     );
   }, [user, signIn, t]);
 
+  /** Safe fetch → JSON: uses text() first so we always get a parseable error. */
+  const safeFetch = useCallback(async (url: string, retries = 2): Promise<any> => {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${user?.token}` },
+        });
+        const text = await res.text();
+        // Render warm-up: 502/503/504 return HTML, not JSON → wait and retry
+        if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < retries) {
+          await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+          continue;
+        }
+        try {
+          return JSON.parse(text);
+        } catch {
+          // Server returned non-JSON (HTML error page, etc.)
+          if (attempt < retries) {
+            await new Promise(r => setTimeout(r, 1500));
+            continue;
+          }
+          throw new Error(`Sunucu geçersiz yanıt döndürdü (${res.status}). Lütfen tekrar deneyin.`);
+        }
+      } catch (e: any) {
+        if (attempt < retries && (e.message?.includes('Network') || e.message?.includes('fetch'))) {
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+        throw e;
+      }
+    }
+  }, [user?.token]);
+
   const load = useCallback(async () => {
     if (!user?.token) return;
     setError(null);
     try {
-      const [reqRes, ratRes] = await Promise.all([
-        fetch(`${API_BASE}/api/patient/treatment-requests`, {
-          headers: { Authorization: `Bearer ${user.token}` },
-        }),
-        fetch(`${API_BASE}/api/patient/ratings`, {
-          headers: { Authorization: `Bearer ${user.token}` },
-        }),
+      const [reqData, ratData] = await Promise.all([
+        safeFetch(`${API_BASE}/api/patient/treatment-requests`),
+        safeFetch(`${API_BASE}/api/patient/ratings`).catch(() => ({ ok: true, ratings: [] })),
       ]);
-      const reqData = await reqRes.json();
-      const ratData = await ratRes.json();
-      if (!reqData?.ok) throw new Error(reqData?.error || 'error');
+      if (!reqData?.ok) {
+        const errKey = reqData?.error || 'error';
+        // Translate known server error codes to Turkish
+        const errMsg: Record<string, string> = {
+          db_error:          'Veritabanı hatası. Lütfen tekrar deneyin.',
+          patientId_required:'Kimlik doğrulama hatası. Lütfen çıkış yapıp tekrar giriş yapın.',
+          bad_token:         'Oturum süresi dolmuş. Lütfen tekrar giriş yapın.',
+          not_found:         'Sayfa bulunamadı. Uygulama güncellenmiş olabilir.',
+        };
+        throw new Error(errMsg[errKey] || `Hata: ${errKey}`);
+      }
       setRequests(reqData.requests || []);
       // Build a set of already-rated keys (clinic-level: 1 patient × 1 clinic × 1 type)
       const keys = new Set<RatingKey>(
-        (ratData?.ratings || []).map((r: any) =>
+        ((ratData as any)?.ratings || []).map((r: any) =>
           r.clinic_id ? `${r.clinic_id}:${r.type}` : `offer:${r.offer_id}:${r.type}`
         )
       );
@@ -201,7 +238,7 @@ export default function MyRequestsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.token, t]);
+  }, [user?.token, t, safeFetch]);
 
   useFocusEffect(useCallback(() => {
     setLoading(true);
