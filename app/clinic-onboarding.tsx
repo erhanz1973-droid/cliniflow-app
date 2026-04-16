@@ -45,9 +45,21 @@ export default function ClinicOnboardingScreen() {
       const res = await fetch(`${API_BASE}/api/patient/clinics`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await res.json().catch(() => ({}));
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+        clinics?: ClinicRow[];
+      };
       if (!res.ok || !data.ok) {
-        throw new Error(data.error || `HTTP ${res.status}`);
+        const msg =
+          (typeof data.message === "string" && data.message) ||
+          (data.error === "db_error"
+            ? "Klinik listesi şu an yüklenemiyor. Lütfen biraz sonra tekrar deneyin."
+            : "") ||
+          data.error ||
+          `HTTP ${res.status}`;
+        throw new Error(msg);
       }
       setClinics(Array.isArray(data.clinics) ? data.clinics : []);
     } catch (e: any) {

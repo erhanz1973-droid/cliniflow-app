@@ -1,16 +1,12 @@
 // cliniflow-app/lib/api.ts
 
 /**
- * API configuration with environment variable support
- * Single source of truth for all API calls
+ * API base URL — single source of truth for all `/api/*` calls.
+ * Hardcoded for now (no EXPO_PUBLIC / env).
  */
+const API_BASE = "https://cliniflow-backend-clean-production.up.railway.app";
 
-const DEFAULT_API =
-  (typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_BASE)
-    ? String(process.env.EXPO_PUBLIC_API_BASE).replace(/\/+$/, "")
-    : (typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_URL)
-      ? String(process.env.EXPO_PUBLIC_API_URL).replace(/\/+$/, "")
-      : "https://cliniflow-backend-dg8a.onrender.com";
+console.log("USING API:", API_BASE);
 
 // ── Timeout constants (ms) ───────────────────────────────────────────────────
 export const TIMEOUT_GET  = 10_000;
@@ -30,15 +26,9 @@ export function classifyApiError(err: unknown): ApiErrorKind {
   return 'generic';
 }
 
-export const API_BASE = DEFAULT_API;
+export { API_BASE };
 export const AUTH_API_BASE = API_BASE;
 export const ADMIN_API_BASE = API_BASE;
-
-if (!API_BASE) {
-  throw new Error(
-    `API_BASE is not defined.`
-  );
-}
 
 // =====================
 // AUTH TOKEN
@@ -83,6 +73,8 @@ async function parseJsonSafe<T>(url: string, text: string): Promise<T> {
 export async function apiGet<T>(path: string): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
 
+  console.log("CALLING API:", url);
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_GET);
 
@@ -120,6 +112,8 @@ export async function apiGet<T>(path: string): Promise<T> {
 
 export async function apiPost<T>(path: string, body: any): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
+
+  console.log("CALLING API:", url);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_POST);
@@ -159,6 +153,8 @@ export async function apiPost<T>(path: string, body: any): Promise<T> {
 
 export async function apiPut<T>(path: string, body: any): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
+
+  console.log("CALLING API:", url);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_PUT);
