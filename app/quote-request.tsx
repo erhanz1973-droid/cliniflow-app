@@ -282,6 +282,13 @@ export default function QuoteRequestScreen() {
 
     setPhase('loading');
     const confirmed: string[] = [];
+    const errors: string[] = [];
+    const photoList =
+      intraoralUrls.length > 0
+        ? intraoralUrls
+        : attachment?.url
+          ? [attachment.url]
+          : [];
 
     for (const clinic of selectedClinics) {
       try {
@@ -294,23 +301,44 @@ export default function QuoteRequestScreen() {
           body: JSON.stringify({
             description: trimmed,
             target_clinic_id: clinic.id,
-            // intraoralUrls already contains all guided photos; attachment.url may overlap with first
-            photos: intraoralUrls.length > 0
-              ? intraoralUrls
-              : attachment?.url ? [attachment.url] : [],
+            clinic_id: clinic.id,
+            clinic_code: clinic.clinic_code,
+            photos: photoList,
+            photo_urls: photoList,
           }),
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (data?.ok) {
           confirmed.push(clinic.id);
           setSentIds(prev => [...prev, clinic.id]);
+        } else {
+          const msg =
+            data?.message ||
+            data?.error ||
+            (typeof res.status === 'number' ? `HTTP ${res.status}` : 'request_failed');
+          errors.push(`${clinic.name || clinic.id}: ${msg}`);
         }
-      } catch {
-        // continue even if one fails
+      } catch (e: any) {
+        errors.push(`${clinic.name || clinic.id}: ${e?.message || 'network'}`);
       }
     }
 
     await new Promise(r => setTimeout(r, 400));
+    if (confirmed.length === 0 && errors.length > 0) {
+      setPhase('form');
+      Alert.alert(
+        safeT('common.error', 'Error'),
+        errors.slice(0, 3).join('\n') +
+          (errors.length > 3 ? `\n… +${errors.length - 3}` : ''),
+      );
+      return;
+    }
+    if (errors.length > 0) {
+      Alert.alert(
+        safeT('quoteRequest.partialFailTitle', 'Some requests failed'),
+        errors.slice(0, 4).join('\n'),
+      );
+    }
     setPhase('success');
   };
 
