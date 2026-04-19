@@ -380,12 +380,15 @@ export default function ChatScreen() {
     isSendingMessageRef.current = true;
 
     try {
+      const u = user as { clinicId?: string; clinicCode?: string };
       const res = await fetchWithRole(`/${encodeURIComponent(patientId)}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: text.trim(),
           type: "text",
+          ...(u?.clinicId ? { clinicId: String(u.clinicId) } : {}),
+          ...(u?.clinicCode ? { clinicCode: String(u.clinicCode) } : {}),
         }),
       });
 
@@ -523,6 +526,9 @@ export default function ChatScreen() {
       } as any);
       formData.append("patientId", patientId);
       formData.append("isImage", "true"); // Flag to indicate image upload
+      const uc = user as { clinicId?: string; clinicCode?: string };
+      if (uc?.clinicId) formData.append("clinicId", String(uc.clinicId));
+      if (uc?.clinicCode) formData.append("clinicCode", String(uc.clinicCode));
 
       const uploadRes = await fetch(`${API_BASE}/api/chat/upload`, {
         method: "POST",
@@ -676,6 +682,9 @@ export default function ChatScreen() {
         name: fileName,
       } as any);
       formData.append("patientId", patientId);
+      const uc2 = user as { clinicId?: string; clinicCode?: string };
+      if (uc2?.clinicId) formData.append("clinicId", String(uc2.clinicId));
+      if (uc2?.clinicCode) formData.append("clinicCode", String(uc2.clinicCode));
 
       const uploadRes = await fetch(`${API_BASE}/api/chat/upload`, {
         method: "POST",

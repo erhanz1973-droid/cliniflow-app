@@ -416,6 +416,12 @@ export default function MessagesScreen() {
       formData.append("files", { uri, name, type: mimeType } as any);
       formData.append("patientId", patientId);
       if (mimeType.startsWith("image/")) formData.append("isImage", "true");
+      if (user?.clinicId && String(user.clinicId).trim()) {
+        formData.append("clinicId", String(user.clinicId).trim());
+      }
+      if (user?.clinicCode && String(user.clinicCode).trim()) {
+        formData.append("clinicCode", String(user.clinicCode).trim());
+      }
 
       const res = await fetch(`${API_BASE}/api/chat/upload`, {
         method: "POST",
