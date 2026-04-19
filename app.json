@@ -14,7 +14,6 @@
       "icon": "./assets/images/icon.png",
       "supportsTablet": true,
       "bundleIdentifier": "net.clinifly.mobile",
-      "buildNumber": "8",
       "infoPlist": {
         "NSCameraUsageDescription": "Clinifly uses the camera to capture dental images for your treatment records.",
         "NSMicrophoneUsageDescription": "Clinifly uses the microphone for video recording during consultations.",
@@ -22,8 +21,9 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": false,
+          "NSAllowsLocalNetworking": true,
           "NSExceptionDomains": {
-            "cliniflow-backend-dg8a.onrender.com": {
+            "cliniflow-backend-clean-production.up.railway.app": {
               "NSExceptionAllowsInsecureHTTPLoads": false,
               "NSIncludesSubdomains": true
             },
@@ -33,9 +33,11 @@
             }
           }
         }
-      }
+      },
+      "buildNumber": "3"
     },
     "android": {
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -44,9 +46,10 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.clinifly.mobile",
-      "versionCode": 23,
+      "versionCode": 180,
       "permissions": [
         "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.INTERNET",

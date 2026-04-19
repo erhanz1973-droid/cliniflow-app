@@ -16,6 +16,8 @@ export async function uploadLocalImageForAi(localUri: string): Promise<string> {
   );
 
   const url = `${API_BASE}/api/chat/ai-upload`;
+  console.log("CALLING API:", url);
+  console.trace("API TRACE", url);
   const res = await fetch(url, {
     method: "POST",
     headers: {

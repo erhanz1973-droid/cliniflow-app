@@ -26,6 +26,8 @@ export default function RegisterPatientScreen() {
   const [netError, setNetError] = useState<"network" | "warmingUp" | null>(null);
   const [infoMsg, setInfoMsg] = useState<{ text: string; goToLogin?: boolean } | null>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Prevents double-submit before React re-renders (e.g. double tap, strict mode). */
+  const registerInFlightRef = useRef(false);
 
   const [formData, setFormData] = useState({
     clinicCode: "",
@@ -39,7 +41,8 @@ export default function RegisterPatientScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  const doRegister = async () => {
+  const handleRegister = async () => {
+    if (registerInFlightRef.current) return;
     if (!formData.phone || !formData.patientName) {
       Alert.alert(t("common.error"), t("register.patientFillRequired"));
       return;
@@ -55,6 +58,7 @@ export default function RegisterPatientScreen() {
 
     setNetError(null);
     setInfoMsg(null);
+    registerInFlightRef.current = true;
     setLoading(true);
 
     if (retryTimerRef.current) {
@@ -78,7 +82,7 @@ export default function RegisterPatientScreen() {
       if (kind === "network" || kind === "warmingUp") {
         setNetError(kind === "warmingUp" ? "warmingUp" : "network");
         if (kind === "warmingUp") {
-          retryTimerRef.current = setTimeout(() => doRegister(), 30_000);
+          retryTimerRef.current = setTimeout(() => handleRegister(), 30_000);
         }
       } else {
         const msg = error.message || "";
@@ -96,6 +100,7 @@ export default function RegisterPatientScreen() {
         }
       }
     } finally {
+      registerInFlightRef.current = false;
       setLoading(false);
     }
   };
@@ -242,7 +247,7 @@ export default function RegisterPatientScreen() {
 
         <TouchableOpacity
           style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
-          onPress={doRegister}
+          onPress={handleRegister}
           disabled={loading}
         >
           {loading ? (

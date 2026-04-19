@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { API_BASE } from '../lib/api';
 import { useLanguage } from '../lib/language-context';
+import { useAuth } from '../lib/auth';
 
 interface ICD10Code {
   code: string;
@@ -23,6 +24,7 @@ export default function ICD10Dropdown({
   placeholder = 'ICD-10 kodu ara…',
 }: ICD10DropdownProps) {
   const { currentLanguage: language } = useLanguage();
+  const { user } = useAuth();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ICD10Code[]>([]);
   const [loading, setLoading] = useState(false);
@@ -38,7 +40,7 @@ export default function ICD10Dropdown({
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    if (query.length < 2) {
+    if (query.trim().length < 1) {
       setResults([]);
       setOpen(false);
       return;
@@ -47,13 +49,36 @@ export default function ICD10Dropdown({
     debounceRef.current = setTimeout(async () => {
       try {
         setLoading(true);
+        const token = user?.token?.trim();
+        if (!token) {
+          setResults([]);
+          setOpen(false);
+          return;
+        }
         const res = await fetch(
-          `${API_BASE}/api/icd10/search?q=${encodeURIComponent(query)}&lang=${encodeURIComponent(language || 'tr')}`,
+          `${API_BASE}/api/icd/search?q=${encodeURIComponent(query.trim())}&lang=${encodeURIComponent(language || 'tr')}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/json',
+            },
+          },
         );
         const json = await res.json();
-        const list: ICD10Code[] = Array.isArray(json)
+        const raw = Array.isArray(json)
           ? json
           : json?.results || json?.codes || json?.data || [];
+        const list: ICD10Code[] = (raw as any[]).map((row) => ({
+          code: String(row?.code ?? '').trim(),
+          description: String(
+            row?.description ??
+              row?.description_tr ??
+              row?.description_en ??
+              row?.title_tr ??
+              row?.title_en ??
+              ''
+          ).trim(),
+        })).filter((r) => r.code);
         setResults(list);
         setOpen(list.length > 0);
       } catch (e) {
@@ -66,7 +91,7 @@ export default function ICD10Dropdown({
     }, 350);
 
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [query, language]);
+  }, [query, language, user?.token]);
 
   const handleSelect = (item: ICD10Code) => {
     onCodeSelect(item);
@@ -105,9 +130,9 @@ export default function ICD10Dropdown({
             keyboardShouldPersistTaps="always"
             style={{ maxHeight: 220 }}
           >
-            {results.map((item) => (
+            {results.map((item, idx) => (
               <TouchableOpacity
-                key={item.code}
+                key={`${item.code}-${idx}`}
                 style={styles.item}
                 activeOpacity={0.7}
                 onPress={() => handleSelect(item)}

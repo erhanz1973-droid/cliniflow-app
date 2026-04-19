@@ -1,18 +1,21 @@
 // app/quote-request.tsx
 // "Tell us about your treatment" — submitted after multi-clinic selection.
 // Flow: form → loading (per-clinic) → success → My Requests
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   SafeAreaView, ActivityIndicator, KeyboardAvoidingView,
-  Platform, ScrollView, Alert, Image, Modal, Pressable,
+  Platform, ScrollView, Alert, Image, Modal, Pressable, Linking,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/language-context';
 import { API_BASE } from '../lib/api';
+import { QUOTE_REQUEST_PREFILL_IMAGE_KEY } from '../lib/quotePrefill';
 
 // Guided intraoral photo steps (same as messages.tsx and offer-chat.tsx)
 const PHOTO_STEP_KEYS = [
@@ -75,6 +78,7 @@ export default function QuoteRequestScreen() {
   const [intraoralUrls, setIntraoralUrls]       = useState<string[]>([]);
 
   const cliniCount = selectedClinics.length;
+  const prefillStartedRef = useRef(false);
 
   // ── Upload helper ──────────────────────────────────────────────────────────
   const uploadFile = async (uri: string, mimeType: string, fileName: string): Promise<string> => {
@@ -94,19 +98,44 @@ export default function QuoteRequestScreen() {
   // ── Pick from gallery ──────────────────────────────────────────────────────
   const pickPhoto = async () => {
     setAttachMenu(false);
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(safeT('common.error', 'Error'), 'Photo library permission required');
-      return;
+    // Let the attach modal fully close before opening the system picker (Android/iOS).
+    await new Promise((r) => setTimeout(r, Platform.OS === 'android' ? 400 : 250));
+    try {
+      const { status, canAskAgain } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          safeT('common.error', 'Error'),
+          safeT(
+            'quoteRequest.photoPermission',
+            'Photo library access is required. You can enable it in Settings.',
+          ),
+          [
+            { text: safeT('common.cancel', 'Cancel'), style: 'cancel' },
+            ...(canAskAgain !== false
+              ? [{ text: safeT('common.retry', 'Try again'), onPress: () => void pickPhoto() }]
+              : []),
+            { text: safeT('quoteRequest.openSettings', 'Settings'), onPress: () => Linking.openSettings() },
+          ],
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.85,
+        allowsEditing: false,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      const asset = result.assets[0];
+      await doUpload(
+        asset.uri,
+        asset.mimeType || 'image/jpeg',
+        asset.fileName || `photo_${Date.now()}.jpg`,
+        'image',
+      );
+    } catch (e: any) {
+      console.warn('[quote-request] pickPhoto', e);
+      Alert.alert(safeT('common.error', 'Error'), e?.message || 'Could not open photo library');
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: "images",
-      quality: 0.85,
-      allowsEditing: false,
-    });
-    if (result.canceled || !result.assets?.length) return;
-    const asset = result.assets[0];
-    await doUpload(asset.uri, asset.mimeType || 'image/jpeg', asset.fileName || `photo_${Date.now()}.jpg`, 'image');
   };
 
   // ── Open guided intraoral modal ───────────────────────────────────────────
@@ -125,7 +154,7 @@ export default function QuoteRequestScreen() {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: "images",
+      mediaTypes: ['images'],
       quality: 0.85,
     });
     if (result.canceled || !result.assets?.length) return;
@@ -196,6 +225,45 @@ export default function QuoteRequestScreen() {
       setUploading(false);
     }
   };
+
+  /** Prefill attachment from AI analysis / smile sim URL saved when leaving chat (see messages.tsx). */
+  useEffect(() => {
+    if (phase !== 'form' || !user?.token || prefillStartedRef.current) return;
+    prefillStartedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const remote = (await AsyncStorage.getItem(QUOTE_REQUEST_PREFILL_IMAGE_KEY))?.trim();
+        if (!remote || !/^https?:\/\//i.test(remote)) {
+          await AsyncStorage.removeItem(QUOTE_REQUEST_PREFILL_IMAGE_KEY);
+          return;
+        }
+        await AsyncStorage.removeItem(QUOTE_REQUEST_PREFILL_IMAGE_KEY);
+        const ext = remote.match(/\.(jpe?g|png|webp)(?:\?|$)/i)?.[1]?.toLowerCase() || 'jpg';
+        const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+        const dest = `${FileSystem.cacheDirectory}quote_prefill_${Date.now()}.${ext}`;
+        const dl = await FileSystem.downloadAsync(remote, dest);
+        if (cancelled) return;
+        setUploading(true);
+        const name = `analysis_${Date.now()}.${ext}`;
+        const url = await uploadFile(dl.uri, mime, name);
+        if (cancelled) return;
+        setAttachment({
+          uri: dl.uri,
+          url,
+          type: 'image',
+          name: safeT('quoteRequest.prefillPhotoName', 'Analysis photo'),
+        });
+      } catch (e) {
+        console.warn('[quote-request] prefill from analysis URL failed', e);
+      } finally {
+        if (!cancelled) setUploading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, user?.token]);
 
   // ── Submit handler ────────────────────────────────────────────────────────
   const handleSubmit = async () => {
@@ -380,21 +448,22 @@ export default function QuoteRequestScreen() {
           </View>
         </KeyboardAvoidingView>
 
-        {/* ── Attach action sheet ── */}
+        {/* ── Attach action sheet (dimmed area is separate from sheet so row taps work on Android) ── */}
         <Modal
           visible={attachMenu}
           transparent
           animationType="slide"
           onRequestClose={() => setAttachMenu(false)}
         >
-          <Pressable style={styles.sheetOverlay} onPress={() => setAttachMenu(false)}>
-            <Pressable style={styles.sheet} onPress={e => e.stopPropagation()}>
+          <View style={styles.sheetOverlay}>
+            <Pressable style={styles.sheetBackdrop} onPress={() => setAttachMenu(false)} />
+            <View style={styles.sheet}>
               <View style={styles.sheetHandle} />
               <Text style={styles.sheetTitle}>
                 {safeT('quoteRequest.photoLabel', 'Add a photo or file')}
               </Text>
 
-              <TouchableOpacity style={styles.sheetRow} onPress={pickPhoto}>
+              <TouchableOpacity style={styles.sheetRow} onPress={pickPhoto} activeOpacity={0.75}>
                 <Text style={styles.sheetRowIcon}>🖼️</Text>
                 <View style={styles.sheetRowInfo}>
                   <Text style={styles.sheetRowLabel}>
@@ -406,7 +475,7 @@ export default function QuoteRequestScreen() {
                 </View>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.sheetRow} onPress={pickFile}>
+              <TouchableOpacity style={styles.sheetRow} onPress={pickFile} activeOpacity={0.75}>
                 <Text style={styles.sheetRowIcon}>📁</Text>
                 <View style={styles.sheetRowInfo}>
                   <Text style={styles.sheetRowLabel}>
@@ -418,7 +487,7 @@ export default function QuoteRequestScreen() {
                 </View>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.sheetRow} onPress={takePhoto}>
+              <TouchableOpacity style={styles.sheetRow} onPress={takePhoto} activeOpacity={0.75}>
                 <Text style={styles.sheetRowIcon}>📸</Text>
                 <View style={styles.sheetRowInfo}>
                   <Text style={styles.sheetRowLabel}>
@@ -435,8 +504,8 @@ export default function QuoteRequestScreen() {
                   {safeT('common.cancel', 'Cancel')}
                 </Text>
               </TouchableOpacity>
-            </Pressable>
-          </Pressable>
+            </View>
+          </View>
         </Modal>
 
         {/* ── Guided Intraoral Modal ── */}
@@ -625,8 +694,12 @@ const styles = StyleSheet.create({
 
   // ── Action sheet modal ──
   sheetOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+    flex: 1,
     justifyContent: 'flex-end',
+  },
+  sheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
   sheet: {
     backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20,

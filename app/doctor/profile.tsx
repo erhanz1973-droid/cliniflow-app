@@ -10,6 +10,26 @@ import { useLanguage } from '../../lib/language-context';
 import { apiGet, apiPut, API_BASE } from '../../lib/api';
 import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES, Language } from '../../lib/i18n';
 
+/** API may return strings, string[], or { id, name }[] from Supabase joins */
+function formatProfileListField(
+  value: unknown,
+): string {
+  if (value == null || value === '') return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '';
+    const first = value[0];
+    if (first != null && typeof first === 'object' && ('name' in first || 'id' in first)) {
+      return (value as Array<{ id?: string; name?: string }>)
+        .map((x) => String(x?.name ?? x?.id ?? '').trim())
+        .filter(Boolean)
+        .join(', ');
+    }
+    return (value as string[]).map(String).join(', ');
+  }
+  return String(value);
+}
+
 interface DoctorProfile {
   doctorId: string;
   name: string;
@@ -19,8 +39,8 @@ interface DoctorProfile {
   title: string | null;
   bio: string;
   experience_years: number | null;
-  languages: string | null;
-  specialties: string | null;
+  languages: string | string[] | Array<{ id?: string; name?: string }> | null;
+  specialties: string | string[] | Array<{ id?: string; name?: string }> | null;
   university: string | null;
   graduation_year: number | null;
   public_profile: boolean;
@@ -95,8 +115,8 @@ export default function DoctorProfileScreen() {
           experience_years: d.experience_years != null ? String(d.experience_years) : '',
           university: d.university || '',
           graduation_year: d.graduation_year != null ? String(d.graduation_year) : '',
-          languages: Array.isArray(d.languages) ? (d.languages as any).join(', ') : (d.languages || ''),
-          specialties: Array.isArray(d.specialties) ? (d.specialties as any).join(', ') : (d.specialties || ''),
+          languages: formatProfileListField(d.languages),
+          specialties: formatProfileListField(d.specialties),
           public_profile: Boolean(d.public_profile),
         });
       }
@@ -379,7 +399,9 @@ export default function DoctorProfileScreen() {
                 onChangeText={v => setForm(f => ({ ...f, specialties: v }))}
                 placeholder={t('doctor.profile.specialtyAreas')} multiline />
             ) : (
-              <Text style={s.fieldValue}>{profile?.specialties || t('doctor.profile.notSpecified')}</Text>
+              <Text style={s.fieldValue}>
+                {formatProfileListField(profile?.specialties) || t('doctor.profile.notSpecified')}
+              </Text>
             )}
           </View>
           <View style={s.fieldRow}>
@@ -389,7 +411,9 @@ export default function DoctorProfileScreen() {
                 onChangeText={v => setForm(f => ({ ...f, languages: v }))}
                 placeholder={t('doctor.profile.languages')} />
             ) : (
-              <Text style={s.fieldValue}>{profile?.languages || t('doctor.profile.notSpecified')}</Text>
+              <Text style={s.fieldValue}>
+                {formatProfileListField(profile?.languages) || t('doctor.profile.notSpecified')}
+              </Text>
             )}
           </View>
           <View style={s.fieldRow}>

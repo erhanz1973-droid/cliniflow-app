@@ -474,10 +474,15 @@ export default function MyRequestsScreen() {
                           {/* Rating badges */}
                           {(() => {
                             const rk = offer.clinic_id
-                              ? (t: string) => `${offer.clinic_id}:${t}`
-                              : (t: string) => `offer:${offer.id}:${t}`;
+                              ? (tok: string) => `${offer.clinic_id}:${tok}`
+                              : (tok: string) => `offer:${offer.id}:${tok}`;
                             const hasExp = ratedKeys.has(rk('experience'));
                             const hasTrt = ratedKeys.has(rk('treatment'));
+                            const atThisClinic =
+                              !!offer.clinic_id &&
+                              !!currentClinicId &&
+                              String(offer.clinic_id) === String(currentClinicId);
+                            const canRateTreatmentOutcome = hasExp && !hasTrt && atThisClinic;
                             return (
                               <>
                                 <View style={styles.ratingBadgeRow}>
@@ -544,27 +549,32 @@ export default function MyRequestsScreen() {
                                         })
                                       }
                                     >
-                                      <Text style={styles.rateBtnText}>⭐ Rate</Text>
+                                      <Text style={styles.rateBtnText}>
+                                        {t('treatReq.rateCommunicationBtn') || '💬 Rate communication'}
+                                      </Text>
                                     </TouchableOpacity>
                                   )}
 
-                                  {/* Rate Treatment (only if experience already given for this clinic) */}
-                                  {hasExp && !hasTrt && (
+                                  {/* Treatment outcome — only after communication rating AND patient joined this clinic */}
+                                  {canRateTreatmentOutcome && (
                                     <TouchableOpacity
                                       style={[styles.rateBtnTrt, styles.actionBtn]}
                                       onPress={() =>
                                         router.push({
                                           pathname: '/rate',
                                           params: {
-                                            offerId:    offer.id,
-                                            type:       'treatment',
-                                            clinicName: encodeURIComponent(offer.clinic_name || 'Clinic'),
-                                            doctorName: encodeURIComponent(offer.doctor_name || ''),
+                                            offerId:       offer.id,
+                                            type:          'treatment',
+                                            clinicName:    encodeURIComponent(offer.clinic_name || 'Clinic'),
+                                            doctorName:    encodeURIComponent(offer.doctor_name || ''),
+                                            treatmentDone: '1',
                                           },
                                         })
                                       }
                                     >
-                                      <Text style={styles.rateBtnTrtText}>🦷 Rate Treatment</Text>
+                                      <Text style={styles.rateBtnTrtText}>
+                                        {t('treatReq.rateTreatmentBtn') || '🦷 Rate treatment outcome'}
+                                      </Text>
                                     </TouchableOpacity>
                                   )}
                                 </View>

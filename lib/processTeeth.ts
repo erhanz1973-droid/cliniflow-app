@@ -19,7 +19,12 @@ export type ProcessTeethParams = {
 
 /**
  * Full client strip flow: mouth ROI → split → upload local URIs → AI each strip → merge on server.
- * Requires auth token (`setAuthToken` in lib/api) and backend v31+ (replicate-teeth-strip + merge-teeth-strips).
+ * Requires auth token (`setAuthToken` in lib/api) and backend v38+ (replicate-teeth-strip + merge-teeth-strips).
+ * SIM_MERGE_* tuning applies to POST /api/chat/merge-teeth-strips only — not the legacy smile-simulation job.
+ *
+ * CRITICAL: This function must be imported from a screen/feature. If nothing imports `processTeeth`,
+ * the strip merge endpoint is never called — simulation may use only `/api/chat/smile-simulation` instead,
+ * so merge tuning and SIM_MERGE_DEBUG will have zero effect in the UI.
  */
 export async function processTeeth(params: ProcessTeethParams): Promise<string> {
   const { imageUri, face, imageWidth, imageHeight, patientId } = params;

@@ -4,10 +4,7 @@ import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
   ActivityIndicator, KeyboardAvoidingView, Platform, Alert, Image,
   Linking, Modal, ScrollView, ActionSheetIOS,
-  PanResponder, Animated, Dimensions,
 } from "react-native";
-
-const SCREEN_HEIGHT = Dimensions.get("window").height;
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as FileSystem from "expo-file-system/legacy";
@@ -20,7 +17,11 @@ import { onIntraoralPhotoReady } from "../../lib/photoCallbacks";
 import { useDateLocale } from "../../lib/date-locale";
 import { useUnreadMessages } from "../../lib/useUnreadMessages";
 import { useLanguage } from "../../lib/language-context";
-
+import { runSmileSimulationWithImageUrl } from "../../lib/smileSimulation";
+import { QUOTE_REQUEST_PREFILL_IMAGE_KEY } from "../../lib/quotePrefill";
+import ToothColorSelector, {
+  type ToothColorPreset,
+} from "../../components/ToothColorSelector";
 const UPLOAD_CONSENT_KEY       = "@clinifly:upload_consent_accepted";
 const PREFERRED_DESTINATION_KEY = "@clinifly:preferredDestination";
 
@@ -52,6 +53,30 @@ type ClinicRecommendation = {
   distance?: string | null;   // e.g. "2.3 km" or "800 m" — null when location unavailable
 };
 
+type MissingToothOption = {
+  title: string;
+  explanation: string;
+  price: string;
+};
+
+/** Rule + vision dental gap classification (not a diagnosis) */
+type DentalConditionPayload = {
+  condition: "missing_tooth" | "misalignment" | "diastema" | string;
+  confidence: "low" | "medium" | "high" | string;
+  labelTr: string;
+};
+
+/** Non-diagnostic UX when backend heuristic detects missing tooth from AI text */
+type MissingToothGuidance = {
+  headline: string;
+  singleMissing: boolean;
+  options: MissingToothOption[];
+  disclaimer: string;
+  /** Hybrid detector confidence (insight / rule / vision) */
+  confidence?: "low" | "medium" | "high";
+  sources?: { insight: boolean; ruleGap: boolean; vision: boolean };
+};
+
 type AiResult = {
   insights: string[];
   confidence?: "low" | "medium" | "high";
@@ -63,6 +88,19 @@ type AiResult = {
   originalImageUrl?: string;
   simulatedImageUrl?: string;
   clinics?: ClinicRecommendation[];
+  /** Heuristic issues from backend (TR), post–AI analysis */
+  issues?: string[];
+  /** Suggested treatments (TR) */
+  treatments?: string[];
+  /** Indicative price strings by category key, e.g. { whitening: "150-400$" } */
+  priceEstimate?: Record<string, string>;
+  /** Implant / bridge guidance when missing tooth heuristic matches (not a diagnosis) */
+  missingTooth?: MissingToothGuidance;
+  /** Flat flags from API (same as inferring from missingTooth) */
+  missingToothDetected?: boolean;
+  missingToothConfidence?: "low" | "medium" | "high" | null;
+  /** Gap / alignment classification with Turkish label */
+  dentalCondition?: DentalConditionPayload;
 };
 
 type Attachment = {
@@ -98,42 +136,21 @@ function triggerClinicContact(msg: string) {
   _contactHandlers.forEach(fn => fn(msg));
 }
 
-// ─── Smile-simulation bridge ─────────────────────────────────────────────────
-// Keyed by originalImageUrl (stable, unique per AI analysis).
-// processPhotoWithAI fires the simulation; AiResultBubble listens for results.
-// Cache survives re-renders; subscribers are registered per mounted bubble.
+const PRICE_LABEL_TR: Record<string, string> = {
+  whitening: "Beyazlatma",
+  cleaning: "Temizlik (scaling)",
+  orthodontics: "Ortodonti",
+  filling: "Dolgu",
+  veneer: "Veneer / lamina",
+  gum: "Diş eti bakımı",
+  implant: "İmplant",
+  bridge: "Köprü",
+  consultation: "Muayene",
+  general: "Genel",
+};
 
-type SimVariation = { id: string; label: string; url: string };
-
-const _simCache      = new Map<string, string>();            // imageUrl → primary (balanced) url
-const _simVariations = new Map<string, SimVariation[]>();    // imageUrl → all 3 variations
-const _simPending    = new Set<string>();                    // currently in-flight
-const _simFailed     = new Set<string>();                    // permanently failed (until manual retry)
-const _simSubs       = new Map<string, Array<() => void>>();
-
-// Only the MOST RECENTLY triggered simulation is shown in the UI.
-// Old messages never show a spinner or slider from a new photo's simulation.
-let _latestSimKey = "";
-
-// Global callbacks — fired whenever ANY simulation completes, regardless of key.
-// AiResultBubble registers here so it never misses a result due to key mismatch.
-const _globalSimCallbacks = new Set<() => void>();
-
-function subscribeSimUrl(imageUrl: string, cb: () => void): () => void {
-  const arr = _simSubs.get(imageUrl) ?? [];
-  _simSubs.set(imageUrl, [...arr, cb]);
-  return () => {
-    _simSubs.set(imageUrl, (_simSubs.get(imageUrl) ?? []).filter(fn => fn !== cb));
-  };
-}
-
-function _notifySimSubs(imageUrl: string) {
-  _simSubs.get(imageUrl)?.forEach(fn => fn());
-}
-
-/** Notify ALL mounted AiResultBubble instances that a simulation result is ready. */
-function _notifyAllSimSubs() {
-  _globalSimCallbacks.forEach(fn => fn());
+function priceEstimateLabel(key: string): string {
+  return PRICE_LABEL_TR[key] || key.replace(/_/g, " ");
 }
 
 // ─── Location helper ─────────────────────────────────────────────────────────
@@ -233,8 +250,8 @@ export default function MessagesScreen() {
   }, []);
 
   // Ref so pickImage() / processPhotoWithAI() are always latest inside effects/bridges
-  const pickImageRef       = useRef<() => Promise<void>>();
-  const processPhotoRef    = useRef<typeof processPhotoWithAI>();
+  const pickImageRef       = useRef<(() => Promise<void>) | undefined>(undefined);
+  const processPhotoRef    = useRef<typeof processPhotoWithAI | undefined>(undefined);
 
   const authHeaders = useCallback(() => ({
     Authorization: `Bearer ${token}`,
@@ -285,10 +302,10 @@ export default function MessagesScreen() {
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
   const fetchMessages = useCallback(async (silent = false) => {
-    if (!token || !patientId) { if (!silent) setLoading(false); return; }
+    if (!token) { if (!silent) setLoading(false); return; }
     try {
       const res = await fetch(
-        `${API_BASE}/api/patient/${encodeURIComponent(patientId)}/messages`,
+        `${API_BASE}/api/patient/me/messages`,
         { headers: authHeaders() }
       );
       const json = await res.json().catch(() => ({}));
@@ -302,7 +319,7 @@ export default function MessagesScreen() {
       }
     } catch {}
     finally { if (!silent) setLoading(false); }
-  }, [token, patientId, authHeaders]);
+  }, [token, authHeaders]);
 
   useEffect(() => {
     markRead();
@@ -319,9 +336,16 @@ export default function MessagesScreen() {
     setSending(true);
     setText("");
     try {
+      const body: Record<string, string> = { text: msg, type: "text" };
+      if (user?.clinicId && String(user.clinicId).trim()) {
+        body.clinic_id = String(user.clinicId).trim();
+      }
+      if (user?.clinicCode && String(user.clinicCode).trim()) {
+        body.clinic_code = String(user.clinicCode).trim();
+      }
       const res = await fetch(
-        `${API_BASE}/api/patient/${encodeURIComponent(patientId)}/messages`,
-        { method: "POST", headers: authHeaders(), body: JSON.stringify({ text: msg, type: "text" }) }
+        `${API_BASE}/api/patient/messages`,
+        { method: "POST", headers: authHeaders(), body: JSON.stringify(body) }
       );
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -657,10 +681,9 @@ export default function MessagesScreen() {
         // ── Add AI result as a LOCAL message immediately ────────────────
         // The backend also inserts this into the DB, but insertMessageToSupabase
         // can fail silently when the patient has no clinic_id. Using a local
-        // message guarantees the AiResultBubble mounts right away, which is
-        // required for the simulation delivery paths (global callbacks / setMessages)
-        // to find the correct bubble.  The de-duplication in allMessages suppresses
-        // the local copy once fetchMessages brings the server version.
+        // message guarantees the AiResultBubble mounts right away.
+        // De-duplication in allMessages suppresses the local copy once fetchMessages
+        // brings the server version.
         const localAiMsgId = `ai_result_local_${Date.now()}`;
         const localAiMsg: Message = {
           id:        localAiMsgId,
@@ -670,163 +693,53 @@ export default function MessagesScreen() {
           createdAt: Date.now() + 500,
           _local:    true,
           attachment: {
+            name: "",
+            url: fileUrl,
+            mimeType: "image/jpeg",
+            fileType: "image",
             aiResult: {
               insights:       aiData.insights       ?? [],
               confidence:     aiData.confidence     ?? "medium",
               summary:        aiData.summary        ?? "",
               recommendation: aiData.recommendation ?? "",
               disclaimer:     aiData.disclaimer     ?? "",
-              originalImageUrl: fileUrl,            // ← must match simCacheKey
+              originalImageUrl: fileUrl,
               clinics:        aiData.clinics        ?? [],
+              issues:         Array.isArray(aiData.issues) ? aiData.issues : [],
+              treatments:     Array.isArray(aiData.treatments) ? aiData.treatments : [],
+              priceEstimate:
+                aiData.priceEstimate && typeof aiData.priceEstimate === "object"
+                  ? aiData.priceEstimate
+                  : {},
+              missingTooth:
+                aiData.missingTooth &&
+                typeof aiData.missingTooth === "object" &&
+                Array.isArray((aiData.missingTooth as MissingToothGuidance).options)
+                  ? (aiData.missingTooth as MissingToothGuidance)
+                  : undefined,
+              missingToothDetected:
+                typeof aiData.missingToothDetected === "boolean"
+                  ? aiData.missingToothDetected
+                  : !!(
+                      aiData.missingTooth &&
+                      typeof aiData.missingTooth === "object" &&
+                      Array.isArray((aiData.missingTooth as MissingToothGuidance).options)
+                    ),
+              missingToothConfidence:
+                (aiData.missingToothConfidence as AiResult["missingToothConfidence"]) ??
+                (aiData.missingTooth as MissingToothGuidance | undefined)?.confidence ??
+                null,
+              dentalCondition:
+                aiData.dentalCondition &&
+                typeof aiData.dentalCondition === "object" &&
+                typeof (aiData.dentalCondition as DentalConditionPayload).labelTr === "string"
+                  ? (aiData.dentalCondition as DentalConditionPayload)
+                  : undefined,
             },
           },
         };
         setLocalMessages(prev => [...prev, localAiMsg]);
         setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
-
-        // ── Fire smile simulation in background (async job pattern) ────
-        // Key insight: use the LOCAL message's stable ID (localAiMsgId) as the
-        // primary cache key — it never changes and directly targets the mounted
-        // AiResultBubble via msg.id lookup.
-        // We also store under the URL-base key so that server messages (fetched
-        // later from the DB) can still find the result via originalImageUrl.
-        const simMsgId  = localAiMsgId;             // primary: stable message ID
-        const simUrlKey = fileUrl.split("?")[0];    // fallback: URL base for server msgs
-        if (fileUrl && !_simCache.has(simMsgId) && !_simPending.has(simMsgId) && !_simFailed.has(simMsgId)) {
-          _simPending.add(simMsgId);
-          _latestSimKey = simMsgId; // only THIS photo shows simulation UI
-          _notifySimSubs(simMsgId); // show spinner immediately
-
-          setTimeout(async () => {
-            const msgId  = simMsgId;   // close over stable message ID
-            const urlKey = simUrlKey;  // close over URL key (server msg fallback)
-            let succeeded = false;
-            try {
-              // ── Step 1: Start the job ────────────────────────────────────
-              const startRes = await fetch(`${API_BASE}/api/chat/smile-simulation`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ patientId, imageUrl: fileUrl }),
-              });
-              const startData: Record<string, any> = await startRes.json().catch(() => ({}));
-
-              /**
-               * Commit the final simulation URL.
-               * Delivery paths:
-               *  1. _simCache[msgId]  → AiResultBubble.checkCache (by msg.id — reliable)
-               *  2. _simCache[urlKey] → AiResultBubble.checkCache (by URL — server msg fallback)
-               *  3. setLocalMessages  → stamps URL directly on the local bubble by ID
-               *  4. setMessages       → stamps URL on server bubble by URL (if message is in DB)
-               *  5. _notifyAllSimSubs → global callback triggers checkCache on every bubble
-               */
-              const commitSimResult = (simUrl: string, simVars: SimVariation[]) => {
-                console.log("FINAL SIM IMAGE:", simUrl.slice(0, 80));
-                console.log("[SIM] commit | msgId:", msgId.slice(0, 40), "| urlKey:", urlKey.slice(0, 60));
-
-                // Store under BOTH keys
-                _simCache.set(msgId, simUrl);
-                _simCache.set(urlKey, simUrl);
-                if (simVars.length > 0) {
-                  _simVariations.set(msgId, simVars);
-                  _simVariations.set(urlKey, simVars);
-                }
-
-                // ── Path 1: stamp local message by EXACT ID (always works) ──
-                setLocalMessages(prev => prev.map(m => {
-                  if (m.id !== msgId || !m.attachment?.aiResult) return m;
-                  console.log("[SIM] setLocalMessages: matched by msgId ✓");
-                  return {
-                    ...m,
-                    attachment: {
-                      ...m.attachment,
-                      aiResult: { ...m.attachment.aiResult, simulatedImageUrl: simUrl },
-                    },
-                  } as typeof m;
-                }));
-
-                // ── Path 2: stamp server message by URL (if DB insert succeeded) ──
-                setMessages(prev => {
-                  let matched = false;
-                  const next = prev.map(m => {
-                    if (matched || !m.attachment?.aiResult) return m;
-                    const mk = (m.attachment.aiResult.originalImageUrl ?? "").split("?")[0];
-                    if (mk === urlKey) {
-                      matched = true;
-                      return {
-                        ...m,
-                        attachment: {
-                          ...m.attachment,
-                          aiResult: { ...m.attachment.aiResult, simulatedImageUrl: simUrl },
-                        },
-                      } as typeof m;
-                    }
-                    return m;
-                  });
-                  if (matched) console.log("[SIM] setMessages: matched server message by URL ✓");
-                  return matched ? next : prev;
-                });
-
-                _notifyAllSimSubs();
-              };
-
-              // ── v6 compat: backend returned the image URL directly ─────────
-              if (startData.ok && startData.simulatedImageUrl) {
-                const simUrl: string = startData.simulatedImageUrl;
-                const simVars: SimVariation[] = Array.isArray(startData.variations) ? startData.variations : [];
-                commitSimResult(simUrl, simVars);
-                succeeded = true;
-                console.log("[SIM] Done (direct): replicate | variations:", simVars.length);
-                return; // goes to finally
-              }
-
-              // ── v7: backend returned a jobId — poll for result ────────────
-              console.log("[SIM] Start →", startData.ok ? `jobId: ${startData.jobId}` : `failed: ${startData.error}`);
-              if (!startData.ok || !startData.jobId) {
-                console.warn("[SIM] Could not start job:", JSON.stringify(startData));
-                return; // goes to finally
-              }
-
-              const { jobId } = startData;
-              const SIM_POLL_INTERVAL = 3000;
-              const SIM_MAX_POLLS     = 35; // 35 × 3 s = 105 s max
-              for (let i = 0; i < SIM_MAX_POLLS; i++) {
-                await new Promise(r => setTimeout(r, SIM_POLL_INTERVAL));
-                try {
-                  const statusRes = await fetch(`${API_BASE}/api/chat/sim-status/${jobId}`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                  });
-                  const statusData: Record<string, any> = await statusRes.json().catch(() => ({}));
-                  console.log(`[SIM POLL] ${i + 1}/${SIM_MAX_POLLS}: ${statusData.status ?? 'err'}`);
-                  if (statusData.status === "succeeded" && statusData.simulatedImageUrl) {
-                    const simUrl: string = statusData.simulatedImageUrl;
-                    const simVars: SimVariation[] = Array.isArray(statusData.variations) ? statusData.variations : [];
-                    commitSimResult(simUrl, simVars);
-                    succeeded = true;
-                    console.log("[SIM] Done (polled): replicate | variations:", simVars.length);
-                    break;
-                  }
-                  if (statusData.status === "failed") {
-                    if (statusData.rateLimited || statusData.billingRequired) {
-                      console.warn("[SIM] Rate-limited (429) — Replicate account needs more credit (needs ≥$5)");
-                    } else {
-                      console.warn("[SIM] Prediction failed:", statusData.error);
-                    }
-                    break;
-                  }
-                } catch (pollErr) {
-                  console.warn(`[SIM POLL ${i + 1}] error:`, (pollErr as Error)?.message);
-                }
-              }
-              if (!succeeded) console.warn("[SIM] Timed out or failed after polling");
-            } catch (e) {
-              console.warn("[SIM] Start error:", (e as Error)?.message);
-            } finally {
-              _simPending.delete(msgId);
-              if (!succeeded) _simFailed.add(msgId);
-              _notifyAllSimSubs(); // clear spinner even on failure
-            }
-          }, 1500);
-        }
       }
     } catch (e) {
       clearTimeout(aiTimeout);
@@ -843,16 +756,17 @@ export default function MessagesScreen() {
 
   const pickImage = async () => {
     if (!await checkUploadConsent()) return;
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
+    try {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
       Alert.alert(t("messages.permissionRequired"), t("messages.galleryPermission"));
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: "images",
-      // No quality here — compressImage() centralises all encoding at 1024px/0.75q
-      allowsMultipleSelection: true,   // ENABLE_MULTI_PHOTO_PROGRESS: each photo → own AI
-      selectionLimit: 5,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      // Android: multi-select can fail to open on some OS versions; iOS keeps multi
+      allowsMultipleSelection: Platform.OS === "ios",
+      selectionLimit: Platform.OS === "ios" ? 5 : 1,
     });
     if (!result.canceled && result.assets.length > 0) {
       // Process each photo independently (non-blocking: fire-and-forget per photo)
@@ -866,19 +780,24 @@ export default function MessagesScreen() {
         await new Promise(r => setTimeout(r, 200));
       }
     }
+    } catch (e) {
+      console.error("[pickImage]", e);
+      Alert.alert(t("common.error"), "Galeri açılamadı. İzinleri kontrol edip tekrar deneyin.");
+    }
   };
 
   // ── Camera capture for AI (used by auto-trigger and attach menu) ──────────
 
   const capturePhotoForAI = async () => {
     if (!await checkUploadConsent()) return;
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
+    try {
+    const camPerm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!camPerm.granted) {
       Alert.alert(t("messages.permissionRequired"), t("messages.cameraPermission") || "Kamera erişimine izin verin.");
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: "images",
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       // No quality param — compressImage() handles all encoding
     });
     if (!result.canceled && result.assets[0]) {
@@ -888,6 +807,10 @@ export default function MessagesScreen() {
         a.fileName || `photo_${Date.now()}.jpg`,
         a.mimeType || "image/jpeg"
       );
+    }
+    } catch (e) {
+      console.error("[capturePhotoForAI]", e);
+      Alert.alert(t("common.error"), "Kamera açılamadı. Lütfen tekrar deneyin.");
     }
   };
 
@@ -964,7 +887,7 @@ export default function MessagesScreen() {
       return;
     }
     // No quality param — compressImage() runs at upload time in submitIntraoralPhotos
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: "images" });
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
     if (!result.canceled && result.assets[0]) {
       const key = PHOTO_STEP_KEYS[intraoralStep]?.key;
       if (key) setIntraoralPhotos(prev => ({ ...prev, [key]: result.assets[0] }));
@@ -1082,7 +1005,12 @@ export default function MessagesScreen() {
             <TouchableOpacity
               style={s.noClinicSecondary}
               activeOpacity={0.85}
-              onPress={() => router.push("/clinic-onboarding" as any)}
+              onPress={async () => {
+                try {
+                  await AsyncStorage.removeItem(QUOTE_REQUEST_PREFILL_IMAGE_KEY);
+                } catch {}
+                router.push("/clinic-onboarding" as any);
+              }}
             >
               <Text style={s.noClinicSecondaryTxt}>🏥 Klinik Bul</Text>
             </TouchableOpacity>
@@ -1205,172 +1133,6 @@ function AiLoadingBubble() {
   );
 }
 
-// ─── BeforeAfterSlider ───────────────────────────────────────────────────────
-// Interactive drag-to-reveal comparison for original vs AI-simulated images.
-
-function BeforeAfterSlider({
-  beforeUrl,
-  afterUrl,
-}: {
-  beforeUrl: string;
-  afterUrl: string;
-}) {
-  const containerRef  = useRef<View>(null);
-  const containerX    = useRef(0);
-  // containerWRef is used by the pan responder (created once, needs .current).
-  // containerW state is used by the Before <Image> so it re-renders at the
-  // correct width after onLayout fires.
-  const containerWRef = useRef(280);
-  const [containerW, setContainerW] = useState(280);
-  const dividerAnim   = useRef(new Animated.Value(0.5)).current; // 0–1 ratio
-  const [ratio, setRatio] = useState(0.5);
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder:  () => true,
-      onPanResponderGrant: () => {},
-      onPanResponderMove: (_, gs) => {
-        const w   = containerWRef.current; // always up-to-date ref, not stale state
-        const raw = gs.moveX - containerX.current;
-        const clamped = Math.max(0.05, Math.min(0.95, raw / w));
-        dividerAnim.setValue(clamped);
-        setRatio(clamped);
-      },
-      onPanResponderRelease: () => {},
-    })
-  ).current;
-
-  return (
-    <View style={bas.wrapper}>
-      {/* Container that clips and compares the two images */}
-      <View
-        ref={containerRef}
-        style={bas.container}
-        onLayout={(e) => {
-          const w = e.nativeEvent.layout.width;
-          containerWRef.current = w; // for pan responder math
-          setContainerW(w);          // for Before image width (triggers re-render)
-          containerRef.current?.measure((_fx, _fy, _ww, _h, px) => {
-            containerX.current = px;
-          });
-        }}
-      >
-        {/* After image — full width, underneath */}
-        <Image
-          source={{ uri: afterUrl }}
-          style={[StyleSheet.absoluteFill, { borderRadius: bas.container.borderRadius }]}
-          resizeMode="cover"
-          onLoad={() => console.log("[SLIDER] After image loaded:", afterUrl.slice(0, 60))}
-          onError={(e) => console.warn("[SLIDER] After image FAILED:", afterUrl.slice(0, 60), e.nativeEvent.error)}
-        />
-
-        {/* Before image — clipped to left of divider */}
-        <Animated.View
-          style={[
-            StyleSheet.absoluteFill,
-            {
-              borderRadius: bas.container.borderRadius,
-              overflow: "hidden",
-              width: dividerAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: ["0%", "100%"],
-              }),
-            },
-          ]}
-        >
-          <Image
-            source={{ uri: beforeUrl }}
-            style={{ width: containerW, height: SLIDER_H }}
-            resizeMode="cover"
-            onLoad={() => console.log("[SLIDER] Before image loaded:", beforeUrl.slice(0, 60))}
-            onError={(e) => console.warn("[SLIDER] Before image FAILED:", beforeUrl.slice(0, 60), e.nativeEvent.error)}
-          />
-        </Animated.View>
-
-        {/* Divider line */}
-        <Animated.View
-          style={[
-            bas.divider,
-            {
-              left: dividerAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: ["0%", "100%"],
-              }),
-            },
-          ]}
-          {...panResponder.panHandlers}
-        >
-          <View style={bas.handle}>
-            <Text style={bas.handleArrows}>‹ ›</Text>
-          </View>
-        </Animated.View>
-
-        {/* Labels */}
-        <View style={bas.labelLeft} pointerEvents="none">
-          <Text style={bas.label}>Önce</Text>
-        </View>
-        <View style={bas.labelRight} pointerEvents="none">
-          <Text style={bas.label}>Sonra</Text>
-        </View>
-      </View>
-
-      <Text style={bas.simDisclaimer}>
-        Bu simülasyon gerçek tedavi sonuçlarına dayalıdır
-      </Text>
-    </View>
-  );
-}
-
-const SLIDER_H = Math.round(SCREEN_HEIGHT * 0.6);
-
-const bas = StyleSheet.create({
-  wrapper:   { gap: 6 },
-  container: {
-    width: "100%", height: SLIDER_H,
-    borderRadius: 12, overflow: "hidden",
-    backgroundColor: "#e5e7eb",
-  },
-  divider: {
-    position: "absolute",
-    top: 0, bottom: 0,
-    width: 3,
-    backgroundColor: "#fff",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.35,
-    shadowRadius: 4,
-    elevation: 6,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  handle: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: "#fff",
-    justifyContent: "center", alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.25, shadowRadius: 4, elevation: 8,
-  },
-  handleArrows: { fontSize: 15, fontWeight: "700", color: "#374151", lineHeight: 18 },
-  labelLeft: {
-    position: "absolute", top: 8, left: 8,
-  },
-  labelRight: {
-    position: "absolute", top: 8, right: 8,
-  },
-  label: {
-    backgroundColor: "rgba(0,0,0,0.55)",
-    color: "#fff", fontSize: 11, fontWeight: "700",
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
-    textTransform: "uppercase", letterSpacing: 0.5,
-    overflow: "hidden",
-  },
-  simDisclaimer: {
-    fontSize: 10, color: "#9ca3af", fontStyle: "italic", textAlign: "center",
-  },
-});
-
 // ─── AiResultBubble ───────────────────────────────────────────────────────────
 
 const CONFIDENCE_COLOR: Record<string, string> = {
@@ -1428,6 +1190,50 @@ function ClinicSelectorModal({
   );
 }
 
+// ── AI result UX helpers (clinical tone + pricing) ───────────────────────────
+
+const DEFAULT_TREATMENT_SUGGESTIONS: { icon: string; label: string }[] = [
+  { icon: "🦷", label: "Diş taşı temizliği (detartraj)" },
+  { icon: "✨", label: "Diş beyazlatma (opsiyonel)" },
+  { icon: "↔️", label: "Ortodontik değerlendirme (çapraşıklık için)" },
+];
+
+function parseUsdRange(s: string): { lo: number; hi: number } | null {
+  const m = String(s).replace(/,/g, "").match(/(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)/);
+  if (!m) return null;
+  return { lo: parseFloat(m[1]), hi: parseFloat(m[2]) };
+}
+
+/** Aggregates backend per-category $ ranges into one band for display. */
+function aggregatePriceEstimateLabel(pe: Record<string, string> | undefined): string | null {
+  if (!pe || Object.keys(pe).length === 0) return null;
+  let min = Infinity;
+  let max = -Infinity;
+  let any = false;
+  for (const v of Object.values(pe)) {
+    const r = parseUsdRange(v);
+    if (r) {
+      any = true;
+      min = Math.min(min, r.lo);
+      max = Math.max(max, r.hi);
+    }
+  }
+  if (!any || !Number.isFinite(min) || !Number.isFinite(max)) return null;
+  return `${Math.round(min)} – ${Math.round(max)} USD`;
+}
+
+/** Softer hedge → more assertive clinical phrasing for on-screen readout. */
+function strengthenInsightForUi(line: string): string {
+  let t = line.trim();
+  if (!t) return t;
+  t = t.replace(/\s+olarak\s+görünüyor\.?$/i, " tespit edildi.");
+  t = t.replace(/\s+görünüyor\.?$/i, " tespit edildi.");
+  t = t.replace(/\s+gibi\s+görünüyor\.?$/i, " gözlemlenmiştir.");
+  t = t.replace(/\s+gibi\s+görünüyor\b/gi, " gözlemlenmiştir");
+  if (!/[.!?…]$/.test(t)) t += ".";
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 // ── Main bubble ───────────────────────────────────────────────────────────────
 
 function AiResultBubble({ msg }: { msg: Message }) {
@@ -1436,220 +1242,239 @@ function AiResultBubble({ msg }: { msg: Message }) {
   const token = user?.token;
   const router = useRouter();
 
-  const imgUrl  = result?.originalImageUrl ?? "";
-  // Primary key: stable message ID (matches _simCache set by commitSimResult).
-  // Fallback key: URL base (for server messages whose ID differs from localAiMsgId).
-  const msgKey  = msg.id;
-  const urlKey  = imgUrl.split("?")[0];
+  const imgUrl = result?.originalImageUrl ?? "";
+  const msgKey = msg.id;
 
-  const _cached = _simCache.get(msgKey) ?? _simCache.get(urlKey) ?? null;
-
-  // ── Simulation state — initialised from bridge cache or stored result ─
-  const [simUrl, setSimUrl]             = useState<string | null>(
-    _cached ?? result?.simulatedImageUrl ?? null
-  );
-  const [simVariations, setSimVariations] = useState<SimVariation[]>(
-    _simVariations.get(msgKey) ?? _simVariations.get(urlKey) ?? []
-  );
-  const [activeVariation, setActiveVariation] = useState<string>('balanced');
-  // Only the latest photo's bubble shows a spinner or result.
-  const isLatest = msgKey === _latestSimKey || (!msgKey && urlKey === _latestSimKey);
-  const [simLoading, setSimLoading]     = useState(
-    isLatest && !_cached && (_simPending.has(msgKey) || _simPending.has(urlKey))
-  );
-  const [simTriggered, setSimTriggered] = useState(
-    isLatest && (!!_cached || !!result?.simulatedImageUrl || _simPending.has(msgKey) || _simPending.has(urlKey))
-  );
-  // Set to true when backend returns 429 — shows "try again" hint instead of generic error
-  const rateLimitedRef = useRef(false);
-
-  // ── Primary path: react to direct state injection from processPhotoWithAI ─
-  // commitSimResult stamps simulatedImageUrl onto the message object in React
-  // state.  This effect picks it up regardless of _latestSimKey so the result
-  // is never blocked by a stale key comparison.
-  useEffect(() => {
-    const injected = result?.simulatedImageUrl;
-    if (injected && injected !== simUrl) {
-      console.log("[SIM] Injected via message state:", injected.slice(0, 60));
-      setSimUrl(injected);
-      setSimLoading(false);
-      setSimTriggered(true);
-    }
-  }, [result?.simulatedImageUrl]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Fallback: global callback + poll + keyed subscription ─────────────────
-  useEffect(() => {
-    // Primary lookup key = message ID (set by commitSimResult → _simCache.set(msgId))
-    // Fallback lookup key = URL base (for server messages with DB-generated IDs)
-    const id  = msg.id;
-    const url = imgUrl.split("?")[0];
-    const isLatestKey = id === _latestSimKey || (!id && url === _latestSimKey);
-    console.log("[SIM] Bubble mounted | msgId:", id.slice(0, 40), "| isLatest:", isLatestKey);
-
-    function applySimUrl(simUrlVal: string, vars: SimVariation[]) {
-      console.log("[SIM] Applying URL:", simUrlVal.slice(0, 80));
-      setSimUrl(simUrlVal);
-      if (vars.length > 0) setSimVariations(vars);
-      setSimLoading(false);
-      setSimTriggered(true);
-    }
-
-    /** Check _simCache by msg.id first, then by URL key as fallback. */
-    function checkCache(): boolean {
-      const byId  = id  ? _simCache.get(id)  : null;
-      const byUrl = url ? _simCache.get(url) : null;
-      const cached = byId || byUrl;
-      if (cached) {
-        const vars = _simVariations.get(id) ?? _simVariations.get(url) ?? [];
-        applySimUrl(cached, vars);
-        return true;
-      }
-      return false;
-    }
-
-    // Deliver any already-completed result immediately on mount.
-    if (checkCache()) return;
-
-    // ── For old messages: no spinner, no new-sim listeners ────────────────
-    if (!isLatestKey) return;
-
-    // Show spinner if simulation is in-flight.
-    if (_simPending.has(id) || _simPending.has(url)) { setSimLoading(true); setSimTriggered(true); }
-
-    // ── Global callback: fired by _notifyAllSimSubs() when any sim finishes ──
-    const onGlobalSim = () => {
-      if (checkCache()) return;
-      const noPending = !_simPending.has(id) && !_simPending.has(url);
-      const noCache   = !_simCache.has(id) && !_simCache.has(url);
-      if (noPending && noCache) setSimLoading(false);
-    };
-    _globalSimCallbacks.add(onGlobalSim);
-
-    // ── Keyed subscriptions (both ID and URL keys) ─────────────────────────
-    const unsubId  = subscribeSimUrl(id, () => {
-      const u = _simCache.get(id) ?? null;
-      const v = _simVariations.get(id) ?? [];
-      if (u) applySimUrl(u, v);
-      else if (_simFailed.has(id)) { setSimLoading(false); setSimTriggered(false); }
-    });
-    const unsubUrl = url ? subscribeSimUrl(url, () => {
-      const u = _simCache.get(url) ?? null;
-      const v = _simVariations.get(url) ?? [];
-      if (u) applySimUrl(u, v);
-      else if (_simFailed.has(url)) { setSimLoading(false); setSimTriggered(false); }
-    }) : () => {};
-
-    // ── Poll every 2 s as a last-resort fallback ───────────────────────────
-    const poll = setInterval(() => {
-      if (checkCache()) { clearInterval(poll); return; }
-      if (isLatestKey && (_simPending.has(id) || _simPending.has(url))) {
-        setSimLoading(true); setSimTriggered(true);
-      }
-    }, 2000);
-
-    return () => {
-      _globalSimCallbacks.delete(onGlobalSim);
-      clearInterval(poll);
-      unsubId();
-      unsubUrl();
-    };
-  }, [msg.id, imgUrl]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Clinic picker ────────────────────────────────────────────────────
+  const [offerLeadLoading, setOfferLeadLoading] = useState(false);
+  const [offerLeadSent, setOfferLeadSent] = useState(false);
   const [showClinicModal, setShowClinicModal] = useState(false);
 
-  // ── Manual simulation trigger (retry button) — uses async job pattern ─
-  const triggerSimulation = useCallback(async () => {
-    if (simLoading || !imgUrl) return;
-    const ck = imgUrl.split("?")[0];
-    _simFailed.delete(ck);
-    setSimTriggered(true);
-    setSimLoading(true);
-    _simPending.add(ck);
+  const [toothColorPreset, setToothColorPreset] = useState<ToothColorPreset>("natural");
+  const [simulatedSmileUrl, setSimulatedSmileUrl] = useState<string | null>(
+    result?.simulatedImageUrl ?? null
+  );
+  /** Sunucudan hazır görsel varsa veya kullanıcı “başlat” dediyse true — otomatik istek yok. */
+  const [smileSimStarted, setSmileSimStarted] = useState(() => !!result?.simulatedImageUrl);
+  const [smileSimRetryNonce, setSmileSimRetryNonce] = useState(0);
+  const [smileSimLoading, setSmileSimLoading] = useState(false);
+  const [smileSimError, setSmileSimError] = useState<string | null>(null);
+  const smileSimRequestSeq = useRef(0);
+  /** Sunucu zaten simulatedImageUrl verdiyse ilk effect turunda tekrar POST atma. */
+  const smileSimSkipFetchOnce = useRef(!!result?.simulatedImageUrl);
 
-    let succeeded = false;
-    try {
-      // Step 1: start job
-      const startRes = await fetch(`${API_BASE}/api/chat/smile-simulation`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ patientId: user?.patientId, imageUrl: imgUrl }),
-      });
-      const startData: Record<string, any> = await startRes.json().catch(() => ({}));
-
-      // v6 compat: direct result
-      if (startData.ok && startData.simulatedImageUrl) {
-        const simVars: SimVariation[] = Array.isArray(startData.variations) ? startData.variations : [];
-        _simCache.set(ck, startData.simulatedImageUrl);
-        if (simVars.length > 0) { _simVariations.set(ck, simVars); setSimVariations(simVars); }
-        setSimUrl(startData.simulatedImageUrl);
-        succeeded = true;
-      } else if (startData.ok && startData.jobId) {
-        // v7: poll for result
-        const { jobId } = startData;
-        for (let i = 0; i < 35; i++) {
-          await new Promise(r => setTimeout(r, 3000));
-          try {
-            const statusRes = await fetch(`${API_BASE}/api/chat/sim-status/${jobId}`, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            const statusData: Record<string, any> = await statusRes.json().catch(() => ({}));
-            if (statusData.status === "succeeded" && statusData.simulatedImageUrl) {
-              const simVars: SimVariation[] = Array.isArray(statusData.variations) ? statusData.variations : [];
-              _simCache.set(ck, statusData.simulatedImageUrl);
-              if (simVars.length > 0) { _simVariations.set(ck, simVars); setSimVariations(simVars); }
-              setSimUrl(statusData.simulatedImageUrl);
-              succeeded = true;
-              break;
-            }
-            if (statusData.status === "failed") {
-              if (statusData.rateLimited || statusData.billingRequired) {
-                console.warn("[SIM manual] Rate-limited (429) — add Replicate credit to proceed");
-                rateLimitedRef.current = true;
-              } else {
-                console.warn("[SIM manual] Prediction failed:", statusData.error);
-              }
-              break;
-            }
-          } catch (pe) {
-            console.warn("[SIM manual poll]", (pe as Error)?.message);
-          }
-        }
-        if (!succeeded) console.warn("[SIM manual] Timed out or failed after polling");
-      } else {
-        if (startData.rateLimited || startData.billingRequired) {
-          rateLimitedRef.current = true;
-          console.warn("[SIM manual] Rate-limited on job start");
-        } else {
-          console.warn("[SIM manual] Start failed:", startData.error);
-        }
-      }
-    } catch (e) {
-      console.warn("[SIM manual] Start error:", (e as Error)?.message);
-    } finally {
-      _simPending.delete(ck);
-      if (!succeeded) { _simFailed.add(ck); setSimTriggered(false); }
-      setSimLoading(false);
+  useEffect(() => {
+    if (!result?.originalImageUrl || !user?.patientId || !smileSimStarted) return;
+    if (smileSimSkipFetchOnce.current) {
+      smileSimSkipFetchOnce.current = false;
+      return;
     }
-  }, [simLoading, imgUrl, token, user]);
+    const seq = ++smileSimRequestSeq.current;
+    setSmileSimLoading(true);
+    setSmileSimError(null);
+    runSmileSimulationWithImageUrl(
+      result.originalImageUrl,
+      toothColorPreset,
+      user.patientId,
+      "full"
+    )
+      .then((r) => {
+        if (seq !== smileSimRequestSeq.current) return;
+        setSmileSimLoading(false);
+        if (r.ok && r.simulatedImageUrl) {
+          setSimulatedSmileUrl(r.simulatedImageUrl);
+          console.log("[SIM] Applying URL:", (r.simulatedImageUrl || "").slice(0, 80));
+        } else {
+          setSmileSimError(r.error || "simulation_failed");
+        }
+      })
+      .catch((e) => {
+        if (seq !== smileSimRequestSeq.current) return;
+        setSmileSimLoading(false);
+        setSmileSimError(String((e as Error)?.message || e));
+      });
+  }, [
+    result?.originalImageUrl,
+    user?.patientId,
+    toothColorPreset,
+    msgKey,
+    smileSimStarted,
+    smileSimRetryNonce,
+  ]);
+
+  const submitOfferLead = useCallback(async () => {
+    if (!user?.patientId || !token) {
+      Alert.alert("Giriş gerekli", "Teklif göndermek için oturum açın.");
+      return;
+    }
+    if (offerLeadSent) return;
+    setOfferLeadLoading(true);
+    try {
+      const country = (await AsyncStorage.getItem(PREFERRED_DESTINATION_KEY)) || "unknown";
+      const treatments = result?.treatments ?? [];
+      const preferred =
+        treatments.length > 0 ? treatments.slice(0, 12).join(", ") : "Çoklu tedavi — AI önerisi";
+
+      const descLines: string[] = ["[Cliniflow AI analiz — teklif talebi]"];
+      if (country && country !== "unknown") {
+        descLines.push(`Tercih edilen bölge: ${country}`);
+      }
+      for (const line of result?.insights ?? []) {
+        if (descLines.length >= 14) break;
+        if (line?.trim()) descLines.push(line.trim());
+      }
+      if (result?.summary?.trim()) descLines.push(result.summary.trim());
+      if (result?.recommendation?.trim()) descLines.push(result.recommendation.trim());
+      const description = descLines.join("\n").slice(0, 12000) || "AI ile oluşturulan tedavi talebi";
+
+      const priceBand = aggregatePriceEstimateLabel(result?.priceEstimate);
+      const budgetStr = priceBand ? `Tahmini aralık (AI): ${priceBand}` : undefined;
+
+      const resolveAbsUrl = (u: string | undefined | null) => {
+        const s = String(u || "").trim();
+        if (!s) return null;
+        if (/^https?:\/\//i.test(s)) return s;
+        return `${API_BASE}${s.startsWith("/") ? "" : "/"}${s}`;
+      };
+      const photoCandidates = [
+        resolveAbsUrl(imgUrl),
+        resolveAbsUrl(result?.originalImageUrl),
+        resolveAbsUrl(simulatedSmileUrl),
+      ]
+        .filter((u): u is string => Boolean(u))
+        .slice(0, 6);
+      const photo_urls = photoCandidates.length > 0 ? photoCandidates : undefined;
+
+      const hasClinic = Boolean(
+        (user.clinicId && String(user.clinicId).trim()) ||
+          (user.clinicCode && String(user.clinicCode).trim())
+      );
+
+      const postTreatmentRequest = async () => {
+        const body: Record<string, unknown> = {
+          description,
+          preferred_treatment: preferred,
+        };
+        if (user.clinicId && String(user.clinicId).trim()) {
+          body.clinic_id = String(user.clinicId).trim();
+        }
+        if (user.clinicCode && String(user.clinicCode).trim()) {
+          body.clinic_code = String(user.clinicCode).trim();
+        }
+        if (budgetStr) body.budget = budgetStr;
+        if (photo_urls) body.photo_urls = photo_urls;
+
+        return fetch(`${API_BASE}/api/patient/treatment-requests`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+      };
+
+      const postLeadsFallback = async () => {
+        const res = await fetch(`${API_BASE}/api/leads`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            userId: user.patientId,
+            treatments,
+            country,
+            imageUrl: imgUrl || result?.originalImageUrl || "",
+          }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(
+            typeof j.message === "string" ? j.message : String(j.error || "İstek başarısız")
+          );
+        }
+        return j;
+      };
+
+      if (hasClinic) {
+        const trRes = await postTreatmentRequest();
+        const trJ = await trRes.json().catch(() => ({}));
+        if (trRes.ok && trJ.ok === true) {
+          setOfferLeadSent(true);
+          Alert.alert(
+            "Talebiniz kliniğe iletildi",
+            "Tedavi talebiniz bağlı olduğunuz kliniğin doktor paneline düştü. Yanıtları uygulamadaki talepler bölümünden takip edebilirsiniz."
+          );
+          return;
+        }
+        const errCode = trJ.error || trJ.code;
+        if (trRes.status === 422 || errCode === "CLINIC_NOT_RESOLVED") {
+          await postLeadsFallback();
+          setOfferLeadSent(true);
+          Alert.alert(
+            "Talebiniz kaydedildi (genel havuz)",
+            "Klinik eşlemesi net olmadığı için talep önce Cliniflow genel kaydına alındı; ekibimiz uygun klinikle iletişime geçebilir. Profilinizde klinik seçtiğinizden emin olun veya klinik kodunu güncelleyin."
+          );
+          return;
+        }
+        throw new Error(
+          typeof trJ.message === "string"
+            ? trJ.message
+            : String(trJ.error || "Tedavi talebi gönderilemedi")
+        );
+      }
+
+      await postLeadsFallback();
+      setOfferLeadSent(true);
+      Alert.alert(
+        "Talebiniz kaydedildi",
+        "Profilinize henüz klinik eklenmediyse talep doğrudan klinik sistemine düşmez. Kayıt Cliniflow ekibinin eşleştirme havuzuna alındı. Klinikle çalışmak için kayıtta veya profilde kliniğinizi seçin; ardından tekrar “teklif talebi” gönderebilirsiniz."
+      );
+    } catch (e) {
+      Alert.alert("Hata", String((e as Error)?.message || "Teklif gönderilemedi"));
+    } finally {
+      setOfferLeadLoading(false);
+    }
+  }, [
+    user?.patientId,
+    user?.clinicId,
+    user?.clinicCode,
+    token,
+    result?.treatments,
+    result?.insights,
+    result?.summary,
+    result?.recommendation,
+    result?.priceEstimate,
+    result?.originalImageUrl,
+    imgUrl,
+    simulatedSmileUrl,
+    offerLeadSent,
+  ]);
+
+  useEffect(() => {
+    setOfferLeadSent(false);
+  }, [msgKey]);
 
   if (!result) return null;
 
   const resolveUrl = (url: string) =>
     url.startsWith("http") ? url : `${API_BASE}${url}`;
 
-  // If only the fallback variation is present, treat it as no simulation (hide slider tabs)
-  const isFallbackOnly = simVariations.length === 1 && simVariations[0].id === 'original';
-
-  // Active variation URL: prefer the selected variation; fall back to primary simUrl
-  const activeSimUrl = (!isFallbackOnly && simVariations.length > 0)
-    ? (simVariations.find(v => v.id === activeVariation) ?? simVariations[0])?.url ?? simUrl
-    : simUrl;
-
-  const hasSimulation = !!activeSimUrl && activeSimUrl !== (result.originalImageUrl ?? "");
-  if (simUrl) console.log("[SIM RENDER] simUrl:", simUrl.slice(0, 60), "| activeSimUrl:", activeSimUrl?.slice(0, 60), "| hasSimulation:", hasSimulation);
   const conf = result.confidence ?? "medium";
   const visibleInsights = (result.insights ?? []).slice(0, 3);
+  const clinicalInsights = visibleInsights.map(strengthenInsightForUi);
+  const priceBand = aggregatePriceEstimateLabel(result.priceEstimate);
+  const treatmentRows =
+    (result.treatments ?? []).length > 0
+      ? (result.treatments ?? []).map((label, i) => ({
+          icon: ["🦷", "✨", "↔️", "🩺", "💎"][i % 5],
+          label,
+        }))
+      : DEFAULT_TREATMENT_SUGGESTIONS;
+  const showBackendIssues =
+    clinicalInsights.length === 0 && (result.issues ?? []).length > 0;
 
   // Prefill message sent to clinic
   const prefillMessage = [
@@ -1672,6 +1497,16 @@ function AiResultBubble({ msg }: { msg: Message }) {
     triggerClinicContact(prefillMessage);
   };
 
+  /** Teklif / klinik akışına giderken analiz veya simülasyon görselini quote-request için sakla. */
+  const goToClinicOnboardingForQuote = useCallback(async () => {
+    const url = (simulatedSmileUrl || result?.originalImageUrl || "").trim();
+    try {
+      if (url) await AsyncStorage.setItem(QUOTE_REQUEST_PREFILL_IMAGE_KEY, url);
+      else await AsyncStorage.removeItem(QUOTE_REQUEST_PREFILL_IMAGE_KEY);
+    } catch {}
+    router.push("/clinic-onboarding" as any);
+  }, [simulatedSmileUrl, result?.originalImageUrl, router]);
+
   return (
     <View style={[s.bubbleWrap, s.bubbleLeft]}>
       <Text style={s.bubbleFrom}>AI</Text>
@@ -1679,7 +1514,7 @@ function AiResultBubble({ msg }: { msg: Message }) {
 
         {/* ── Header ── */}
         <View style={ai.header}>
-          <Text style={ai.headerTitle}>✨ Yeni Gülüşün</Text>
+          <Text style={ai.headerTitle}>Klinifly Diş Analizi</Text>
           {result.confidence && (
             <View style={[ai.confidenceBadge, { backgroundColor: CONFIDENCE_COLOR[conf] + "22" }]}>
               <Text style={[ai.confidenceText, { color: CONFIDENCE_COLOR[conf] }]}>
@@ -1689,37 +1524,8 @@ function AiResultBubble({ msg }: { msg: Message }) {
           )}
         </View>
 
-        {/* ── 1. Simulation: slider + variation tabs / loading / image + CTA ── */}
-        {hasSimulation ? (
-          <View>
-            {/* Variation pill tabs — only show when we have real AI variations */}
-            {simVariations.length > 1 && !isFallbackOnly && (
-              <View style={ai.varTabRow}>
-                {simVariations.map(v => (
-                  <TouchableOpacity
-                    key={v.id}
-                    style={[ai.varTab, activeVariation === v.id && ai.varTabActive]}
-                    onPress={() => setActiveVariation(v.id)}
-                    activeOpacity={0.75}
-                  >
-                    <Text style={[ai.varTabText, activeVariation === v.id && ai.varTabTextActive]}>
-                      {v.id === 'balanced' ? `${v.label} ⭐` : v.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-            <BeforeAfterSlider
-              beforeUrl={resolveUrl(result.originalImageUrl!)}
-              afterUrl={resolveUrl(activeSimUrl!)}
-            />
-          </View>
-        ) : simLoading ? (
-          <View style={ai.simLoadingBox}>
-            <ActivityIndicator size="small" color="#6366f1" />
-            <Text style={ai.simLoadingText}>3 gülüş varyasyonu oluşturuluyor…</Text>
-          </View>
-        ) : result.originalImageUrl ? (
+        {/* ── 1. Yalnızca analiz edilen fotoğraf (orijinal) ── */}
+        {result.originalImageUrl ? (
           <View>
             <TouchableOpacity
               activeOpacity={0.85}
@@ -1733,81 +1539,215 @@ function AiResultBubble({ msg }: { msg: Message }) {
                 onError={(e) => console.warn("[IMG] AI original FAILED:", resolveUrl(result.originalImageUrl!).slice(0, 60), e.nativeEvent.error)}
               />
             </TouchableOpacity>
-            {!simTriggered && rateLimitedRef.current && (
-              <View style={ai.rateLimitBanner}>
-                <Text style={ai.rateLimitText}>
-                  Simülasyon geçici olarak yavaşlatıldı. Birkaç saniye bekleyip tekrar deneyin.
+          </View>
+        ) : null}
+
+        {/* Gülüş simülasyonu — backend Stage 1 structure + Stage 2 COLOR_PRESETS */}
+        {result.originalImageUrl ? (
+          <View style={ai.optionalToneSection}>
+            <Text style={ai.optionalToneTitle}>Gülüş simülasyonu</Text>
+            {!smileSimStarted ? (
+              <>
+                <Text style={ai.optionalToneHint}>
+                  İsterseniz bu fotoğraf için gülüş görünümü hazırlanır; ağ isteği yalnızca siz başlattığınızda çalışır.
                 </Text>
                 <TouchableOpacity
-                  style={[ai.simCtaBtn, { marginTop: 6 }]}
-                  onPress={() => { rateLimitedRef.current = false; triggerSimulation(); }}
-                  activeOpacity={0.8}
+                  style={ai.smileSimStartBtn}
+                  onPress={() => setSmileSimStarted(true)}
+                  disabled={!user?.patientId}
+                  activeOpacity={0.88}
                 >
-                  <Text style={ai.simCtaText}>Tekrar Dene</Text>
+                  <Text style={ai.smileSimStartBtnText}>Simülasyonu başlat</Text>
                 </TouchableOpacity>
-              </View>
-            )}
-            {!simTriggered && !rateLimitedRef.current && (
-              <TouchableOpacity
-                style={ai.simCtaBtn}
-                onPress={triggerSimulation}
-                activeOpacity={0.8}
-              >
-                <Text style={ai.simCtaText}>👁 Gülüşümü nasıl görünecek?</Text>
-              </TouchableOpacity>
+                {!user?.patientId ? (
+                  <Text style={{ fontSize: 11, color: "#9ca3af" }}>Giriş yapmanız gerekir.</Text>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <Text style={ai.optionalToneHint}>
+                  Ton değiştirince aynı fotoğraf için yeniden işlenir; yalnızca diş maskesi renklendirilir.
+                </Text>
+                <ToothColorSelector
+                  selected={toothColorPreset}
+                  onChange={setToothColorPreset}
+                  isLoading={smileSimLoading}
+                  disabled={!user?.patientId || smileSimLoading}
+                />
+                {smileSimError ? (
+                  <View>
+                    <Text style={{ fontSize: 12, color: "#b91c1c" }}>{smileSimError}</Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setSmileSimLoading(false);
+                        setSmileSimError(null);
+                        setSmileSimRetryNonce((n) => n + 1);
+                      }}
+                      style={{ marginTop: 8, alignSelf: "flex-start" }}
+                    >
+                      <Text style={{ fontSize: 13, color: "#4f46e5", fontWeight: "600" }}>Tekrar dene</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+                {simulatedSmileUrl ? (
+                  <View style={ai.beforeAfterRow}>
+                    <View style={ai.beforeAfterItem}>
+                      <Text style={ai.beforeAfterLabel}>Önce</Text>
+                      <Image
+                        source={{ uri: resolveUrl(result.originalImageUrl!) }}
+                        style={ai.halfImage}
+                        resizeMode="cover"
+                        onLoad={() =>
+                          console.log("[SLIDER] Before image loaded:", resolveUrl(result.originalImageUrl!).slice(0, 60))
+                        }
+                      />
+                    </View>
+                    <View style={ai.beforeAfterItem}>
+                      <Text style={ai.beforeAfterLabel}>Sonra</Text>
+                      <Image
+                        source={{ uri: resolveUrl(simulatedSmileUrl) }}
+                        style={ai.halfImage}
+                        resizeMode="cover"
+                        onLoad={() =>
+                          console.log("[SLIDER] After image loaded:", resolveUrl(simulatedSmileUrl).slice(0, 60))
+                        }
+                      />
+                    </View>
+                  </View>
+                ) : smileSimLoading ? (
+                  <View style={{ paddingVertical: 8, alignItems: "center" }}>
+                    <ActivityIndicator color="#4CAF50" />
+                    <Text style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>Simülasyon hazırlanıyor…</Text>
+                  </View>
+                ) : null}
+              </>
             )}
           </View>
         ) : null}
 
-        {/* ── 2. Insights (max 3) ── */}
-        {visibleInsights.length > 0 && (
-          <View style={ai.insightsBlock}>
-            {visibleInsights.map((insight, i) => (
-              <View key={i} style={ai.insightRow}>
-                <Text style={ai.bullet}>•</Text>
-                <Text style={ai.insightText}>{insight}</Text>
+        {/* ── 2. AI Dental Analysis ── */}
+        <View style={ai.analysisCard}>
+          <Text style={ai.analysisSectionTitle}>AI Dental Analysis</Text>
+          {clinicalInsights.length > 0 ? (
+            <View style={ai.analysisList}>
+              {clinicalInsights.map((line, i) => (
+                <View key={i} style={ai.analysisRow}>
+                  <Text style={ai.analysisIndex}>{i + 1}.</Text>
+                  <Text style={ai.analysisLine}>{line}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={ai.analysisPlaceholder}>
+              Kişisel tedavi planınızı oluşturmak için devam edin.
+            </Text>
+          )}
+          <Text style={ai.analysisDisclaimer}>
+            Bu analiz AI tarafından oluşturulmuştur ve kesin teşhis değildir.
+          </Text>
+        </View>
+
+        {/* ── 3. Klinik özet blokları (koşullu) ── */}
+        <View style={ai.treatmentBox}>
+          {result.dentalCondition && !result.missingTooth && (
+            <View style={ai.dentalConditionBanner}>
+              <Text style={ai.dentalConditionText}>{result.dentalCondition.labelTr}</Text>
+            </View>
+          )}
+
+          {result.missingTooth && (
+            <View style={ai.missingToothBlock}>
+              <Text style={ai.missingToothHeadline}>{result.missingTooth.headline}</Text>
+              {result.missingTooth.options.map((opt, i) => (
+                <View key={`mt-${i}`} style={[ai.missingToothOption, i > 0 && ai.missingToothOptionSep]}>
+                  <Text style={ai.missingToothOptionTitle}>{opt.title}</Text>
+                  <Text style={ai.missingToothOptionExpl}>{opt.explanation}</Text>
+                  <Text style={ai.missingToothOptionPrice}>{opt.price}</Text>
+                </View>
+              ))}
+              <Text style={ai.missingToothPlanDisclaimer}>{result.missingTooth.disclaimer}</Text>
+            </View>
+          )}
+
+          {showBackendIssues && (
+            <>
+              <Text style={ai.treatmentSubLabel}>Özet bulgular</Text>
+              {(result.issues ?? []).map((line, i) => (
+                <View key={`iss-${i}`} style={ai.treatmentRow}>
+                  <Text style={ai.treatmentBullet}>•</Text>
+                  <Text style={ai.treatmentItem}>{line}</Text>
+                </View>
+              ))}
+            </>
+          )}
+
+          {/* ── Önerilen Tedaviler ── */}
+          <Text style={[ai.treatmentSectionTitle, { marginTop: result.missingTooth || result.dentalCondition || showBackendIssues ? 12 : 0 }]}>
+            Önerilen Tedaviler
+          </Text>
+          <View style={ai.treatmentSuggestList}>
+            {treatmentRows.map((row, i) => (
+              <View key={`tr-${i}`} style={ai.treatmentSuggestRow}>
+                <Text style={ai.treatmentSuggestIcon}>{row.icon}</Text>
+                <Text style={ai.treatmentSuggestLabel}>{row.label}</Text>
               </View>
             ))}
           </View>
-        )}
 
-        {/* ── 3. Recommended treatments ── */}
-        <View style={ai.treatmentBox}>
-          <Text style={ai.treatmentTitle}>💡 Önerilen Tedavi</Text>
-          <View style={ai.treatmentRow}>
-            <Text style={ai.treatmentBullet}>•</Text>
-            <Text style={ai.treatmentItem}>Diş Beyazlatma</Text>
-            <Text style={ai.treatmentPrice}>200 – 400 $</Text>
+          {/* ── Yaklaşık fiyat ── */}
+          <View style={ai.priceCard}>
+            <Text style={ai.priceCardTitle}>Yaklaşık Fiyat Aralığı</Text>
+            {priceBand ? (
+              <Text style={ai.priceCardValue}>{priceBand}</Text>
+            ) : result.priceEstimate && Object.keys(result.priceEstimate).length > 0 ? (
+              <>
+                {Object.entries(result.priceEstimate).map(([k, v]) => (
+                  <View key={k} style={ai.priceDetailRow}>
+                    <Text style={ai.priceDetailCat}>{priceEstimateLabel(k)}</Text>
+                    <Text style={ai.priceDetailVal}>{String(v)}</Text>
+                  </View>
+                ))}
+              </>
+            ) : (
+              <Text style={ai.priceCardHint}>
+                Kişiselleştirilmiş aralık için detaylı plan oluşturun.
+              </Text>
+            )}
           </View>
-          <View style={ai.treatmentRow}>
-            <Text style={ai.treatmentBullet}>•</Text>
-            <Text style={ai.treatmentItem}>Şeffaf Plak</Text>
-            <Text style={ai.treatmentPrice}>2.500 – 4.000 $</Text>
-          </View>
+
+          {/* ── CTA akışı ── */}
+          <TouchableOpacity
+            style={ai.ctaPrimary}
+            onPress={() => void goToClinicOnboardingForQuote()}
+            activeOpacity={0.88}
+          >
+            <Text style={ai.ctaPrimaryText}>Detaylı Tedavi Planı Oluştur</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[ai.ctaSecondary, offerLeadSent && ai.ctaSecondarySent]}
+            onPress={submitOfferLead}
+            disabled={offerLeadLoading || offerLeadSent}
+            activeOpacity={0.88}
+          >
+            {offerLeadLoading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={ai.ctaSecondaryText}>
+                {offerLeadSent ? "Talebiniz kaydedildi" : "Teklif talebi gönder"}
+              </Text>
+            )}
+          </TouchableOpacity>
+          {offerLeadSent ? (
+            <Text style={ai.offerLeadSuccess}>
+              Talebiniz kayıt altına alındı; ekip tarafından değerlendirilecek.
+            </Text>
+          ) : null}
+
+          <TouchableOpacity style={ai.linkRow} onPress={handleSendToClinic} activeOpacity={0.7}>
+            <Text style={ai.linkRowText}>Sonucu mesaj olarak bir kliniğe gönder</Text>
+          </TouchableOpacity>
         </View>
-
-        {/* ── 4. Primary CTA — find nearby clinics ── */}
-        <TouchableOpacity
-          style={ai.primaryBtn}
-          onPress={() => router.push("/clinic-onboarding" as any)}
-          activeOpacity={0.85}
-        >
-          <Text style={ai.primaryBtnText}>📍 Yakındaki Klinikleri Gör</Text>
-        </TouchableOpacity>
-
-        {/* ── 5. Secondary CTA — send to clinic ── */}
-        <TouchableOpacity
-          style={ai.secondaryBtn}
-          onPress={handleSendToClinic}
-          activeOpacity={0.7}
-        >
-          <Text style={ai.secondaryBtnText}>Bu sonucu bir kliniğe gönder</Text>
-        </TouchableOpacity>
-
-        {/* ── Disclaimer ── */}
-        <Text style={ai.disclaimerInline}>
-          Bu simülasyon gerçek tedavi sonuçlarına dayalıdır
-        </Text>
 
         <Text style={s.bubbleTime}>{fmtTime(msg.createdAt, "tr-TR")}</Text>
       </View>
@@ -2111,11 +2051,189 @@ const ai = StyleSheet.create({
   loadingRow:    { flexDirection: "row", alignItems: "center", gap: 10 },
   loadingText:   { fontSize: 13, color: "#6366f1", fontWeight: "600" },
 
-  card: { width: "95%", maxWidth: 480, padding: 14, gap: 10 },
+  card: { width: "95%", maxWidth: 480, padding: 14, gap: 12 },
 
   header:      { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
   headerIcon:  { fontSize: 16 },
-  headerTitle: { fontSize: 15, fontWeight: "800", color: "#111827" },
+  headerTitle: { fontSize: 16, fontWeight: "800", color: "#14532d", letterSpacing: -0.2 },
+
+  analysisCard: {
+    backgroundColor: "#f8faf8",
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#d1fae5",
+    gap: 10,
+  },
+  analysisSectionTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#166534",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+  },
+  analysisList: { gap: 10 },
+  analysisRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  analysisIndex: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#059669",
+    minWidth: 18,
+    marginTop: 1,
+  },
+  analysisLine: {
+    flex: 1,
+    fontSize: 14,
+    color: "#1f2937",
+    lineHeight: 21,
+    fontWeight: "500",
+  },
+  analysisPlaceholder: {
+    fontSize: 14,
+    color: "#4b5563",
+    lineHeight: 21,
+    fontStyle: "italic",
+  },
+  analysisDisclaimer: {
+    fontSize: 11,
+    color: "#6b7280",
+    lineHeight: 16,
+    marginTop: 4,
+  },
+
+  treatmentSectionTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#15803d",
+    marginBottom: 8,
+  },
+  treatmentSuggestList: { gap: 10 },
+  treatmentSuggestRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#d1fae5",
+  },
+  treatmentSuggestIcon: { fontSize: 20, marginTop: 1 },
+  treatmentSuggestLabel: {
+    flex: 1,
+    fontSize: 14,
+    color: "#1f2937",
+    fontWeight: "600",
+    lineHeight: 20,
+  },
+
+  priceCard: {
+    marginTop: 14,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#bbf7d0",
+    gap: 8,
+  },
+  priceCardTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#166534",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  priceCardValue: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#14532d",
+    letterSpacing: -0.5,
+  },
+  priceCardHint: {
+    fontSize: 13,
+    color: "#6b7280",
+    lineHeight: 19,
+  },
+  priceDetailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 4,
+  },
+  priceDetailCat: { fontSize: 13, color: "#374151", flex: 1, fontWeight: "500" },
+  priceDetailVal: { fontSize: 13, color: "#15803d", fontWeight: "700" },
+
+  ctaPrimary: {
+    backgroundColor: "#15803d",
+    borderRadius: 12,
+    paddingVertical: 15,
+    alignItems: "center",
+    marginTop: 16,
+    shadowColor: "#14532d",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  ctaPrimaryText: { color: "#fff", fontSize: 16, fontWeight: "800" },
+
+  ctaSecondary: {
+    backgroundColor: "#0f766e",
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginTop: 10,
+    minHeight: 48,
+    justifyContent: "center",
+  },
+  ctaSecondarySent: { backgroundColor: "#6b7280" },
+  ctaSecondaryText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+
+  linkRow: { alignItems: "center", paddingVertical: 10, marginTop: 4 },
+  linkRowText: {
+    fontSize: 13,
+    color: "#4f46e5",
+    fontWeight: "600",
+    textDecorationLine: "underline",
+  },
+
+  optionalToneSection: {
+    marginTop: 8,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#fafafa",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    gap: 8,
+  },
+  optionalToneTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#6b7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  optionalToneHint: {
+    fontSize: 11,
+    color: "#9ca3af",
+    lineHeight: 16,
+  },
+  smileSimStartBtn: {
+    marginTop: 10,
+    alignSelf: "stretch",
+    backgroundColor: "#15803d",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  smileSimStartBtnText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+  },
 
   image: {
     width: "100%", height: 200, borderRadius: 10,
@@ -2157,7 +2275,97 @@ const ai = StyleSheet.create({
     borderWidth: 1, borderColor: "#bbf7d0",
   },
   treatmentTitle: {
-    fontSize: 13, fontWeight: "800", color: "#15803d", marginBottom: 2,
+    fontSize: 15, fontWeight: "800", color: "#15803d", marginBottom: 4,
+  },
+  dentalConditionBanner: {
+    backgroundColor: "#ecfeff",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: "#a5f3fc",
+  },
+  dentalConditionText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#0e7490",
+    lineHeight: 19,
+  },
+  missingToothBlock: {
+    backgroundColor: "#eff6ff",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    gap: 8,
+  },
+  missingToothHeadline: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#1e40af",
+  },
+  missingToothOption: {
+    paddingVertical: 4,
+    gap: 4,
+  },
+  missingToothOptionSep: {
+    borderTopWidth: 1,
+    borderTopColor: "#dbeafe",
+    paddingTop: 10,
+    marginTop: 2,
+  },
+  missingToothOptionTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1e3a8a",
+  },
+  missingToothOptionExpl: {
+    fontSize: 12,
+    color: "#475569",
+    lineHeight: 17,
+  },
+  missingToothOptionPrice: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#64748b",
+  },
+  missingToothPlanDisclaimer: {
+    fontSize: 11,
+    color: "#64748b",
+    fontStyle: "italic",
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  treatmentSubLabel: {
+    fontSize: 12, fontWeight: "700", color: "#166534", marginBottom: 4,
+  },
+  treatmentDisclaimer: {
+    fontSize: 11, color: "#6b7280", fontStyle: "italic",
+    lineHeight: 16, marginTop: 10,
+  },
+  treatmentQuoteCta: {
+    backgroundColor: "#059669", borderRadius: 10,
+    paddingVertical: 12, alignItems: "center", marginTop: 10,
+  },
+  treatmentQuoteCtaText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  offerLeadBtn: {
+    backgroundColor: "#0d9488",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 10,
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  offerLeadBtnSent: { backgroundColor: "#6b7280" },
+  offerLeadBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  offerLeadSuccess: {
+    fontSize: 12,
+    color: "#059669",
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: 6,
   },
   treatmentRow: {
     flexDirection: "row", alignItems: "center", gap: 6,
@@ -2185,41 +2393,6 @@ const ai = StyleSheet.create({
     fontSize: 10, color: "#9ca3af", fontStyle: "italic",
     textAlign: "center", lineHeight: 15,
   },
-
-  // Smile simulation UI
-  simLoadingBox: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: "#f5f3ff", borderRadius: 10,
-    paddingHorizontal: 12, paddingVertical: 10, marginVertical: 4,
-  },
-  simLoadingText: { fontSize: 13, color: "#6366f1", flex: 1 },
-  simCtaBtn: {
-    backgroundColor: "#6366f1", borderRadius: 10,
-    paddingVertical: 10, paddingHorizontal: 14,
-    alignItems: "center", marginTop: 8,
-  },
-  simCtaText: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  rateLimitBanner: {
-    backgroundColor: "#fef3c7", borderRadius: 8, padding: 10, marginTop: 8,
-    borderWidth: 1, borderColor: "#fde68a",
-  },
-  rateLimitText: { color: "#92400e", fontSize: 12, lineHeight: 18 },
-
-  // Variation tabs
-  varTabRow: {
-    flexDirection: "row", gap: 6, marginBottom: 8,
-    flexWrap: "wrap",
-  },
-  varTab: {
-    paddingVertical: 5, paddingHorizontal: 12,
-    borderRadius: 20, borderWidth: 1.5,
-    borderColor: "#d1d5db", backgroundColor: "#f9fafb",
-  },
-  varTabActive: {
-    borderColor: "#6366f1", backgroundColor: "#eef2ff",
-  },
-  varTabText: { fontSize: 13, color: "#6b7280", fontWeight: "500" },
-  varTabTextActive: { color: "#4f46e5", fontWeight: "700" },
 });
 
 const cl = StyleSheet.create({

@@ -355,12 +355,12 @@ export default function DoctorDashboard() {
                           </View>
                         )}
                       </View>
-                      {(p.riskFlags || []).map((flag) => {
+                      {(p.riskFlags || []).map((flag, idx) => {
                         const riskKey = `risk.${flag.code}`;
                         const riskLabel = t(riskKey) !== riskKey ? t(riskKey) : flag.label;
                         return (
                           <View
-                            key={flag.code}
+                            key={`${p.id}-flag-${String(flag.code ?? "x")}-${idx}`}
                             style={[styles.flagRow, flag.type === 'critical' ? styles.flagRowCritical : styles.flagRowRelevant]}
                           >
                             <Text style={[styles.flagText, flag.type === 'critical' ? styles.flagTextCritical : styles.flagTextRelevant]}>

@@ -42,7 +42,7 @@ export default function CreateTreatmentGroupScreen() {
     }
 
     if (user.role !== "ADMIN") {
-      router.replace("/admin-dashboard");
+      router.replace("/login");
       return;
     }
 

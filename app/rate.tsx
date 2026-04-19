@@ -8,6 +8,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../lib/auth';
 import { API_BASE } from '../lib/api';
+import { useLanguage } from '../lib/language-context';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type RatingType = 'experience' | 'treatment';
@@ -45,6 +46,7 @@ function SubScore({
 export default function RateScreen() {
   const router  = useRouter();
   const { user } = useAuth();
+  const { t } = useLanguage();
   const params  = useLocalSearchParams<{
     offerId:       string;
     type:          string;
@@ -76,7 +78,10 @@ export default function RateScreen() {
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (overall === 0) {
-      Alert.alert('Overall rating required', 'Please select at least 1 star for the overall score.');
+      Alert.alert(
+        t('rateScreen.alertOverallTitle') || 'Overall rating required',
+        t('rateScreen.alertOverallBody') || 'Please select at least 1 star for the overall score.',
+      );
       return;
     }
     if (!user?.token) { router.back(); return; }
@@ -125,14 +130,14 @@ export default function RateScreen() {
         <Text style={{ fontSize: 52, marginBottom: 16 }}>
           {isExperience ? '💬' : '🦷'}
         </Text>
-        <Text style={ss.doneTitle}>Thank you!</Text>
+        <Text style={ss.doneTitle}>{t('rateScreen.thankYou') || 'Thank you!'}</Text>
         <Text style={ss.doneSub}>
           {isExperience
-            ? 'Your experience rating has been submitted.'
-            : 'Your treatment rating has been submitted.'}
+            ? (t('rateScreen.doneSubCommunication') || 'Your communication rating has been submitted.')
+            : (t('rateScreen.doneSubTreatment') || 'Your treatment rating has been submitted.')}
         </Text>
         <TouchableOpacity style={ss.doneBtn} onPress={() => router.back()}>
-          <Text style={ss.doneBtnText}>Back to Requests</Text>
+          <Text style={ss.doneBtnText}>{t('rateScreen.backRequests') || 'Back to requests'}</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
@@ -156,12 +161,16 @@ export default function RateScreen() {
             {/* Type badge */}
             <View style={[ss.typeBadge, isExperience ? ss.typeBadgeExp : ss.typeBadgeTrt]}>
               <Text style={[ss.typeBadgeText, isExperience ? ss.typeBadgeTextExp : ss.typeBadgeTextTrt]}>
-                {isExperience ? '💬 Experience Rating' : '🦷 Treatment Rating'}
+                {isExperience
+                  ? (t('rateScreen.badgeCommunication') || '💬 Communication')
+                  : (t('rateScreen.badgeTreatment') || '🦷 Treatment outcome')}
               </Text>
             </View>
 
             <Text style={ss.title}>
-              {isExperience ? 'Rate your experience' : 'Rate your treatment outcome'}
+              {isExperience
+                ? (t('rateScreen.titleCommunication') || 'Rate communication & response')
+                : (t('rateScreen.titleTreatment') || 'Rate your treatment outcome')}
             </Text>
             <Text style={ss.subtitle}>
               {clinicName}{doctorName ? `  ·  Dr. ${doctorName}` : ''}
@@ -170,7 +179,7 @@ export default function RateScreen() {
 
           {/* Overall */}
           <View style={ss.card}>
-            <Text style={ss.cardLabel}>Overall</Text>
+            <Text style={ss.cardLabel}>{t('rateScreen.cardOverall') || 'Overall'}</Text>
             <StarPicker value={overall} onChange={setOverall} />
             <Text style={ss.starHint}>
               {overall === 0 ? 'Tap a star to rate' :
@@ -182,36 +191,54 @@ export default function RateScreen() {
           {/* Sub-scores */}
           <View style={ss.card}>
             <Text style={ss.cardLabel}>
-              {isExperience ? 'Details (optional)' : 'Treatment outcome (optional)'}
+              {isExperience
+                ? (t('rateScreen.cardDetailsComm') || 'Details (optional)')
+                : (t('rateScreen.cardDetailsTrt') || 'Treatment outcome (optional)')}
             </Text>
             {isExperience ? (
               <>
-                <SubScore label="Communication" value={communication} onChange={setCommunication} />
+                <SubScore
+                  label={t('rateScreen.labelCommunication') || 'Communication & response time'}
+                  value={communication}
+                  onChange={setCommunication}
+                />
                 {showPriceScore ? (
-                  <SubScore label="Price / Value" value={price} onChange={setPrice} />
+                  <SubScore
+                    label={t('rateScreen.labelPrice') || 'Price / value'}
+                    value={price}
+                    onChange={setPrice}
+                  />
                 ) : (
                   <View style={ss.lockedRow}>
-                    <Text style={ss.lockedLabel}>Price / Value</Text>
+                    <Text style={ss.lockedLabel}>{t('rateScreen.labelPrice') || 'Price / value'}</Text>
                     <View style={ss.lockedBadge}>
-                      <Text style={ss.lockedBadgeText}>🔒 After treatment</Text>
+                      <Text style={ss.lockedBadgeText}>
+                        🔒 {t('rateScreen.priceLockedHint') || 'After treatment'}
+                      </Text>
                     </View>
                   </View>
                 )}
               </>
             ) : (
-              <SubScore label="Treatment result" value={result} onChange={setResult} />
+              <SubScore
+                label={t('rateScreen.labelResult') || 'Treatment result'}
+                value={result}
+                onChange={setResult}
+              />
             )}
           </View>
 
           {/* Comment */}
           <View style={ss.card}>
-            <Text style={ss.cardLabel}>Your comment (optional)</Text>
+            <Text style={ss.cardLabel}>{t('rateScreen.commentLabel') || 'Your comment (optional)'}</Text>
             <TextInput
               style={ss.textarea}
               placeholder={
                 isExperience
-                  ? 'How was the communication? Were you happy with the response time?'
-                  : 'How did your treatment go? Are you satisfied with the result?'
+                  ? (t('rateScreen.placeholderCommunication') ||
+                      'How was communication and response time?')
+                  : (t('rateScreen.placeholderTreatment') ||
+                      'How did your treatment go? Are you satisfied with the result?')
               }
               placeholderTextColor="#9CA3AF"
               multiline
@@ -229,8 +256,10 @@ export default function RateScreen() {
             <Text style={ss.trustIcon}>🔒</Text>
             <Text style={ss.trustText}>
               {isExperience
-                ? 'Only patients who received an offer can leave an experience rating.'
-                : 'Only patients who completed treatment can leave a treatment rating.'}
+                ? (t('rateScreen.trustCommunication') ||
+                    'This is the communication / experience part of the clinic score.')
+                : (t('rateScreen.trustTreatment') ||
+                    'Treatment outcome ratings carry the most weight for the clinic score.')}
             </Text>
           </View>
 
@@ -247,7 +276,9 @@ export default function RateScreen() {
             {submitting
               ? <ActivityIndicator size="small" color="#fff" />
               : <Text style={ss.submitText}>
-                  Submit {isExperience ? 'Experience' : 'Treatment'} Rating
+                  {isExperience
+                    ? (t('rateScreen.submitCommunication') || 'Submit communication rating')
+                    : (t('rateScreen.submitTreatment') || 'Submit treatment rating')}
                 </Text>
             }
           </TouchableOpacity>

@@ -3,6 +3,8 @@
  *
  * expo-image-manipulator does not support `overlay` — merge runs on Cliniflow backend
  * (`POST /api/chat/merge-teeth-strips`, Sharp composite).
+ *
+ * Only runs if something calls `mergeTeeth` / `processTeeth`. Not used by smile-simulation polling flow.
  */
 
 import { apiPost } from "./api";
@@ -16,6 +18,9 @@ export async function mergeTeeth(
   mouth: MouthBox,
   patientId: string
 ): Promise<string> {
+  if (typeof __DEV__ !== "undefined" && __DEV__) {
+    console.log("[MERGE CLIENT] POST /api/chat/merge-teeth-strips (strip→AI→merge pipeline)");
+  }
   const data = await apiPost<{ ok?: boolean; url?: string; output?: string[] }>(
     "/api/chat/merge-teeth-strips",
     {

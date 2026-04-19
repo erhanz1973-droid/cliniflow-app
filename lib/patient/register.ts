@@ -1,5 +1,5 @@
-// lib/patient/api.ts
-// Patient-specific API layer
+// lib/patient/register.ts — patient signup + hook (use lib/patient/api.ts for non-hook API helpers)
+import { useCallback } from "react";
 import { useRouter } from 'expo-router';
 import { Alert } from 'react-native';
 import { apiGet, apiPost } from '../api';
@@ -56,7 +56,7 @@ export async function getPatientData(patientId: string): Promise<any> {
 export function usePatientRegistration() {
   const router = useRouter();
 
-  const handlePatientRegistration = async (data: {
+  const handlePatientRegistration = useCallback(async (data: {
     name: string;
     email?: string;
     phone: string;
@@ -104,7 +104,7 @@ export function usePatientRegistration() {
     );
 
     return result;
-  };
+  }, [router]);
 
   return { handlePatientRegistration };
 }

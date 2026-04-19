@@ -1,10 +1,15 @@
 // cliniflow-app/lib/api.ts
 
 /**
- * API base URL — single source of truth for all `/api/*` calls.
- * Hardcoded for now (no EXPO_PUBLIC / env).
+ * API base URL — embedded at EAS/Expo build time from EXPO_PUBLIC_* env.
+ * Fallback keeps local runs working if .env is missing.
  */
-const API_BASE = "https://cliniflow-backend-clean-production.up.railway.app";
+const RAILWAY_DEFAULT = "https://cliniflow-backend-clean-production.up.railway.app";
+const API_BASE = String(
+  process.env.EXPO_PUBLIC_API_BASE ||
+    process.env.EXPO_PUBLIC_API_URL ||
+    RAILWAY_DEFAULT
+).trim() || RAILWAY_DEFAULT;
 
 console.log("USING API:", API_BASE);
 
@@ -74,6 +79,7 @@ export async function apiGet<T>(path: string): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
 
   console.log("CALLING API:", url);
+  console.trace("API TRACE", url);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_GET);
@@ -114,6 +120,7 @@ export async function apiPost<T>(path: string, body: any): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
 
   console.log("CALLING API:", url);
+  console.trace("API TRACE", url);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_POST);
@@ -155,6 +162,7 @@ export async function apiPut<T>(path: string, body: any): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
 
   console.log("CALLING API:", url);
+  console.trace("API TRACE", url);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_PUT);

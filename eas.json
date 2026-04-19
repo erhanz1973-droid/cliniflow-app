@@ -1,17 +1,10 @@
 {
-  "cli": {
-    "version": ">= 3.0.0",
-    "appVersionSource": "local"
-  },
   "build": {
     "production": {
-      "ios": {
-        "autoIncrement": true
-      },
-      "android": {
-        "buildType": "app-bundle",
-        "gradleCommand": ":app:bundleRelease"
-      }
+      "autoIncrement": true
     }
+  },
+  "cli": {
+    "appVersionSource": "remote"
   }
 }
