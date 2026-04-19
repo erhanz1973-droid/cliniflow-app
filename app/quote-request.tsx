@@ -16,6 +16,7 @@ import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/language-context';
 import { API_BASE } from '../lib/api';
 import { QUOTE_REQUEST_PREFILL_IMAGE_KEY } from '../lib/quotePrefill';
+import { saveSelectedChatClinic } from '../lib/selectedChatClinic';
 
 // Guided intraoral photo steps (same as messages.tsx and offer-chat.tsx)
 const PHOTO_STEP_KEYS = [
@@ -320,6 +321,17 @@ export default function QuoteRequestScreen() {
         }
       } catch (e: any) {
         errors.push(`${clinic.name || clinic.id}: ${e?.message || 'network'}`);
+      }
+    }
+
+    if (confirmed.length > 0) {
+      const first = selectedClinics.find((c) => confirmed.includes(c.id));
+      if (first?.id) {
+        await saveSelectedChatClinic({
+          id: String(first.id),
+          clinic_code: first.clinic_code ?? undefined,
+          name: first.name,
+        });
       }
     }
 

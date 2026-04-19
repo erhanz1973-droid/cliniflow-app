@@ -8,6 +8,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/language-context';
 import { API_BASE } from '../lib/api';
+import { saveSelectedChatClinic } from '../lib/selectedChatClinic';
 
 // DISCLAIMER — always use the translation key; this fallback is only used if i18n is unavailable
 const DISCLAIMER_FALLBACK = 'This is a preliminary estimate. Final diagnosis requires clinical examination.';
@@ -157,6 +158,11 @@ export default function MyRequestsScreen() {
               if (!data?.ok) throw new Error(data?.error || 'error');
               // Update stored auth token so clinic association is reflected immediately
               await signIn({ ...user, token: data.token, clinicId: data.clinic.id, clinicCode: data.clinic.clinic_code });
+              await saveSelectedChatClinic({
+                id: String(data.clinic.id),
+                clinic_code: data.clinic.clinic_code,
+                name: data.clinic.name,
+              });
               Alert.alert(
                 t('treatReq.joinClinic.successTitle') || '✅ Klinik Eklendi',
                 (t('treatReq.joinClinic.successMsg') || '{clinic} kliniğinize eklendi.').replace('{clinic}', data.clinic.name)

@@ -19,6 +19,7 @@ import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../lib/auth";
 import { API_BASE } from "../lib/api";
+import { saveSelectedChatClinic } from "../lib/selectedChatClinic";
 
 /** Same key as patient messages (preferred country / "nearby"). */
 const PREFERRED_DESTINATION_KEY = "@clinifly:preferredDestination";
@@ -132,6 +133,13 @@ export default function ClinicOnboardingScreen() {
           clinicCode: data.clinic?.clinic_code || code,
           type: "patient",
         });
+        if (data.clinic?.id) {
+          await saveSelectedChatClinic({
+            id: String(data.clinic.id),
+            clinic_code: data.clinic?.clinic_code || code,
+            name: data.clinic?.name,
+          });
+        }
         Alert.alert(
           "✅ " + (data.clinic?.name || "Klinik"),
           "Kliniğe başarıyla katıldınız.",

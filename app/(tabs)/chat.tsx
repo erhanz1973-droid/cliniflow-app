@@ -28,6 +28,7 @@ import { useAuth } from "../../lib/auth";
 import { API_BASE } from '../../lib/api';
 import { useRoleBasedAPI } from '../../lib/role-based-api';
 import { useLanguage } from "../../lib/language-context";
+import { useSelectedChatClinic } from "../../lib/useSelectedChatClinic";
 
 type Attachment = {
   name: string;
@@ -50,8 +51,18 @@ export default function ChatScreen() {
   const { user, isAuthReady } = useAuth();
   const { fetchWithRole } = useRoleBasedAPI();
   const { t } = useLanguage();
-  const params = useLocalSearchParams();
+  const params = useLocalSearchParams<{
+    patientId?: string;
+    clinicId?: string;
+    clinic_id?: string;
+    clinicCode?: string;
+  }>();
   const userPatientId = params.patientId as string || (user as any)?.patientId || "";
+  const { selectedClinic, ready: selectedClinicReady } = useSelectedChatClinic(user, {
+    clinicId: params.clinicId,
+    clinic_id: params.clinic_id,
+    clinicCode: params.clinicCode,
+  });
   
   const [patientId, setPatientId] = useState<string>(userPatientId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -380,25 +391,35 @@ export default function ChatScreen() {
     isSendingMessageRef.current = true;
 
     try {
-      const u = user as { clinicId?: string; clinicCode?: string };
-      const cid = u?.clinicId && String(u.clinicId).trim() ? String(u.clinicId).trim() : "";
-      const ccode = u?.clinicCode && String(u.clinicCode).trim() ? String(u.clinicCode).trim() : "";
+      if (!selectedClinicReady) {
+        isSendingMessageRef.current = false;
+        return;
+      }
+      if (!selectedClinic?.id?.trim()) {
+        isSendingMessageRef.current = false;
+        Alert.alert(
+          t("common.error") || "Error",
+          "Please select a clinic first"
+        );
+        return;
+      }
+      const u = user as { clinicId?: string };
+      const cid = String(selectedClinic.id).trim();
+      const ccode = selectedClinic.clinic_code?.trim() || "";
       const payload: Record<string, string> = {
         text: text.trim(),
         type: "text",
       };
-      if (cid) {
-        payload.clinic_id = cid;
-        payload.clinicId = cid;
-      }
+      payload.clinic_id = cid;
+      payload.clinicId = cid;
       if (ccode) {
         payload.clinic_code = ccode;
         payload.clinicCode = ccode;
       }
       console.log("SEND MESSAGE PAYLOAD", {
         message: payload.text,
-        clinic_id: cid || null,
-        clinic_code: ccode || null,
+        clinic_id: selectedClinic?.id ?? null,
+        userClinic: u?.clinicId ?? null,
       });
       const res = await fetchWithRole(`/${encodeURIComponent(patientId)}/messages`, {
         method: "POST",
@@ -521,6 +542,14 @@ export default function ChatScreen() {
 
   async function uploadImage(uri: string, mimeType: string, fileName: string, fileSize: number) {
     if (!user?.token || !patientId) return;
+    if (!selectedClinicReady) return;
+    if (!selectedClinic?.id?.trim()) {
+      Alert.alert(
+        t("common.error") || "Error",
+        "Please select a clinic first"
+      );
+      return;
+    }
 
     setUploading(true);
 
@@ -540,20 +569,19 @@ export default function ChatScreen() {
       } as any);
       formData.append("patientId", patientId);
       formData.append("isImage", "true"); // Flag to indicate image upload
-      const uc = user as { clinicId?: string; clinicCode?: string };
-      if (uc?.clinicId && String(uc.clinicId).trim()) {
-        const id = String(uc.clinicId).trim();
-        formData.append("clinicId", id);
-        formData.append("clinic_id", id);
-      }
-      if (uc?.clinicCode && String(uc.clinicCode).trim()) {
-        const code = String(uc.clinicCode).trim();
+      const scImg = selectedClinic;
+      if (!scImg?.id?.trim()) return;
+      const id = String(scImg.id).trim();
+      formData.append("clinicId", id);
+      formData.append("clinic_id", id);
+      if (scImg.clinic_code?.trim()) {
+        const code = String(scImg.clinic_code).trim();
         formData.append("clinicCode", code);
         formData.append("clinic_code", code);
       }
       console.log("SEND MESSAGE PAYLOAD (upload image)", {
-        clinic_id: uc?.clinicId && String(uc.clinicId).trim() ? String(uc.clinicId).trim() : null,
-        clinic_code: uc?.clinicCode && String(uc.clinicCode).trim() ? String(uc.clinicCode).trim() : null,
+        clinic_id: selectedClinic?.id ?? null,
+        userClinic: (user as { clinicId?: string })?.clinicId ?? null,
       });
 
       const uploadRes = await fetch(`${API_BASE}/api/chat/upload`, {
@@ -691,6 +719,15 @@ export default function ChatScreen() {
       return;
     }
 
+    if (!selectedClinicReady) return;
+    if (!selectedClinic?.id?.trim()) {
+      Alert.alert(
+        t("common.error") || "Error",
+        "Please select a clinic first"
+      );
+      return;
+    }
+
     setUploading(true);
 
     // Create AbortController for timeout
@@ -708,20 +745,17 @@ export default function ChatScreen() {
         name: fileName,
       } as any);
       formData.append("patientId", patientId);
-      const uc2 = user as { clinicId?: string; clinicCode?: string };
-      if (uc2?.clinicId && String(uc2.clinicId).trim()) {
-        const id = String(uc2.clinicId).trim();
-        formData.append("clinicId", id);
-        formData.append("clinic_id", id);
-      }
-      if (uc2?.clinicCode && String(uc2.clinicCode).trim()) {
-        const code = String(uc2.clinicCode).trim();
-        formData.append("clinicCode", code);
-        formData.append("clinic_code", code);
+      const id2 = String(selectedClinic.id).trim();
+      formData.append("clinicId", id2);
+      formData.append("clinic_id", id2);
+      if (selectedClinic.clinic_code?.trim()) {
+        const code2 = String(selectedClinic.clinic_code).trim();
+        formData.append("clinicCode", code2);
+        formData.append("clinic_code", code2);
       }
       console.log("SEND MESSAGE PAYLOAD (upload file)", {
-        clinic_id: uc2?.clinicId && String(uc2.clinicId).trim() ? String(uc2.clinicId).trim() : null,
-        clinic_code: uc2?.clinicCode && String(uc2.clinicCode).trim() ? String(uc2.clinicCode).trim() : null,
+        clinic_id: selectedClinic?.id ?? null,
+        userClinic: (user as { clinicId?: string })?.clinicId ?? null,
       });
 
       const uploadRes = await fetch(`${API_BASE}/api/chat/upload`, {

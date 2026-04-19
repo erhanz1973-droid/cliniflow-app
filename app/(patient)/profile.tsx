@@ -9,6 +9,7 @@ import { useRouter } from "expo-router";
 import { API_BASE } from "../../lib/api";
 import { useLanguage } from "../../lib/language-context";
 import { LANGUAGE_NAMES, SUPPORTED_LANGUAGES, Language } from "../../lib/i18n";
+import { saveSelectedChatClinic } from "../../lib/selectedChatClinic";
 
 function Row({ label, value }: { label: string; value?: string | null }) {
   return (
@@ -85,6 +86,7 @@ export default function ProfileScreen() {
                 clinicCode: undefined,
                 type: "patient",
               });
+              await saveSelectedChatClinic(null);
               Alert.alert(
                 t("profile.leaveClinic.successTitle") || "Klinikten Ayrıldınız",
                 t("profile.leaveClinic.successMsg") || "Artık yeni bir klinik arayabilirsiniz.",
@@ -124,6 +126,11 @@ export default function ProfileScreen() {
         throw new Error(data.error || "join_failed");
       }
       await signIn({ ...user, token: data.token, clinicId: data.clinic.id, clinicCode: data.clinic.clinic_code, type: "patient" });
+      await saveSelectedChatClinic({
+        id: String(data.clinic.id),
+        clinic_code: data.clinic.clinic_code,
+        name: data.clinic.name,
+      });
       setJoinModal(false);
       setJoinClinicCode('');
       setJoinReferralCode('');

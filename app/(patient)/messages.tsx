@@ -17,6 +17,7 @@ import { onIntraoralPhotoReady } from "../../lib/photoCallbacks";
 import { useDateLocale } from "../../lib/date-locale";
 import { useUnreadMessages } from "../../lib/useUnreadMessages";
 import { useLanguage } from "../../lib/language-context";
+import { useSelectedChatClinic } from "../../lib/useSelectedChatClinic";
 import { runSmileSimulationWithImageUrl } from "../../lib/smileSimulation";
 import { QUOTE_REQUEST_PREFILL_IMAGE_KEY } from "../../lib/quotePrefill";
 import ToothColorSelector, {
@@ -198,7 +199,18 @@ export default function MessagesScreen() {
   const locale = useDateLocale();
   const router = useRouter();
   const navigation = useNavigation();
-  const { openCamera } = useLocalSearchParams<{ openCamera?: string }>();
+  const routeParams = useLocalSearchParams<{
+    openCamera?: string;
+    clinicId?: string;
+    clinic_id?: string;
+    clinicCode?: string;
+  }>();
+  const { openCamera } = routeParams;
+  const { selectedClinic, ready: selectedClinicReady } = useSelectedChatClinic(user, {
+    clinicId: routeParams.clinicId,
+    clinic_id: routeParams.clinic_id,
+    clinicCode: routeParams.clinicCode,
+  });
 
   const [messages, setMessages]                   = useState<Message[]>([]);
   const [localMessages, setLocalMessages]         = useState<Message[]>([]);
@@ -333,24 +345,30 @@ export default function MessagesScreen() {
   const sendText = async () => {
     const msg = text.trim();
     if (!msg || sending || uploading) return;
+    if (!selectedClinicReady) return;
+    if (!selectedClinic?.id?.trim()) {
+      Alert.alert(
+        t("common.error") || "Error",
+        "Please select a clinic first"
+      );
+      return;
+    }
     setSending(true);
     setText("");
     try {
+      const cid = String(selectedClinic.id).trim();
+      const ccode = selectedClinic.clinic_code?.trim() || "";
       const body: Record<string, string> = { text: msg, type: "text", message: msg };
-      if (user?.clinicId && String(user.clinicId).trim()) {
-        const id = String(user.clinicId).trim();
-        body.clinic_id = id;
-        body.clinicId = id;
-      }
-      if (user?.clinicCode && String(user.clinicCode).trim()) {
-        const code = String(user.clinicCode).trim();
-        body.clinic_code = code;
-        body.clinicCode = code;
+      body.clinic_id = cid;
+      body.clinicId = cid;
+      if (ccode) {
+        body.clinic_code = ccode;
+        body.clinicCode = ccode;
       }
       console.log("SEND MESSAGE PAYLOAD", {
         message: msg,
-        clinic_id: body.clinic_id ?? null,
-        clinic_code: body.clinic_code ?? null,
+        clinic_id: selectedClinic?.id ?? null,
+        userClinic: user?.clinicId ?? null,
       });
       const res = await fetch(
         `${API_BASE}/api/patient/messages`,
@@ -419,25 +437,35 @@ export default function MessagesScreen() {
 
     console.log("[UPLOAD START]:", { uri, sizeKB, mimeType, name, endpoint: `${API_BASE}/api/chat/upload` });
 
+    if (!selectedClinicReady) {
+      Alert.alert(t("common.error") || "Error", "Please wait…");
+      return null;
+    }
+    if (!selectedClinic?.id?.trim()) {
+      Alert.alert(
+        t("common.error") || "Error",
+        "Please select a clinic first"
+      );
+      return null;
+    }
+
     setUploading(true);
     try {
       const formData = new FormData();
       formData.append("files", { uri, name, type: mimeType } as any);
       formData.append("patientId", patientId);
       if (mimeType.startsWith("image/")) formData.append("isImage", "true");
-      if (user?.clinicId && String(user.clinicId).trim()) {
-        const id = String(user.clinicId).trim();
-        formData.append("clinicId", id);
-        formData.append("clinic_id", id);
-      }
-      if (user?.clinicCode && String(user.clinicCode).trim()) {
-        const code = String(user.clinicCode).trim();
+      const uid = String(selectedClinic.id).trim();
+      formData.append("clinicId", uid);
+      formData.append("clinic_id", uid);
+      if (selectedClinic.clinic_code?.trim()) {
+        const code = String(selectedClinic.clinic_code).trim();
         formData.append("clinicCode", code);
         formData.append("clinic_code", code);
       }
       console.log("SEND MESSAGE PAYLOAD (upload)", {
-        clinic_id: user?.clinicId && String(user.clinicId).trim() ? String(user.clinicId).trim() : null,
-        clinic_code: user?.clinicCode && String(user.clinicCode).trim() ? String(user.clinicCode).trim() : null,
+        clinic_id: selectedClinic?.id ?? null,
+        userClinic: user?.clinicId ?? null,
       });
 
       const res = await fetch(`${API_BASE}/api/chat/upload`, {
@@ -1368,7 +1396,8 @@ function AiResultBubble({ msg }: { msg: Message }) {
       const photo_urls = photoCandidates.length > 0 ? photoCandidates : undefined;
 
       const hasClinic = Boolean(
-        (user.clinicId && String(user.clinicId).trim()) ||
+        selectedClinic?.id?.trim() ||
+          (user.clinicId && String(user.clinicId).trim()) ||
           (user.clinicCode && String(user.clinicCode).trim())
       );
 
@@ -1377,10 +1406,14 @@ function AiResultBubble({ msg }: { msg: Message }) {
           description,
           preferred_treatment: preferred,
         };
-        if (user.clinicId && String(user.clinicId).trim()) {
+        if (selectedClinic?.id?.trim()) {
+          body.clinic_id = String(selectedClinic.id).trim();
+        } else if (user.clinicId && String(user.clinicId).trim()) {
           body.clinic_id = String(user.clinicId).trim();
         }
-        if (user.clinicCode && String(user.clinicCode).trim()) {
+        if (selectedClinic?.clinic_code?.trim()) {
+          body.clinic_code = String(selectedClinic.clinic_code).trim();
+        } else if (user.clinicCode && String(user.clinicCode).trim()) {
           body.clinic_code = String(user.clinicCode).trim();
         }
         if (budgetStr) body.budget = budgetStr;
@@ -1464,6 +1497,8 @@ function AiResultBubble({ msg }: { msg: Message }) {
     user?.patientId,
     user?.clinicId,
     user?.clinicCode,
+    selectedClinic?.id,
+    selectedClinic?.clinic_code,
     token,
     result?.treatments,
     result?.insights,
