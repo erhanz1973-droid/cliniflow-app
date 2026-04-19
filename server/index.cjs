@@ -12,6 +12,8 @@ const path = require("path");
 const express = require("express");
 const cors = require("cors");
 
+console.log("🚀 SERVER STARTED FROM /server");
+
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 5050;
 

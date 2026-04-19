@@ -1,0 +1,13 @@
+{
+  "name": "cliniflow-backend",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.cjs",
+  "scripts": {
+    "start": "node index.cjs"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.0"
+  }
+}
