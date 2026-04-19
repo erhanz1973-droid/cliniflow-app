@@ -43,7 +43,7 @@ export default function DoctorPatientChatScreen() {
     if (!silent) setLoading(true);
     try {
       const res  = await fetch(
-        `${API_BASE}/api/patient/${encodeURIComponent(patientId)}/messages`,
+        `${API_BASE}/api/doctor/patient/${encodeURIComponent(patientId)}/messages`,
         { headers: { Authorization: `Bearer ${user.token}` } },
       );
       const json = await res.json().catch(() => ({}));
@@ -88,11 +88,11 @@ export default function DoctorPatientChatScreen() {
 
     try {
       const res = await fetch(
-        `${API_BASE}/api/patient/${encodeURIComponent(patientId)}/messages`,
+        `${API_BASE}/api/messages/${encodeURIComponent(patientId)}/reply`,
         {
           method: 'POST',
           headers: { Authorization: `Bearer ${user.token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: trimmed, from: 'CLINIC' }),
+          body: JSON.stringify({ text: trimmed }),
         },
       );
       const json = await res.json().catch(() => ({}));

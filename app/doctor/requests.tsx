@@ -92,6 +92,30 @@ function normalizeRequestPhotos(raw: unknown): RequestPhoto[] | null {
   return out.length ? out : null;
 }
 
+const ps = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.88)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  fullImage: { width: '100%', height: '100%', maxHeight: '92%' },
+});
+
+/** Full-screen tap-to-dismiss preview for request thumbnails */
+function PhotoPreviewModal({ uri, onClose }: { uri: string | null; onClose: () => void }) {
+  return (
+    <Modal visible={!!uri} transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity style={ps.backdrop} activeOpacity={1} onPress={onClose}>
+        {uri ? (
+          <Image source={{ uri }} style={ps.fullImage} resizeMode="contain" />
+        ) : null}
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
 // ── Quick Offer Modal ─────────────────────────────────────────────────────────
 function QuickOfferModal({
   request, preset, token, onClose, onSent,
@@ -110,6 +134,7 @@ function QuickOfferModal({
   const [note,      setNote]        = useState('');
   const [showMore,  setShowMore]    = useState(!preset);
   const [saving,    setSaving]      = useState(false);
+  const [previewUri, setPreviewUri] = useState<string | null>(null);
 
   const minAllowed = treatType ? (MIN_PRICE[treatType] ?? null) : null;
   const parsedMin  = price.trim() ? parsePriceMin(price) : null;
@@ -157,6 +182,7 @@ function QuickOfferModal({
     : (t('requests.modal.makeOffer') || 'Make an Offer');
 
   return (
+    <>
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -194,12 +220,10 @@ function QuickOfferModal({
                   {request.photos.filter(p => !!p.url).map((p, i) => (
                     <TouchableOpacity
                       key={i}
-                      onPress={() => Linking.openURL(p.url).catch(() =>
-                        Alert.alert(t('common.error') || 'Error', 'Could not open file.')
-                      )}
+                      onPress={() => setPreviewUri(p.url)}
                       activeOpacity={0.8}
                     >
-                      <Image source={{ uri: p.url }} style={ms.summaryPhotoThumb} />
+                      <Image source={{ uri: p.url }} style={ms.summaryPhotoThumb} resizeMode="cover" />
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
@@ -301,6 +325,8 @@ function QuickOfferModal({
         </View>
       </KeyboardAvoidingView>
     </Modal>
+    <PhotoPreviewModal uri={previewUri} onClose={() => setPreviewUri(null)} />
+    </>
   );
 }
 
@@ -319,6 +345,7 @@ function RequestCard({
   const [preset, setPreset] = useState<typeof QUICK[0] | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [expanded, setExpanded]   = useState(false);
+  const [previewUri, setPreviewUri] = useState<string | null>(null);
 
   const isPending  = req.status === 'pending';
   const hasMyOffer = !!req.my_offer_id;
@@ -374,12 +401,10 @@ function RequestCard({
             return isImage ? (
               <TouchableOpacity
                 key={i}
-                onPress={() => Linking.openURL(p.url).catch(() =>
-                  Alert.alert('Hata', 'Fotoğraf açılamadı.')
-                )}
+                onPress={() => setPreviewUri(p.url)}
                 activeOpacity={0.8}
               >
-                <Image source={{ uri: p.url }} style={cs.photoThumb} />
+                <Image source={{ uri: p.url }} style={cs.photoThumb} resizeMode="cover" />
                 {p.type === 'xray' && (
                   <Text style={cs.photoLabel}>X-ray</Text>
                 )}
@@ -483,6 +508,7 @@ function RequestCard({
           onSent={() => { setShowModal(false); onOfferSent(); }}
         />
       )}
+      <PhotoPreviewModal uri={previewUri} onClose={() => setPreviewUri(null)} />
     </View>
   );
 }
