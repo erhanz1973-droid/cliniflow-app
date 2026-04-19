@@ -2,6 +2,7 @@
 
 /**
  * API base URL — embedded at EAS/Expo build time from EXPO_PUBLIC_* env.
+ * Production backend is cliniflow-backend-clean on Railway only (no in-app /server).
  * Fallback keeps local runs working if .env is missing.
  */
 const RAILWAY_DEFAULT = "https://cliniflow-backend-clean-production.up.railway.app";
