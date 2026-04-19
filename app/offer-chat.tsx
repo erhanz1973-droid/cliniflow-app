@@ -46,6 +46,18 @@ function fmtDate(iso: string) {
   } catch { return ''; }
 }
 
+/** RN Image / Linking need https://…; API may return /uploads/… paths. */
+function resolveAttachmentMediaUrl(raw: string | null | undefined, apiBase: string): string {
+  const u = String(raw || '').trim();
+  if (!u) return '';
+  if (/^https?:\/\//i.test(u)) return u;
+  if (u.startsWith('/')) {
+    const base = String(apiBase || '').replace(/\/$/, '');
+    return base ? `${base}${u}` : u;
+  }
+  return u;
+}
+
 function groupByDate(messages: Message[]) {
   const groups: { date: string; items: Message[] }[] = [];
   let lastDate = '';
@@ -403,9 +415,10 @@ export default function OfferChatScreen() {
               }
 
               const isMe = item.sender_role === myRole;
-              const hasImage = item.attachment_url &&
+              const mediaUrl = resolveAttachmentMediaUrl(item.attachment_url, API_BASE);
+              const hasImage = mediaUrl &&
                 (item.attachment_type === 'image' || item.attachment_type === 'xray');
-              const hasDoc   = item.attachment_url && item.attachment_type === 'document';
+              const hasDoc   = mediaUrl && item.attachment_type === 'document';
 
               return (
                 <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowOther]}>
@@ -422,16 +435,16 @@ export default function OfferChatScreen() {
                     )}
 
                     {/* Attachment: image / x-ray */}
-                    {hasImage && item.attachment_url && (
+                    {hasImage && mediaUrl && (
                       <TouchableOpacity
                         activeOpacity={0.85}
-                        onPress={() => Linking.openURL(item.attachment_url!).catch(() =>
+                        onPress={() => Linking.openURL(mediaUrl).catch(() =>
                           Alert.alert('Hata', 'Fotoğraf açılamadı.')
                         )}
                       >
                         <View style={styles.attachImageWrap}>
                           <Image
-                            source={{ uri: item.attachment_url }}
+                            source={{ uri: mediaUrl }}
                             style={styles.attachImage}
                             resizeMode="cover"
                           />
@@ -450,16 +463,16 @@ export default function OfferChatScreen() {
                     )}
 
                     {/* Attachment: document / PDF */}
-                    {hasDoc && item.attachment_url && (
+                    {hasDoc && mediaUrl && (
                       <TouchableOpacity
                         style={[styles.docBubble, isMe && styles.docBubbleMe]}
-                        onPress={() => Linking.openURL(item.attachment_url!).catch(() =>
+                        onPress={() => Linking.openURL(mediaUrl).catch(() =>
                           Alert.alert('Hata', 'Dosya açılamadı.')
                         )}
                       >
                         <Text style={styles.docIcon}>📄</Text>
                         <Text style={[styles.docName, isMe && styles.docNameMe]} numberOfLines={2}>
-                          {item.attachment_url.split('/').pop() || 'Document'}
+                          {mediaUrl.split('/').pop()?.split('?')[0] || 'Document'}
                         </Text>
                       </TouchableOpacity>
                     )}
