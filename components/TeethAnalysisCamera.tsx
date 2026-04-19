@@ -1,7 +1,7 @@
 /**
  * Intraoral photo → POST /analyze-teeth → overlay tooth bounding boxes.
  *
- * Env: EXPO_PUBLIC_ANALYZE_TEETH_URL (full URL), or defaults to API_BASE + /analyze-teeth (see config/api.ts).
+ * URL: `ANALYZE_TEETH_URL` from `lib/api.ts` (same host as production backend).
  *
  * @example
  * import { TeethAnalysisCamera } from "../components/TeethAnalysisCamera";
@@ -38,7 +38,6 @@ import {
 } from "../lib/treatmentCost";
 import { ANALYZE_TEETH_URL } from "../lib/api";
 
-/** Same backend as admin login — set EXPO_PUBLIC_API_URL or full EXPO_PUBLIC_ANALYZE_TEETH_URL */
 const ANALYZE_URL = ANALYZE_TEETH_URL;
 
 export type ToothDetection = {
@@ -270,7 +269,7 @@ export function TeethAnalysisCamera({ onClose }: Props) {
         data = await response.json();
       } catch {
         throw new Error(
-          `Server did not return JSON (HTTP ${response.status}). Check EXPO_PUBLIC_ANALYZE_TEETH_URL points to this backend (POST /analyze-teeth).`
+          `Server did not return JSON (HTTP ${response.status}). Check ANALYZE_TEETH_URL / API_BASE (POST /analyze-teeth).`
         );
       }
 

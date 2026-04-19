@@ -35,10 +35,10 @@ export default function DebugApiScreen() {
     setTestResult(null);
     try {
       const result = await apiGet<{
-        ok: boolean;
+        ok?: boolean;
         server?: string;
         time?: number;
-      }>("/health");
+      }>("/api/health");
 
       setTestResult(
         `✅ Başarılı!\n\n${JSON.stringify(result, null, 2)}`
@@ -82,9 +82,10 @@ export default function DebugApiScreen() {
           value={__DEV__ ? "Development" : "Production"}
         />
         <Info
-          label="EXPO_PUBLIC_API_URL"
+          label="EXPO_PUBLIC_API_URL (ignored)"
           value={
-            process.env.EXPO_PUBLIC_API_URL || "(Ayarlanmamış)"
+            process.env.EXPO_PUBLIC_API_URL ||
+            "(not used — API_BASE is hardcoded in lib/api.ts)"
           }
           mono
         />

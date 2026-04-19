@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { API_BASE } from "./api";
 
 export type Jaw = "upper" | "lower";
 export type ProcedureStatus = "PLANNED" | "DONE" | "CANCELLED";
@@ -46,9 +47,6 @@ type TreatmentsCtx = {
 const TreatmentsContext = createContext<TreatmentsCtx | null>(null);
 
 const STORAGE_KEY = "cliniflow.treatments.v1";
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || "";
-const ENV_PATIENT_ID = process.env.EXPO_PUBLIC_PATIENT_ID || "p1";
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || "";
 const ENV_PATIENT_ID = process.env.EXPO_PUBLIC_PATIENT_ID || "p1";
 
 /* ---------------- helpers ---------------- */
@@ -212,11 +210,7 @@ export function TreatmentsProvider({ children }: { children: React.ReactNode }) 
   const syncFromServer: TreatmentsCtx["syncFromServer"] = async (patientId?: string) => {
     const pid = String(patientId ?? "").trim() || ENV_PATIENT_ID || "p1";
 
-    if (!API_BASE_URL) {
-      return { ok: false, teethCount: 0, error: "EXPO_PUBLIC_API_URL is empty" };
-    }
-
-    const url = `${API_BASE_URL}/api/patient/${encodeURIComponent(pid)}/treatments`;
+    const url = `${API_BASE}/api/patient/${encodeURIComponent(pid)}/treatments`;
 
     setIsSyncing(true);
     try {

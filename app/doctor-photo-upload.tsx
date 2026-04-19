@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, Image, Alert, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../lib/auth';
+import { API_BASE } from '../lib/api';
 
 export default function DoctorPhotoUpload() {
   const { user } = useAuth();
@@ -42,7 +43,7 @@ export default function DoctorPhotoUpload() {
         name: `${type}_${Date.now()}.${asset.uri.split('.').pop()}`,
       } as any);
 
-      const uploadResponse = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/api/doctor/upload-${type}`, {
+      const uploadResponse = await fetch(`${API_BASE}/api/doctor/upload-${type}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${user.token}`,

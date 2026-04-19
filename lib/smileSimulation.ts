@@ -7,7 +7,7 @@
  *   const result = await runSmileSimulation(patientId, imageUri, { mode: 'full' });
  *
  * `imageUri` may be `file://...` (uploads via ai-upload) or `https://...`.
- * Set EXPO_PUBLIC_API_BASE to http://<LAN-IP>:<PORT> (not localhost on device).
+ * Backend base URL: see `lib/api.ts` (production Railway).
  */
 import { apiGet, apiPost, API_BASE } from "./api";
 import { uploadLocalImageForAi } from "./uploadAiImage";

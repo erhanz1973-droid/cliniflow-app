@@ -1,18 +1,15 @@
 // cliniflow-app/lib/api.ts
 
 /**
- * API base URL — embedded at EAS/Expo build time from EXPO_PUBLIC_* env.
- * Production backend is cliniflow-backend-clean on Railway only (no in-app /server).
- * Fallback keeps local runs working if .env is missing.
+ * Production API only (cliniflow-backend-clean on Railway).
+ * Env-based overrides removed temporarily for stable, unambiguous behavior.
  */
-const RAILWAY_DEFAULT = "https://cliniflow-backend-clean-production.up.railway.app";
-const API_BASE = String(
-  process.env.EXPO_PUBLIC_API_BASE ||
-    process.env.EXPO_PUBLIC_API_URL ||
-    RAILWAY_DEFAULT
-).trim() || RAILWAY_DEFAULT;
+const API_BASE = "https://cliniflow-backend-clean-production.up.railway.app";
 
-console.log("USING API:", API_BASE);
+console.log("🌍 API BASE:", API_BASE);
+
+/** POST /analyze-teeth on the same backend as API_BASE */
+export const ANALYZE_TEETH_URL = `${API_BASE.replace(/\/+$/, "")}/analyze-teeth`;
 
 // ── Timeout constants (ms) ───────────────────────────────────────────────────
 export const TIMEOUT_GET  = 10_000;
@@ -80,7 +77,6 @@ export async function apiGet<T>(path: string): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
 
   console.log("CALLING API:", url);
-  console.trace("API TRACE", url);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_GET);
@@ -121,7 +117,6 @@ export async function apiPost<T>(path: string, body: any): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
 
   console.log("CALLING API:", url);
-  console.trace("API TRACE", url);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_POST);
@@ -163,7 +158,6 @@ export async function apiPut<T>(path: string, body: any): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
 
   console.log("CALLING API:", url);
-  console.trace("API TRACE", url);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_PUT);
@@ -197,3 +191,7 @@ export async function apiPut<T>(path: string, body: any): Promise<T> {
     throw err;
   }
 }
+
+void apiGet<Record<string, unknown>>("/api/health")
+  .then(() => console.log("[API] /api/health OK"))
+  .catch((e) => console.warn("[API] /api/health:", String((e as Error)?.message ?? e)));
