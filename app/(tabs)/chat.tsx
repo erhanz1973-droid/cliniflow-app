@@ -381,15 +381,29 @@ export default function ChatScreen() {
 
     try {
       const u = user as { clinicId?: string; clinicCode?: string };
+      const cid = u?.clinicId && String(u.clinicId).trim() ? String(u.clinicId).trim() : "";
+      const ccode = u?.clinicCode && String(u.clinicCode).trim() ? String(u.clinicCode).trim() : "";
+      const payload: Record<string, string> = {
+        text: text.trim(),
+        type: "text",
+      };
+      if (cid) {
+        payload.clinic_id = cid;
+        payload.clinicId = cid;
+      }
+      if (ccode) {
+        payload.clinic_code = ccode;
+        payload.clinicCode = ccode;
+      }
+      console.log("SEND MESSAGE PAYLOAD", {
+        message: payload.text,
+        clinic_id: cid || null,
+        clinic_code: ccode || null,
+      });
       const res = await fetchWithRole(`/${encodeURIComponent(patientId)}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: text.trim(),
-          type: "text",
-          ...(u?.clinicId ? { clinicId: String(u.clinicId) } : {}),
-          ...(u?.clinicCode ? { clinicCode: String(u.clinicCode) } : {}),
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -527,8 +541,20 @@ export default function ChatScreen() {
       formData.append("patientId", patientId);
       formData.append("isImage", "true"); // Flag to indicate image upload
       const uc = user as { clinicId?: string; clinicCode?: string };
-      if (uc?.clinicId) formData.append("clinicId", String(uc.clinicId));
-      if (uc?.clinicCode) formData.append("clinicCode", String(uc.clinicCode));
+      if (uc?.clinicId && String(uc.clinicId).trim()) {
+        const id = String(uc.clinicId).trim();
+        formData.append("clinicId", id);
+        formData.append("clinic_id", id);
+      }
+      if (uc?.clinicCode && String(uc.clinicCode).trim()) {
+        const code = String(uc.clinicCode).trim();
+        formData.append("clinicCode", code);
+        formData.append("clinic_code", code);
+      }
+      console.log("SEND MESSAGE PAYLOAD (upload image)", {
+        clinic_id: uc?.clinicId && String(uc.clinicId).trim() ? String(uc.clinicId).trim() : null,
+        clinic_code: uc?.clinicCode && String(uc.clinicCode).trim() ? String(uc.clinicCode).trim() : null,
+      });
 
       const uploadRes = await fetch(`${API_BASE}/api/chat/upload`, {
         method: "POST",
@@ -683,8 +709,20 @@ export default function ChatScreen() {
       } as any);
       formData.append("patientId", patientId);
       const uc2 = user as { clinicId?: string; clinicCode?: string };
-      if (uc2?.clinicId) formData.append("clinicId", String(uc2.clinicId));
-      if (uc2?.clinicCode) formData.append("clinicCode", String(uc2.clinicCode));
+      if (uc2?.clinicId && String(uc2.clinicId).trim()) {
+        const id = String(uc2.clinicId).trim();
+        formData.append("clinicId", id);
+        formData.append("clinic_id", id);
+      }
+      if (uc2?.clinicCode && String(uc2.clinicCode).trim()) {
+        const code = String(uc2.clinicCode).trim();
+        formData.append("clinicCode", code);
+        formData.append("clinic_code", code);
+      }
+      console.log("SEND MESSAGE PAYLOAD (upload file)", {
+        clinic_id: uc2?.clinicId && String(uc2.clinicId).trim() ? String(uc2.clinicId).trim() : null,
+        clinic_code: uc2?.clinicCode && String(uc2.clinicCode).trim() ? String(uc2.clinicCode).trim() : null,
+      });
 
       const uploadRes = await fetch(`${API_BASE}/api/chat/upload`, {
         method: "POST",

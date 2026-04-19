@@ -336,13 +336,22 @@ export default function MessagesScreen() {
     setSending(true);
     setText("");
     try {
-      const body: Record<string, string> = { text: msg, type: "text" };
+      const body: Record<string, string> = { text: msg, type: "text", message: msg };
       if (user?.clinicId && String(user.clinicId).trim()) {
-        body.clinic_id = String(user.clinicId).trim();
+        const id = String(user.clinicId).trim();
+        body.clinic_id = id;
+        body.clinicId = id;
       }
       if (user?.clinicCode && String(user.clinicCode).trim()) {
-        body.clinic_code = String(user.clinicCode).trim();
+        const code = String(user.clinicCode).trim();
+        body.clinic_code = code;
+        body.clinicCode = code;
       }
+      console.log("SEND MESSAGE PAYLOAD", {
+        message: msg,
+        clinic_id: body.clinic_id ?? null,
+        clinic_code: body.clinic_code ?? null,
+      });
       const res = await fetch(
         `${API_BASE}/api/patient/messages`,
         { method: "POST", headers: authHeaders(), body: JSON.stringify(body) }
@@ -417,11 +426,19 @@ export default function MessagesScreen() {
       formData.append("patientId", patientId);
       if (mimeType.startsWith("image/")) formData.append("isImage", "true");
       if (user?.clinicId && String(user.clinicId).trim()) {
-        formData.append("clinicId", String(user.clinicId).trim());
+        const id = String(user.clinicId).trim();
+        formData.append("clinicId", id);
+        formData.append("clinic_id", id);
       }
       if (user?.clinicCode && String(user.clinicCode).trim()) {
-        formData.append("clinicCode", String(user.clinicCode).trim());
+        const code = String(user.clinicCode).trim();
+        formData.append("clinicCode", code);
+        formData.append("clinic_code", code);
       }
+      console.log("SEND MESSAGE PAYLOAD (upload)", {
+        clinic_id: user?.clinicId && String(user.clinicId).trim() ? String(user.clinicId).trim() : null,
+        clinic_code: user?.clinicCode && String(user.clinicCode).trim() ? String(user.clinicCode).trim() : null,
+      });
 
       const res = await fetch(`${API_BASE}/api/chat/upload`, {
         method: "POST",
