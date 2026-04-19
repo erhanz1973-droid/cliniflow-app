@@ -55,6 +55,8 @@ function fmtTs(iso: string, t: (k: string) => string) {
   } catch { return iso; }
 }
 
+type RequestPhoto = { url: string; type: string };
+
 type Request = {
   id: string;
   patient_name: string;
@@ -67,8 +69,28 @@ type Request = {
   my_offer_id: string | null;
   unread_count: number;
   is_assigned_to_me: boolean;
-  photos: Array<{ url: string; type: string }> | null;
+  photos: RequestPhoto[] | null;
 };
+
+/** API may return photos as string[] or {url,type}[] — normalize for Image uri. */
+function normalizeRequestPhotos(raw: unknown): RequestPhoto[] | null {
+  if (raw == null) return null;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: RequestPhoto[] = [];
+  for (const item of raw) {
+    if (typeof item === 'string') {
+      const u = item.trim();
+      if (u) out.push({ url: u, type: 'image' });
+      continue;
+    }
+    if (item && typeof item === 'object') {
+      const o = item as { url?: unknown; type?: unknown };
+      const u = typeof o.url === 'string' ? o.url.trim() : '';
+      if (u) out.push({ url: u, type: typeof o.type === 'string' ? o.type : 'image' });
+    }
+  }
+  return out.length ? out : null;
+}
 
 // ── Quick Offer Modal ─────────────────────────────────────────────────────────
 function QuickOfferModal({
@@ -162,6 +184,25 @@ function QuickOfferModal({
               <Text style={ms.summaryText} numberOfLines={3}>{request.description}</Text>
               {request.budget && (
                 <Text style={ms.summaryBudget}>{t('requests.modal.budget') || 'Budget: '}{request.budget}</Text>
+              )}
+              {request.photos && request.photos.length > 0 && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={ms.summaryPhotosRow}
+                >
+                  {request.photos.filter(p => !!p.url).map((p, i) => (
+                    <TouchableOpacity
+                      key={i}
+                      onPress={() => Linking.openURL(p.url).catch(() =>
+                        Alert.alert(t('common.error') || 'Error', 'Could not open file.')
+                      )}
+                      activeOpacity={0.8}
+                    >
+                      <Image source={{ uri: p.url }} style={ms.summaryPhotoThumb} />
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
               )}
             </View>
 
@@ -469,7 +510,13 @@ export default function DoctorRequestsScreen() {
       });
       const data = await res.json();
       if (!data?.ok) throw new Error(data?.error || 'error');
-      setRequests(data.requests || []);
+      const rows = Array.isArray(data.requests) ? data.requests : [];
+      setRequests(
+        rows.map((r: Record<string, unknown>) => ({
+          ...r,
+          photos: normalizeRequestPhotos(r.photos),
+        })) as Request[]
+      );
     } catch (e: any) {
       setError(e.message || t('common.error'));
     } finally {
@@ -752,6 +799,14 @@ const ms = StyleSheet.create({
   summaryLabel: { fontSize: 10, fontWeight: '800', color: '#9CA3AF', letterSpacing: 0.5, marginBottom: 4 },
   summaryText: { fontSize: 13, color: '#374151', lineHeight: 18 },
   summaryBudget: { fontSize: 12, color: '#6B7280', marginTop: 4, fontWeight: '600' },
+  summaryPhotosRow: { flexDirection: 'row', marginTop: 10 },
+  summaryPhotoThumb: {
+    width: 88,
+    height: 88,
+    borderRadius: 10,
+    marginRight: 8,
+    backgroundColor: '#E5E7EB',
+  },
 
   presetRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
