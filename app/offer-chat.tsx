@@ -263,25 +263,39 @@ export default function OfferChatScreen() {
         }
 
         const rows = (data.messages || []) as Record<string, unknown>[];
+        const apiLen = rows.length;
         const fetchedMessages: Message[] = rows
           .map((row) => ({
             ...offerMessageRowToUI(row, API_BASE, scope),
             offer_id: String(row.offer_id ?? scope).trim(),
           }))
           .filter((m) => m.offer_id === scope);
+        const mappedLen = fetchedMessages.length;
+
+        console.log('[OFFER-CHAT GET]', {
+          offerId: scope,
+          apiMessagesLength: apiLen,
+          mappedLength: mappedLen,
+          offerChanged: offerChangedAtFetchStart,
+        });
+
+        // Boş yanıt state'i silmesin (geçici API hatası / yanlış thread yanıtı).
+        if (mappedLen === 0) {
+          console.warn('[OFFER-CHAT GET] mapped messages empty — keeping previous state');
+          return;
+        }
 
         console.log('[MSG OFFER IDS]', fetchedMessages.map((m) => m.offer_id));
 
-        // İlk yükleme / offer değişimi: sadece sunucu. Aynı thread'de refocus/reload: prev ile merge —
-        // boş veya gecikmeli GET tüm geçmişi silmesin (doktor mesajları kaybolmasın).
-        setMessages((prev) => {
-          const scopeMatch = (m: Message) => String(m.offer_id).trim() === scope;
-          const scopedPrev = prev.filter(scopeMatch);
-          if (offerChangedAtFetchStart) {
-            return mergeMessagesById([], fetchedMessages);
-          }
-          return mergeMessagesById(scopedPrev, fetchedMessages);
-        });
+        if (offerChangedAtFetchStart) {
+          setMessages(mergeMessagesById([], fetchedMessages));
+        } else {
+          setMessages((prev) => {
+            const scopeMatch = (m: Message) => String(m.offer_id).trim() === scope;
+            const scopedPrev = prev.filter(scopeMatch);
+            return mergeMessagesById(scopedPrev, fetchedMessages);
+          });
+        }
       } catch (e: any) {
         if (!cancelled) setError(e.message || t('common.error'));
       } finally {
