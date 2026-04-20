@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   ScrollView,
   Alert,
+  BackHandler,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useLanguage } from "../../lib/language-context";
@@ -19,6 +20,7 @@ import {
 import { analyzePhoto } from "../../lib/dentalAnalysisPipeline";
 import { goToDentalCamera } from "../../lib/dentalPhotoNavigation";
 import { goToClinicSelect } from "../../lib/offerRequestFlow";
+import { leaveToPatientHome } from "../../lib/safePatientNavigation";
 
 export default function DentalAnalysisScreen() {
   const router = useRouter();
@@ -40,6 +42,14 @@ export default function DentalAnalysisScreen() {
   const [insights, setInsights] = useState<string[]>([]);
   const [summary, setSummary] = useState<string>("");
   const [analysisPayload, setAnalysisPayload] = useState<Record<string, unknown> | null>(null);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      leaveToPatientHome(router);
+      return true;
+    });
+    return () => sub.remove();
+  }, [router]);
 
   useEffect(() => {
     if (typeof params.imageUri === "string" && params.imageUri.trim()) {

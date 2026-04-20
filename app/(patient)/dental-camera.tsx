@@ -5,11 +5,11 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Alert,
+  BackHandler,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
-import { useNavigation } from "@react-navigation/native";
 import { useLanguage } from "../../lib/language-context";
 import { goToAnalysis } from "../../lib/dentalPhotoNavigation";
 import { leaveToPatientHome } from "../../lib/safePatientNavigation";
@@ -20,9 +20,16 @@ import { leaveToPatientHome } from "../../lib/safePatientNavigation";
  */
 export default function DentalCameraScreen() {
   const router = useRouter();
-  const navigation = useNavigation();
   const { t } = useLanguage();
   const launchedRef = useRef(false);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      leaveToPatientHome(router);
+      return true;
+    });
+    return () => sub.remove();
+  }, [router]);
 
   const onPhotoCaptured = useCallback(
     (imageUri: string) => {
@@ -48,9 +55,9 @@ export default function DentalCameraScreen() {
     if (!result.canceled && result.assets[0]?.uri) {
       onPhotoCaptured(result.assets[0].uri);
     } else {
-      leaveToPatientHome(router, navigation);
+      leaveToPatientHome(router);
     }
-  }, [navigation, onPhotoCaptured, router, t]);
+  }, [onPhotoCaptured, router, t]);
 
   useEffect(() => {
     if (launchedRef.current) return;

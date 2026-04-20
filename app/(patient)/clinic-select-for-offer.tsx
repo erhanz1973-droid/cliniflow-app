@@ -9,9 +9,9 @@ import {
   Alert,
   StyleSheet,
   Image,
+  BackHandler,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useNavigation } from "@react-navigation/native";
 import { useAuth } from "../../lib/auth";
 import { API_BASE } from "../../lib/api";
 import { useLanguage } from "../../lib/language-context";
@@ -34,7 +34,6 @@ type ClinicRow = {
 
 export default function ClinicSelectForOfferScreen() {
   const router = useRouter();
-  const navigation = useNavigation();
   const { t } = useLanguage();
   const { user } = useAuth();
   const token = user?.token;
@@ -54,20 +53,28 @@ export default function ClinicSelectForOfferScreen() {
   }, [t]);
 
   useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      leaveToPatientHome(router);
+      return true;
+    });
+    return () => sub.remove();
+  }, [router]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       const p = await loadPendingAiOfferForClinicSelect();
       if (cancelled) return;
       if (!p?.image) {
         Alert.alert(t("common.error"), t("messages.connectionError") || "Missing data");
-        leaveToPatientHome(router, navigation);
+        leaveToPatientHome(router);
         return;
       }
       setPayload(p);
       if (!token) {
         setLoading(false);
         Alert.alert(t("chat.sessionError"), t("chat.sessionExpired"));
-        leaveToPatientHome(router, navigation);
+        leaveToPatientHome(router);
         return;
       }
       try {
@@ -95,7 +102,7 @@ export default function ClinicSelectForOfferScreen() {
     return () => {
       cancelled = true;
     };
-  }, [token, router, navigation, t]);
+  }, [token, router, t]);
 
   const toggle = useCallback(
     (id: string) => {
@@ -125,6 +132,14 @@ export default function ClinicSelectForOfferScreen() {
       return;
     }
     if (!payload?.image) return;
+    const img = String(payload.image || "").trim();
+    if (!/^https?:\/\//i.test(img)) {
+      Alert.alert(
+        t("common.error"),
+        t("quoteRequest.photoMustBeUploaded")
+      );
+      return;
+    }
     const clinicIds = [...selected];
     if (clinicIds.length === 0) {
       Alert.alert(t("common.error"), t("messages.selectAtLeastOneClinic") || "Select a clinic");
@@ -135,7 +150,7 @@ export default function ClinicSelectForOfferScreen() {
       const result = await sendOfferRequest({
         token,
         clinicIds,
-        image: payload.image,
+        image: img,
         analysis: payload.analysis,
         message: message.trim(),
       });
@@ -171,9 +186,7 @@ export default function ClinicSelectForOfferScreen() {
 
       {payload?.image ? (
         <View style={styles.photoWrap}>
-          <Text style={styles.photoLabel}>
-            {t("quoteRequest.photoAttached") || "Talebe eklenecek fotoğraf"}
-          </Text>
+          <Text style={styles.photoLabel}>{t("quoteRequest.photoAttached")}</Text>
           <Image source={{ uri: payload.image }} style={styles.photoThumb} resizeMode="cover" />
         </View>
       ) : null}

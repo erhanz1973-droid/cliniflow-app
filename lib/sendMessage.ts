@@ -12,7 +12,7 @@ export type SendMessageInput = {
 };
 
 /**
- * POST /api/patient/messages — text plus optional attachment references.
+ * POST /api/patient/me/messages (veya /api/patient/messages) — metin + clinic_id + photo_urls.
  */
 export async function sendMessage(input: SendMessageInput): Promise<Response> {
   const {
@@ -47,7 +47,7 @@ export async function sendMessage(input: SendMessageInput): Promise<Response> {
     body.photo_urls = urls;
   }
 
-  return fetch(`${API_BASE}/api/patient/messages`, {
+  return fetch(`${API_BASE}/api/patient/me/messages`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,

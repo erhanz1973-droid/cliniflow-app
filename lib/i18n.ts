@@ -360,6 +360,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "quoteRequest.takePhoto": "Ağız İçi Fotoğraf Çek",
     "quoteRequest.takePhotoSub": "Kamerayı aç",
     "quoteRequest.intraoralCount": "ağız içi fotoğraf",
+    "quoteRequest.photoAttached": "Kliniklere eklenecek fotoğraf",
+    "quoteRequest.photoMustBeUploaded":
+      "Fotoğrafın sunucuya yüklenmiş olması gerekir. Analiz tamamlanana kadar bekleyin veya fotoğrafı yeniden çekin.",
 
     "profile.findClinic": "Klinik Bul",
     "profile.findClinicSub": "Bir kliniğe bağlanarak tedavinizi takip edin.",
@@ -1670,6 +1673,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "quoteRequest.takePhoto": "Take Intraoral Photo",
     "quoteRequest.takePhotoSub": "Open camera",
     "quoteRequest.intraoralCount": "intraoral photos",
+    "quoteRequest.photoAttached": "Photo that will be sent to clinics",
+    "quoteRequest.photoMustBeUploaded":
+      "Your photo must be uploaded to the server first. Wait for analysis to finish or retake the photo.",
 
     "profile.findClinic": "Find a Clinic",
     "profile.findClinicSub": "Connect with a clinic to track your treatment.",
@@ -2995,6 +3001,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "quoteRequest.takePhoto": "ინტრაორალური ფოტოს გადაღება",
     "quoteRequest.takePhotoSub": "კამერის გახსნა",
     "quoteRequest.intraoralCount": "ინტრაორალური ფოტო",
+    "quoteRequest.photoAttached": "ფოტო, რომელიც კლინიკებს გაიგზავნება",
+    "quoteRequest.photoMustBeUploaded":
+      "ფოტო უნდა აიტვირთოს სერვერზე. დაელოდეთ ანალიზის დასრულებას ან ხელახლა გადაიღეთ ფოტო.",
 
     "profile.findClinic": "კლინიკის პოვნა",
     "profile.findClinicSub": "დაუკავშირდით კლინიკას და თვალი ადევნეთ მკურნალობას.",
@@ -4920,6 +4929,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "quoteRequest.takePhoto": "Сделать внутриротовое фото",
     "quoteRequest.takePhotoSub": "Открыть камеру",
     "quoteRequest.intraoralCount": "внутриротовых фото",
+    "quoteRequest.photoAttached": "Фото, которое будет отправлено в клиники",
+    "quoteRequest.photoMustBeUploaded":
+      "Фото должно быть загружено на сервер. Дождитесь завершения анализа или снимите фото снова.",
 
     "profile.findClinic": "Найти клинику",
     "profile.findClinicSub": "Подключитесь к клинике для отслеживания лечения.",

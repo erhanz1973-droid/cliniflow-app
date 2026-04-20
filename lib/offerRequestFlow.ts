@@ -57,6 +57,14 @@ export async function sendOfferRequest(
   params: SendOfferRequestParams
 ): Promise<SendOfferRequestResult> {
   const { token, clinicIds, image, analysis, message } = params;
+  const imageUrl = String(image || "").trim();
+  if (!/^https?:\/\//i.test(imageUrl)) {
+    return {
+      ok: false,
+      error: "photo_url_required",
+      message: "Önce fotoğrafın sunucuya yüklenmesi gerekir (geçerli https adresi).",
+    };
+  }
   try {
     const res = await fetch(`${API_BASE}/api/patient/treatment-requests`, {
       method: "POST",
@@ -67,7 +75,7 @@ export async function sendOfferRequest(
       },
       body: JSON.stringify({
         clinicIds,
-        image,
+        image: imageUrl,
         analysis,
         message: String(message || "").trim(),
       }),
