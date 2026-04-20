@@ -21,14 +21,10 @@ import { useAuth } from "../lib/auth";
 import { API_BASE } from "../lib/api";
 import { saveSelectedChatClinic } from "../lib/selectedChatClinic";
 
-/** Same key as patient messages (preferred country / "nearby"). */
+/** Same key as patient messages (preferred country filter for “all” list). */
 const PREFERRED_DESTINATION_KEY = "@clinifly:preferredDestination";
 
-/** When GPS is unavailable — Tbilisi (sensible default for regional listings). */
-const DEFAULT_LOCATION = {
-  lat: 41.7151,
-  lng: 44.8271,
-};
+type ListMode = "nearby" | "all";
 
 type ClinicRow = {
   id: string;
@@ -37,16 +33,17 @@ type ClinicRow = {
   country?: string | null;
   clinicCode?: string | null;
   rating?: number | null;
+  /** Present when loaded from GET /api/clinics/nearby */
+  distance_km?: number | null;
   /** Sunucudan gelirse kullanılır; yoksa yerel etiketlerle aynı anlam */
   links?: { id: string; label: string; clinicId?: string; clinicCode?: string | null }[];
 };
 
-async function resolveSearchCoords(): Promise<{ lat: number; lng: number }> {
+/** Real GPS only — no fake coords (nearby mode falls back to “all” list if null). */
+async function getDeviceCoords(): Promise<{ lat: number; lng: number } | null> {
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") {
-      return { lat: DEFAULT_LOCATION.lat, lng: DEFAULT_LOCATION.lng };
-    }
+    if (status !== "granted") return null;
     const pos = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.Balanced,
     });
@@ -56,9 +53,9 @@ async function resolveSearchCoords(): Promise<{ lat: number; lng: number }> {
       return { lat, lng };
     }
   } catch {
-    // use default
+    /* ignore */
   }
-  return { lat: DEFAULT_LOCATION.lat, lng: DEFAULT_LOCATION.lng };
+  return null;
 }
 
 /** ISO-2 country for API, or "" when "nearby" / unset. */
@@ -83,6 +80,7 @@ export default function ClinicOnboardingScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [listMode, setListMode] = useState<ListMode>("nearby");
 
   const filteredClinics = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -238,74 +236,79 @@ export default function ClinicOnboardingScreen() {
     setStatusMessage(null);
     setLoading(true);
     try {
-      const { lat, lng } = await resolveSearchCoords();
       const country = await resolvePreferredCountry();
+      const authHeaders = { Authorization: `Bearer ${token}` };
+      let list: ClinicRow[] = [];
+      let msg: string | null = null;
 
-      const qs1 = new URLSearchParams();
-      qs1.set("lat", String(lat));
-      qs1.set("lng", String(lng));
-      if (country) qs1.set("country", country);
-
-      const res = await fetch(`${API_BASE}/api/patient/clinics?${qs1.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-        message?: string;
-        clinics?: ClinicRow[];
-      };
-      if (!res.ok || !data.ok) {
-        const msg =
-          (typeof data.message === "string" && data.message) ||
-          (data.error === "db_error"
-            ? "Klinik listesi şu an yüklenemiyor. Lütfen biraz sonra tekrar deneyin."
-            : "") ||
-          data.error ||
-          `HTTP ${res.status}`;
-        throw new Error(msg);
-      }
-      let list = Array.isArray(data.clinics) ? data.clinics : [];
-
-      if (list.length === 0) {
-        setStatusMessage("Yakınında klinik bulunamadı. Daha geniş bölgede arıyoruz...");
-        const qs2 = new URLSearchParams();
-        if (country) qs2.set("country", country);
-        const suffix = qs2.toString() ? `?${qs2.toString()}` : "";
-        const res2 = await fetch(`${API_BASE}/api/patient/clinics${suffix}`, {
-          headers: { Authorization: `Bearer ${token}` },
+      const fetchAll = async (): Promise<ClinicRow[]> => {
+        const qs = new URLSearchParams();
+        if (country) qs.set("country", country);
+        const suffix = qs.toString() ? `?${qs.toString()}` : "";
+        const res = await fetch(`${API_BASE}/api/patient/clinics${suffix}`, {
+          headers: authHeaders,
         });
-        const data2 = (await res2.json().catch(() => ({}))) as {
+        const data = (await res.json().catch(() => ({}))) as {
           ok?: boolean;
           error?: string;
           message?: string;
           clinics?: ClinicRow[];
         };
-        if (!res2.ok || !data2.ok) {
-          const msg =
-            (typeof data2.message === "string" && data2.message) ||
-            (data2.error === "db_error"
+        if (!res.ok || !data.ok) {
+          const errMsg =
+            (typeof data.message === "string" && data.message) ||
+            (data.error === "db_error"
               ? "Klinik listesi şu an yüklenemiyor. Lütfen biraz sonra tekrar deneyin."
               : "") ||
-            data2.error ||
-            `HTTP ${res2.status}`;
-          throw new Error(msg);
+            data.error ||
+            `HTTP ${res.status}`;
+          throw new Error(errMsg);
         }
-        list = Array.isArray(data2.clinics) ? data2.clinics : [];
+        return Array.isArray(data.clinics) ? data.clinics : [];
+      };
+
+      if (listMode === "all") {
+        list = await fetchAll();
+      } else {
+        const coords = await getDeviceCoords();
+        if (!coords) {
+          list = await fetchAll();
+          msg =
+            "Konum izni kapalı veya alınamadı — tüm klinikler gösteriliyor. Yakınınızdakiler için ayarlardan konumu açın veya \"Yakınımdaki\" ile yeniden deneyin.";
+        } else {
+          const qs = new URLSearchParams({
+            lat: String(coords.lat),
+            lng: String(coords.lng),
+            radius: "10",
+          });
+          const res = await fetch(`${API_BASE}/api/clinics/nearby?${qs.toString()}`, {
+            headers: authHeaders,
+          });
+          const data = (await res.json().catch(() => ({}))) as {
+            ok?: boolean;
+            error?: string;
+            clinics?: ClinicRow[];
+          };
+          if (!res.ok || !data.ok) {
+            throw new Error(data.error || `HTTP ${res.status}`);
+          }
+          list = Array.isArray(data.clinics) ? data.clinics : [];
+          if (list.length === 0) {
+            msg = "10 km içinde klinik yok. Tüm kliniklere geçebilirsiniz.";
+          }
+        }
       }
 
-      if (list.length > 0) {
-        setStatusMessage(null);
-      }
+      setStatusMessage(msg);
       setClinics(list);
-    } catch (e: any) {
-      setError(e?.message || "Liste yüklenemedi");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Liste yüklenemedi");
       setClinics([]);
       setStatusMessage(null);
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, listMode]);
 
   useEffect(() => {
     void load();
@@ -315,6 +318,26 @@ export default function ClinicOnboardingScreen() {
     <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Klinik bul</Text>
+          <View style={styles.modeRow}>
+            <TouchableOpacity
+              style={[styles.modeChip, listMode === "nearby" && styles.modeChipActive]}
+              onPress={() => setListMode("nearby")}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.modeChipText, listMode === "nearby" && styles.modeChipTextActive]}>
+                Yakınımdaki (10 km)
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeChip, listMode === "all" && styles.modeChipActive]}
+              onPress={() => setListMode("all")}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.modeChipText, listMode === "all" && styles.modeChipTextActive]}>
+                Tüm klinikler
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
         {loading && clinics.length === 0 ? (
           <View style={styles.center}>
@@ -369,6 +392,7 @@ export default function ClinicOnboardingScreen() {
                       <Text style={styles.sub}>
                         {[item.city, item.country].filter(Boolean).join(", ") || "—"}
                         {item.clinicCode ? ` · ${item.clinicCode}` : ""}
+                        {item.distance_km != null ? ` · 📍 ${item.distance_km} km` : ""}
                       </Text>
                       {item.rating != null && (
                         <Text style={styles.rating}>★ {item.rating.toFixed(1)}</Text>
@@ -410,6 +434,9 @@ export default function ClinicOnboardingScreen() {
               )}
               ListHeaderComponent={
                 <Text style={styles.hint}>
+                  {listMode === "nearby"
+                    ? `Yakın arama (10 km). `
+                    : `Tüm liste. `}
                   {filteredClinics.length === clinics.length
                     ? `${clinics.length} klinik. Teklif al veya Kaydol ile devam edin.`
                     : `${filteredClinics.length} / ${clinics.length} sonuç (filtreli).`}
@@ -442,6 +469,27 @@ const styles = StyleSheet.create({
     borderBottomColor: "#e2e8f0",
   },
   headerTitle: { fontSize: 20, fontWeight: "800", color: "#0f172a" },
+  modeRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+  },
+  modeChip: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#f8fafc",
+    alignItems: "center",
+  },
+  modeChipActive: {
+    borderColor: "#2563eb",
+    backgroundColor: "#eff6ff",
+  },
+  modeChipText: { fontSize: 13, fontWeight: "600", color: "#64748b", textAlign: "center" },
+  modeChipTextActive: { color: "#1d4ed8" },
   listSection: { flex: 1 },
   searchInput: {
     marginHorizontal: 16,

@@ -57,6 +57,15 @@ function fmtTs(iso: string, t: (k: string) => string) {
 
 type RequestPhoto = { url: string; type: string };
 
+type MyOfferSummary = {
+  id: string;
+  treatment_type: string | null;
+  price_range: string | null;
+  duration: string | null;
+  note: string | null;
+  created_at: string | null;
+};
+
 type Request = {
   id: string;
   patient_name: string;
@@ -67,6 +76,8 @@ type Request = {
   created_at: string;
   offer_count: number;
   my_offer_id: string | null;
+  /** Server: this doctor's offer summary (for detail sheet). */
+  my_offer: MyOfferSummary | null;
   unread_count: number;
   is_assigned_to_me: boolean;
   photos: RequestPhoto[] | null;
@@ -112,6 +123,83 @@ function PhotoPreviewModal({ uri, onClose }: { uri: string | null; onClose: () =
           <Image source={{ uri }} style={ps.fullImage} resizeMode="contain" />
         ) : null}
       </TouchableOpacity>
+    </Modal>
+  );
+}
+
+function fmtOfferDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleString('tr-TR', {
+      day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/** Sheet: doctor’s own offer text (price, duration, note) — opened from “Offer sent” chip */
+function OfferDetailModal({
+  visible,
+  onClose,
+  req,
+  onOpenChat,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  req: Request;
+  onOpenChat: () => void;
+}) {
+  const { t } = useLanguage();
+  const o = req.my_offer;
+
+  const line = (label: string, val: string | null | undefined) =>
+    val ? (
+      <Text style={ods.block}>
+        <Text style={ods.bold}>{label}: </Text>
+        {val}
+      </Text>
+    ) : null;
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={ods.wrap}>
+        <TouchableOpacity style={ods.scrim} activeOpacity={1} onPress={onClose} />
+        <View style={ods.card}>
+          <View style={ods.cardHeader}>
+            <Text style={ods.cardTitle}>{t('requests.offerDetail.title') || 'Your offer'}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <Text style={ods.closeTxt}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={ods.scroll} keyboardShouldPersistTaps="handled">
+            <Text style={ods.patientLine}>👤 {req.patient_name}</Text>
+            {o?.created_at ? <Text style={ods.metaLine}>{fmtOfferDate(o.created_at)}</Text> : null}
+            {!o && req.my_offer_id ? (
+              <Text style={ods.hint}>
+                {t('requests.offerDetail.noPayload') || 'Details will appear after you refresh; conversation is still available.'}
+              </Text>
+            ) : null}
+            {line(t('requests.offerDetail.treatment') || 'Treatment', o?.treatment_type ?? null)}
+            {line(t('requests.offerDetail.price') || 'Price range', o?.price_range ?? null)}
+            {line(t('requests.offerDetail.duration') || 'Duration', o?.duration ?? null)}
+            {o?.note ? line(t('requests.offerDetail.note') || 'Note', o.note) : null}
+            <TouchableOpacity
+              style={ods.primaryBtn}
+              onPress={() => {
+                onClose();
+                onOpenChat();
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={ods.primaryBtnTxt}>
+                {t('requests.offerDetail.openChat') || 'Open conversation'}
+              </Text>
+            </TouchableOpacity>
+            <View style={{ height: 24 }} />
+          </ScrollView>
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -346,6 +434,7 @@ function RequestCard({
   const [showModal, setShowModal] = useState(false);
   const [expanded, setExpanded]   = useState(false);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
+  const [offerDetailOpen, setOfferDetailOpen] = useState(false);
 
   const isPending  = req.status === 'pending';
   const hasMyOffer = !!req.my_offer_id;
@@ -470,22 +559,32 @@ function RequestCard({
       {/* Answered state actions */}
       {hasMyOffer && (
         isChatsFilter ? (
-          /* Chat-focused layout: full-width open chat button */
-          <TouchableOpacity
-            style={[cs.chatBtnFull, req.unread_count > 0 && cs.chatBtnFullUnread]}
-            onPress={() => onChat(req.my_offer_id!)}
-            activeOpacity={0.85}
-          >
-            <Text style={cs.chatBtnFullText}>
-              💬 {t('requests.card.openChat') || 'Open Conversation'}
-              {req.unread_count > 0 ? `  •  ${req.unread_count} ${t('requests.card.newMessages') || 'new'}` : ''}
-            </Text>
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity
+              style={[cs.chatBtnFull, req.unread_count > 0 && cs.chatBtnFullUnread]}
+              onPress={() => onChat(req.my_offer_id!)}
+              activeOpacity={0.85}
+            >
+              <Text style={cs.chatBtnFullText}>
+                💬 {t('requests.card.openChat') || 'Open Conversation'}
+                {req.unread_count > 0 ? `  •  ${req.unread_count} ${t('requests.card.newMessages') || 'new'}` : ''}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={cs.offerDetailLink} onPress={() => setOfferDetailOpen(true)} activeOpacity={0.75}>
+              <Text style={cs.offerDetailLinkText}>
+                📋 {t('requests.card.viewMyOffer') || 'View my offer'}
+              </Text>
+            </TouchableOpacity>
+          </>
         ) : (
           <View style={cs.answeredRow}>
-            <View style={cs.answeredBadge}>
+            <TouchableOpacity
+              style={cs.answeredBadge}
+              onPress={() => setOfferDetailOpen(true)}
+              activeOpacity={0.75}
+            >
               <Text style={cs.answeredBadgeText}>{t('requests.card.offerSentBadge') || '✓ Offer sent'}</Text>
-            </View>
+            </TouchableOpacity>
             <TouchableOpacity
               style={cs.chatBtn}
               onPress={() => onChat(req.my_offer_id!)}
@@ -509,6 +608,12 @@ function RequestCard({
         />
       )}
       <PhotoPreviewModal uri={previewUri} onClose={() => setPreviewUri(null)} />
+      <OfferDetailModal
+        visible={offerDetailOpen}
+        onClose={() => setOfferDetailOpen(false)}
+        req={req}
+        onOpenChat={() => req.my_offer_id && onChat(req.my_offer_id)}
+      />
     </View>
   );
 }
@@ -525,7 +630,7 @@ export default function DoctorRequestsScreen() {
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error,      setError]      = useState<string | null>(null);
-  const [filter,     setFilter]     = useState<FilterKey>('chats');
+  const [filter,     setFilter]     = useState<FilterKey>('all');
 
   const load = useCallback(async () => {
     if (!user?.token) return;
@@ -540,6 +645,7 @@ export default function DoctorRequestsScreen() {
       setRequests(
         rows.map((r: Record<string, unknown>) => ({
           ...r,
+          my_offer: (r.my_offer as MyOfferSummary | null | undefined) ?? null,
           photos: normalizeRequestPhotos(r.photos),
         })) as Request[]
       );
@@ -556,15 +662,15 @@ export default function DoctorRequestsScreen() {
   const onRefresh = () => { setRefreshing(true); load(); };
 
   const filtered = requests.filter(r => {
-    if (filter === 'mine')     return r.is_assigned_to_me;
+    if (filter === 'mine')     return !!r.my_offer_id;
     if (filter === 'pending')  return r.status === 'pending';
     if (filter === 'answered') return r.status === 'answered';
-    if (filter === 'chats')    return !!r.my_offer_id;   // conversations where I sent an offer
+    if (filter === 'chats')    return !!r.my_offer_id;
     return true;
   });
 
   const pendingCount = requests.filter(r => r.status === 'pending').length;
-  const mineCount    = requests.filter(r => r.is_assigned_to_me).length;
+  const mineCount    = requests.filter(r => !!r.my_offer_id).length;
   const chatsCount   = requests.filter(r => !!r.my_offer_id).length;
 
   const FILTERS: { key: FilterKey; label: string; count?: number }[] = [
@@ -640,7 +746,7 @@ export default function DoctorRequestsScreen() {
               <Text style={ds.emptyTitle}>{t('requests.empty.title') || 'No requests here'}</Text>
               <Text style={ds.emptySub}>
                 {filter === 'mine'
-                  ? (t('requests.empty.mine') || 'No requests assigned to you yet.')
+                  ? (t('requests.empty.myOffers') || 'You have not sent any offers yet. Use Pending to reply to requests.')
                   : (t('requests.empty.pull') || 'Pull down to refresh.')}
               </Text>
             </View>
@@ -798,6 +904,33 @@ const cs = StyleSheet.create({
     paddingHorizontal: 5, alignItems: 'center', justifyContent: 'center',
   },
   unreadBadgeText: { fontSize: 11, fontWeight: '800', color: '#fff' },
+  offerDetailLink: { alignItems: 'center', paddingVertical: 10, marginTop: 2 },
+  offerDetailLinkText: { fontSize: 13, fontWeight: '700', color: '#2563EB' },
+});
+
+const ods = StyleSheet.create({
+  wrap: { flex: 1, justifyContent: 'flex-end' },
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+  card: {
+    backgroundColor: '#fff', borderTopLeftRadius: 18, borderTopRightRadius: 18,
+    maxHeight: '88%', paddingBottom: 8,
+  },
+  cardHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 18, paddingTop: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
+  },
+  cardTitle: { fontSize: 17, fontWeight: '800', color: '#111827', flex: 1 },
+  closeTxt: { fontSize: 20, color: '#9CA3AF' },
+  scroll: { maxHeight: 460, paddingHorizontal: 18, paddingTop: 12 },
+  patientLine: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 4 },
+  metaLine: { fontSize: 12, color: '#6B7280', marginBottom: 12 },
+  block: { fontSize: 14, color: '#374151', lineHeight: 21, marginBottom: 10 },
+  bold: { fontWeight: '700', color: '#111827' },
+  hint: { fontSize: 13, color: '#6B7280', marginBottom: 12, fontStyle: 'italic' },
+  primaryBtn: {
+    backgroundColor: '#2563EB', borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 8,
+  },
+  primaryBtnTxt: { fontSize: 15, fontWeight: '800', color: '#fff' },
 });
 
 const ms = StyleSheet.create({

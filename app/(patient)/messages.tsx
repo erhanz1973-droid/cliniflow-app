@@ -6,9 +6,7 @@ import {
   Linking, Modal, ScrollView, ActionSheetIOS,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import * as ImageManipulator from "expo-image-manipulator";
 import * as FileSystem from "expo-file-system/legacy";
-import * as Location from "expo-location";
 import * as DocumentPicker from "expo-document-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../../lib/auth";
@@ -20,28 +18,16 @@ import { useLanguage } from "../../lib/language-context";
 import { useSelectedChatClinic } from "../../lib/useSelectedChatClinic";
 import { runSmileSimulationWithImageUrl } from "../../lib/smileSimulation";
 import { QUOTE_REQUEST_PREFILL_IMAGE_KEY } from "../../lib/quotePrefill";
+import { setLastCapturedImage } from "../../lib/lastCapturedImage";
+import { analyzePhoto } from "../../lib/dentalAnalysisPipeline";
+import { goToAnalysis } from "../../lib/dentalPhotoNavigation";
+import { goToChat, openFilePicker } from "../../lib/chatFlow";
+import { saveToFiles } from "../../lib/saveToFiles";
+import { sendMessage } from "../../lib/sendMessage";
 import ToothColorSelector, {
   type ToothColorPreset,
 } from "../../components/ToothColorSelector";
 const UPLOAD_CONSENT_KEY       = "@clinifly:upload_consent_accepted";
-const PREFERRED_DESTINATION_KEY = "@clinifly:preferredDestination";
-
-// ─── Destination options ──────────────────────────────────────────────────────
-
-type DestinationOption = {
-  id: string;          // "nearby" | ISO-2 country code used in DB
-  label: string;
-  flag: string;
-};
-
-const DESTINATION_OPTIONS: DestinationOption[] = [
-  { id: "nearby",   label: "Yakın",     flag: "📍" },
-  { id: "TR",       label: "Türkiye",   flag: "🇹🇷" },
-  { id: "GE",       label: "Gürcistan", flag: "🇬🇪" },
-  { id: "DE",       label: "Almanya",   flag: "🇩🇪" },
-  { id: "AE",       label: "Dubai",     flag: "🇦🇪" },
-  { id: "GB",       label: "İngiltere", flag: "🇬🇧" },
-];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -119,23 +105,11 @@ type Message = {
   _local?: boolean;
 };
 
-// ─── Clinic contact bridge ────────────────────────────────────────────────────
-// Allows clinic cards (rendered outside MessagesScreen) to set the chat input.
-
-type ContactHandler = (prefillText: string) => void;
-const _contactHandlers: ContactHandler[] = [];
-
-function onClinicContact(fn: ContactHandler): () => void {
-  _contactHandlers.push(fn);
-  return () => {
-    const i = _contactHandlers.indexOf(fn);
-    if (i > -1) _contactHandlers.splice(i, 1);
-  };
-}
-
-function triggerClinicContact(msg: string) {
-  _contactHandlers.forEach(fn => fn(msg));
-}
+type PendingAttachment = {
+  localUri: string;
+  fileId: string | null;
+  url: string | null;
+};
 
 const PRICE_LABEL_TR: Record<string, string> = {
   whitening: "Beyazlatma",
@@ -152,24 +126,6 @@ const PRICE_LABEL_TR: Record<string, string> = {
 
 function priceEstimateLabel(key: string): string {
   return PRICE_LABEL_TR[key] || key.replace(/_/g, " ");
-}
-
-// ─── Location helper ─────────────────────────────────────────────────────────
-
-type UserLocation = { latitude: number; longitude: number } | null;
-
-/** Requests foreground location permission and returns coords, or null if denied/error. */
-async function getUserLocation(): Promise<UserLocation> {
-  try {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") return null;
-    const pos = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced,  // ~100m — fast, battery-friendly
-    });
-    return { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-  } catch {
-    return null;   // location unavailable — clinic recommendations still work without it
-  }
 }
 
 // ─── Intraoral photo steps ────────────────────────────────────────────────────
@@ -200,12 +156,20 @@ export default function MessagesScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const routeParams = useLocalSearchParams<{
-    openCamera?: string;
     clinicId?: string;
     clinic_id?: string;
     clinicCode?: string;
+    offerPrefillImage?: string;
+    prefillComposer?: string;
+    prefillText?: string;
   }>();
-  const { openCamera } = routeParams;
+  /** Active thread: deep link wins; else patient’s joined clinic (single-clinic UX). */
+  const chatClinicId = String(
+    routeParams.clinicId ||
+      routeParams.clinic_id ||
+      user?.clinicId ||
+      ""
+  ).trim();
   const { selectedClinic, ready: selectedClinicReady } = useSelectedChatClinic(user, {
     clinicId: routeParams.clinicId,
     clinic_id: routeParams.clinic_id,
@@ -216,31 +180,22 @@ export default function MessagesScreen() {
   const [localMessages, setLocalMessages]         = useState<Message[]>([]);
   const [loading, setLoading]                     = useState(true);
   const [text, setText]                           = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const composerSeededRef                         = useRef(false);
   const [sending, setSending]                     = useState(false);
   const [uploading, setUploading]                 = useState(false);
   const [intraoralVisible, setIntraoralVisible]   = useState(false);
   const [intraoralStep, setIntraoralStep]         = useState(0);
   const [intraoralPhotos, setIntraoralPhotos]     = useState<Record<string, any>>({});
-  const [preferredDestination, setPreferredDestination] = useState<string>("nearby");
 
   const flatRef           = useRef<FlatList>(null);
   const pollRef           = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastCountRef      = useRef(0);
-  const autoCameraFiredRef = useRef(false);
 
   const patientId  = String(user?.patientId || "").trim();
   const token      = user?.token;
   const hasClinic  = !!user?.clinicId;
   const { markRead } = useUnreadMessages(patientId || undefined, token || undefined);
-
-  // Register clinic-contact bridge: pre-fills text input and scrolls to bottom
-  useEffect(() => {
-    const unregister = onClinicContact((prefill) => {
-      setText(prefill);
-      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
-    });
-    return unregister;
-  }, []);
 
   // Register intraoral camera bridge — always calls the latest processPhotoWithAI via ref
   useEffect(() => {
@@ -249,17 +204,53 @@ export default function MessagesScreen() {
     });
   }, []);
 
-  // Load persisted destination preference
+  // Default composer text once (UX: higher reply / offer intent)
   useEffect(() => {
-    AsyncStorage.getItem(PREFERRED_DESTINATION_KEY).then(val => {
-      if (val) setPreferredDestination(val);
-    });
-  }, []);
+    if (composerSeededRef.current) return;
+    composerSeededRef.current = true;
+    setText(t("messages.defaultComposerText"));
+  }, [t]);
 
-  const selectDestination = useCallback(async (id: string) => {
-    setPreferredDestination(id);
-    await AsyncStorage.setItem(PREFERRED_DESTINATION_KEY, id);
-  }, []);
+  // Deep link: prefill image + optional composer text
+  useEffect(() => {
+    const raw =
+      typeof routeParams.offerPrefillImage === "string"
+        ? routeParams.offerPrefillImage.trim()
+        : "";
+    if (raw) {
+      setLastCapturedImage(raw);
+      setPendingAttachments((prev) => [
+        ...prev,
+        {
+          localUri: raw,
+          fileId: null,
+          url: /^https?:\/\//i.test(raw) ? raw : null,
+        },
+      ]);
+    }
+    const pt =
+      typeof routeParams.prefillText === "string"
+        ? routeParams.prefillText.trim()
+        : "";
+    if (routeParams.prefillComposer === "1" && !pt) {
+      setText(t("messages.defaultComposerText"));
+    } else if (pt) {
+      setText(pt);
+    }
+    if (raw || pt || routeParams.prefillComposer === "1") {
+      navigation.setParams({
+        offerPrefillImage: undefined,
+        prefillComposer: undefined,
+        prefillText: undefined,
+      } as any);
+    }
+  }, [
+    routeParams.offerPrefillImage,
+    routeParams.prefillComposer,
+    routeParams.prefillText,
+    navigation,
+    t,
+  ]);
 
   // Ref so pickImage() / processPhotoWithAI() are always latest inside effects/bridges
   const pickImageRef       = useRef<(() => Promise<void>) | undefined>(undefined);
@@ -344,51 +335,52 @@ export default function MessagesScreen() {
 
   const sendText = async () => {
     const msg = text.trim();
-    if (!msg || sending || uploading) return;
-    if (!selectedClinicReady) return;
-    if (!selectedClinic?.id?.trim()) {
-      Alert.alert(
-        t("common.error") || "Error",
-        "Please select a clinic first"
-      );
+    const hasAtt = pendingAttachments.length > 0;
+    if ((!msg && !hasAtt) || sending || uploading) return;
+    if (!token) return;
+    if (!chatClinicId) {
+      Alert.alert(t("common.error"), t("messages.chatRequiresClinic"));
       return;
     }
     setSending(true);
+    const msgSnapshot = msg;
+    const attSnapshot = [...pendingAttachments];
     setText("");
+    setPendingAttachments([]);
     try {
-      const cid = String(selectedClinic.id).trim();
-      const ccode = selectedClinic.clinic_code?.trim() || "";
-      const body: Record<string, string> = { text: msg, type: "text", message: msg };
-      body.clinic_id = cid;
-      body.clinicId = cid;
-      if (ccode) {
-        body.clinic_code = ccode;
-        body.clinicCode = ccode;
-      }
-      console.log("SEND MESSAGE PAYLOAD", {
-        message: msg,
-        clinic_id: selectedClinic?.id ?? null,
-        userClinic: user?.clinicId ?? null,
+      const fileIds = attSnapshot
+        .map((a) => a.fileId)
+        .filter((id): id is string => Boolean(id && String(id).trim()));
+      const attachmentUrls = attSnapshot
+        .map((a) => a.url)
+        .filter((u): u is string => Boolean(u && /^https?:\/\//i.test(String(u))));
+      const res = await sendMessage({
+        token,
+        clinicId: chatClinicId,
+        clinicCode: selectedClinic?.clinic_code,
+        text: msgSnapshot || (hasAtt ? "." : ""),
+        attachments: fileIds,
+        attachmentUrls,
       });
-      const res = await fetch(
-        `${API_BASE}/api/patient/messages`,
-        { method: "POST", headers: authHeaders(), body: JSON.stringify(body) }
-      );
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        setText(msg);
-        if (err.error === "CHAT_LOCKED") {
+        setText(msgSnapshot);
+        setPendingAttachments(attSnapshot);
+        if ((err as { error?: string }).error === "CHAT_LOCKED") {
           Alert.alert(t("messages.lockedTitle"), t("messages.lockedMsg"));
         } else {
           Alert.alert(t("common.error"), t("messages.sendFailed"));
         }
-      } else {
-        fetchMessages(true);
+        return;
       }
+      fetchMessages(true);
     } catch {
-      setText(msg);
+      setText(msgSnapshot);
+      setPendingAttachments(attSnapshot);
       Alert.alert(t("common.error"), t("messages.connectionError"));
-    } finally { setSending(false); }
+    } finally {
+      setSending(false);
+    }
   };
 
   // ── Upload consent gate ────────────────────────────────────────────────────
@@ -442,10 +434,7 @@ export default function MessagesScreen() {
       return null;
     }
     if (!selectedClinic?.id?.trim()) {
-      Alert.alert(
-        t("common.error") || "Error",
-        "Please select a clinic first"
-      );
+      Alert.alert(t("common.error"), t("messages.chatRequiresClinic"));
       return null;
     }
 
@@ -501,180 +490,22 @@ export default function MessagesScreen() {
     } finally { setUploading(false); }
   };
 
-  // ── AI-only upload (no clinic_id / messages DB write required) ────────────
-  // Uses a dedicated backend endpoint that stores the photo in Supabase Storage
-  // and returns a signed URL for the ai-analyze endpoint to fetch.
-  const uploadForAI = async (
-    uri: string,
-    name: string,
-    mimeType: string
-  ): Promise<string | null> => {
-    try {
-      const info = await FileSystem.getInfoAsync(uri, { size: true });
-      const size = info.exists && "size" in info ? (info as any).size as number : 0;
-      if (size === 0) {
-        console.error("[AI UPLOAD] 0-byte file, aborting:", uri);
-        return null;
-      }
-      console.log("[AI UPLOAD START]:", { sizeKB: Math.round(size / 1024), name, mimeType });
-    } catch { /* non-fatal — proceed and let server validate */ }
-
-    const formData = new FormData();
-    formData.append("file", { uri, name, type: mimeType } as any);
-
-    try {
-      const res = await fetch(`${API_BASE}/api/chat/ai-upload`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-        body: formData,
-      });
-      console.log("[AI UPLOAD RESPONSE STATUS]:", res.status);
-      const rawText = await res.text().catch((e) => `[text() failed: ${(e as Error).message}]`);
-      console.log("[AI UPLOAD RESPONSE RAW]:", rawText.slice(0, 400));
-
-      let json: Record<string, any> = {};
-      try { json = JSON.parse(rawText); } catch { /* already logged */ }
-
-      if (!res.ok || !json.url) {
-        console.error("[AI UPLOAD] Failed:", json.error ?? json.message ?? rawText.slice(0, 200));
-        return null;
-      }
-      console.log("[AI UPLOAD] OK →", json.url.slice(0, 80), "...");
-      return json.url as string;
-    } catch (err) {
-      console.error("[AI UPLOAD ERROR]:", (err as Error)?.message);
-      return null;
-    }
-  };
-
-  // ── Image compression ──────────────────────────────────────────────────────
-  // Single source of truth for all image flows.
-  // Options allow future callers (e.g. intraoral vs AI) to tune per-context.
-
-  const compressImage = async (
-    uri: string,
-    mimeType: string,
-    opts: {
-      maxWidth?: number;   // default 1024 — future: front-camera may use 800
-      quality?: number;    // default 0.75
-    } = {}
-  ): Promise<{ uri: string; mimeType: string }> => {
-    // JPEG, PNG, HEIC, HEIF → all converted to JPEG for AI pipeline consistency
-    const isCompressible =
-      mimeType === "image/jpeg" ||
-      mimeType === "image/jpg"  ||
-      mimeType === "image/png"  ||
-      mimeType === "image/heic" ||
-      mimeType === "image/heif";
-    if (!isCompressible) return { uri, mimeType };
-
-    const { maxWidth = 1024, quality = 0.75 } = opts;
-    const _t0 = Date.now();
-
-    try {
-      const result = await ImageManipulator.manipulateAsync(
-        uri,
-        [{ resize: { width: maxWidth } }],
-        { compress: quality, format: ImageManipulator.SaveFormat.JPEG }
-      );
-
-      const durationMs = Date.now() - _t0;
-
-      // ── Size check via legacy FileSystem API ────────────────────────
-      const readSizeKB = async (fileUri: string): Promise<number> => {
-        try {
-          const info = await FileSystem.getInfoAsync(fileUri, { size: true });
-          if (info.exists && "size" in info && (info as any).size > 0) {
-            return Math.round((info as any).size / 1024);
-          }
-        } catch { /* non-fatal */ }
-        return 0;
-      };
-
-      let sizeKB = await readSizeKB(result.uri);
-
-      // On some iOS versions the manipulator temp file isn't immediately
-      // stat-able; give it one retry before treating it as 0-byte.
-      if (sizeKB === 0) {
-        await new Promise(r => setTimeout(r, 100));
-        sizeKB = await readSizeKB(result.uri);
-      }
-
-      console.log(`[compress] ${durationMs}ms | ${sizeKB}KB | ${maxWidth}px | q${quality}`);
-
-      // ── Guard: never return a 0-byte result ─────────────────────────
-      if (sizeKB === 0) {
-        console.warn("[compress] 0KB result after compress — falling back to original");
-        return { uri, mimeType };
-      }
-
-      // ── Safety re-compress if still > 1 MB ─────────────────────────
-      const ONE_MB_KB = 1024;
-      if (sizeKB > ONE_MB_KB) {
-        console.log(`[compress] ${sizeKB}KB > 1MB — re-compressing at q0.6`);
-        try {
-          const reResult = await ImageManipulator.manipulateAsync(
-            result.uri,
-            [],                           // already resized — no second resize needed
-            { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
-          );
-          const reSizeKB = await readSizeKB(reResult.uri);
-          console.log(`[compress] re-compress → ${reSizeKB}KB | q0.6`);
-          if (reSizeKB > 0) {
-            return { uri: reResult.uri, mimeType: "image/jpeg" };
-          }
-          console.warn("[compress] re-compress produced 0KB, using first-pass result");
-        } catch {
-          console.warn("[compress] re-compress failed, using first-pass result");
-        }
-      }
-
-      return { uri: result.uri, mimeType: "image/jpeg" };
-    } catch (err) {
-      // Compression failed entirely — fall back to original, never block the user
-      console.warn("[compress] failed, using original:", (err as Error)?.message);
-      return { uri, mimeType };
-    }
-  };
-
-  // ── AI photo processing pipeline ───────────────────────────────────────────
-  // photoType maps to backend PHOTO_TYPE_CONTEXT keys:
-  //   'front' | 'left' | 'right' | 'upper' | 'lower' | 'general'
-
+  // ── AI photo processing (intraoral / multi-select gallery) — uses shared pipeline ──
   const processPhotoWithAI = async (
     uri: string,
     name: string,
     mimeType: string,
     photoType = "general"
   ) => {
+    void name;
+    void mimeType;
     console.log("[AI] Triggered for:", photoType, name);
 
-    // Step 0 – compress (single pass; callers must NOT pre-compress)
-    const compressed = await compressImage(uri, mimeType);
-    const uploadUri      = compressed.uri;
-    const uploadMimeType = compressed.mimeType;
-    const uploadName     = uploadMimeType === "image/jpeg" && !name.endsWith(".jpg") && !name.endsWith(".jpeg")
-      ? name.replace(/\.[^.]+$/, "") + ".jpg"
-      : name;
-
-    console.log("[AI] Compressed:", uploadMimeType, uploadName);
-
-    // Step 1 – upload image for AI (dedicated endpoint, no clinic_id required)
-    const fileUrl = await uploadForAI(uploadUri, uploadName, uploadMimeType);
-    if (!fileUrl) {
-      console.warn("[AI] Upload failed — skipping AI for", photoType);
+    if (!String(patientId || "").trim() || !token) {
+      Alert.alert(t("chat.sessionError"), t("chat.sessionExpired"));
       return;
     }
 
-    console.log("[AI] Uploaded:", fileUrl.slice(0, 80), "… → starting analysis");
-
-    // Fetch location in parallel while the loading bubble is shown (non-blocking)
-    const userLocation = await getUserLocation();
-    if (userLocation) {
-      console.log("[AI] Location acquired:", userLocation.latitude.toFixed(4), userLocation.longitude.toFixed(4));
-    }
-
-    // Step 2 – add local loading bubble
     const loadingId = `ai_loading_${Date.now()}`;
     const loadingMsg: Message = {
       id: loadingId,
@@ -687,117 +518,110 @@ export default function MessagesScreen() {
     setLocalMessages(prev => [...prev, loadingMsg]);
     setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 150);
 
-    // Step 3 – call AI endpoint (20 s client-side timeout)
-    const aiController = new AbortController();
-    const aiTimeout = setTimeout(() => aiController.abort(), 20_000);
     try {
-      const aiRes = await fetch(`${API_BASE}/api/chat/ai-analyze`, {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({
-          patientId,
-          imageUrl: fileUrl,
-          photoType,
-          userLocation,
-          preferredCountry: preferredDestination !== "nearby" ? preferredDestination : null,
-        }),
-        signal: aiController.signal,
+      const result = await analyzePhoto({
+        imageUri: uri,
+        patientId,
+        token,
+        photoType,
       });
-      clearTimeout(aiTimeout);
 
-      // Always read raw text first so we can log it regardless of status
-      const rawText = await aiRes.text().catch((e) => `[text() failed: ${(e as Error).message}]`);
-      console.log(`[AI STATUS] ${aiRes.status} | photoType=${photoType}`);
-      console.log("[AI RESPONSE RAW]:", rawText.slice(0, 800)); // cap at 800 chars
-
-      let aiData: Record<string, any> = {};
-      try {
-        aiData = JSON.parse(rawText);
-      } catch (parseErr) {
-        console.error("[AI PARSE ERROR] Not valid JSON:", rawText.slice(0, 400));
-      }
-
-      if (!aiRes.ok) {
-        console.warn("[AI] Endpoint error:", aiData.error ?? "(no error field)", "|", aiData.message ?? "", "| photoType:", photoType);
-        if (aiData.error === "image_too_large") {
+      if (!result.ok) {
+        if (result.phase === "session") {
+          Alert.alert(t("chat.sessionError"), t("chat.sessionExpired"));
+        } else if (result.phase === "upload") {
+          const msg =
+            result.message === "empty_file"
+              ? t("messages.uploadFailed")
+              : result.message === "timeout"
+                ? (t("messages.connectionError") || "Timeout")
+                : result.message || t("messages.uploadFailed");
+          Alert.alert(t("common.error"), msg);
+        } else if (result.phase === "parse") {
+          Alert.alert(t("common.error"), t("messages.connectionError") || "Invalid response");
+        } else if (result.aiData?.error === "image_too_large") {
           Alert.alert(
             t("messages.uploadError") || "Hata",
-            aiData.message || "Görsel çok büyük, lütfen tekrar çekin."
+            String(result.aiData.message || "")
+          );
+        } else {
+          Alert.alert(
+            t("common.error"),
+            String(result.message || t("messages.connectionError") || "Analiz başarısız.")
           );
         }
-        // ai_timeout / other → original image still visible in chat
-      } else {
-        console.log("[AI] Analysis complete for:", photoType, "| ok:", aiData.ok, "| insights:", aiData.insights?.length ?? 0);
-
-        // ── Add AI result as a LOCAL message immediately ────────────────
-        // The backend also inserts this into the DB, but insertMessageToSupabase
-        // can fail silently when the patient has no clinic_id. Using a local
-        // message guarantees the AiResultBubble mounts right away.
-        // De-duplication in allMessages suppresses the local copy once fetchMessages
-        // brings the server version.
-        const localAiMsgId = `ai_result_local_${Date.now()}`;
-        const localAiMsg: Message = {
-          id:        localAiMsgId,
-          from:      "CLINIC",
-          type:      "ai_result",
-          text:      "",
-          createdAt: Date.now() + 500,
-          _local:    true,
-          attachment: {
-            name: "",
-            url: fileUrl,
-            mimeType: "image/jpeg",
-            fileType: "image",
-            aiResult: {
-              insights:       aiData.insights       ?? [],
-              confidence:     aiData.confidence     ?? "medium",
-              summary:        aiData.summary        ?? "",
-              recommendation: aiData.recommendation ?? "",
-              disclaimer:     aiData.disclaimer     ?? "",
-              originalImageUrl: fileUrl,
-              clinics:        aiData.clinics        ?? [],
-              issues:         Array.isArray(aiData.issues) ? aiData.issues : [],
-              treatments:     Array.isArray(aiData.treatments) ? aiData.treatments : [],
-              priceEstimate:
-                aiData.priceEstimate && typeof aiData.priceEstimate === "object"
-                  ? aiData.priceEstimate
-                  : {},
-              missingTooth:
-                aiData.missingTooth &&
-                typeof aiData.missingTooth === "object" &&
-                Array.isArray((aiData.missingTooth as MissingToothGuidance).options)
-                  ? (aiData.missingTooth as MissingToothGuidance)
-                  : undefined,
-              missingToothDetected:
-                typeof aiData.missingToothDetected === "boolean"
-                  ? aiData.missingToothDetected
-                  : !!(
-                      aiData.missingTooth &&
-                      typeof aiData.missingTooth === "object" &&
-                      Array.isArray((aiData.missingTooth as MissingToothGuidance).options)
-                    ),
-              missingToothConfidence:
-                (aiData.missingToothConfidence as AiResult["missingToothConfidence"]) ??
-                (aiData.missingTooth as MissingToothGuidance | undefined)?.confidence ??
-                null,
-              dentalCondition:
-                aiData.dentalCondition &&
-                typeof aiData.dentalCondition === "object" &&
-                typeof (aiData.dentalCondition as DentalConditionPayload).labelTr === "string"
-                  ? (aiData.dentalCondition as DentalConditionPayload)
-                  : undefined,
-            },
-          },
-        };
-        setLocalMessages(prev => [...prev, localAiMsg]);
-        setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+        return;
       }
-    } catch (e) {
-      clearTimeout(aiTimeout);
-      console.warn("[AI] Fetch error/abort for:", photoType, (e as Error)?.message);
-      // Network error or client abort — original image still visible
+
+      const aiData = result.aiData;
+      const fileUrl = result.fileUrl;
+      setLastCapturedImage(fileUrl);
+      console.log(
+        "[AI] Analysis complete for:",
+        photoType,
+        "| ok:",
+        aiData.ok,
+        "| insights:",
+        aiData.insights?.length ?? 0
+      );
+
+      const localAiMsgId = `ai_result_local_${Date.now()}`;
+      const localAiMsg: Message = {
+        id: localAiMsgId,
+        from: "CLINIC",
+        type: "ai_result",
+        text: "",
+        createdAt: Date.now() + 500,
+        _local: true,
+        attachment: {
+          name: "",
+          url: fileUrl,
+          mimeType: "image/jpeg",
+          fileType: "image",
+          aiResult: {
+            insights: aiData.insights ?? [],
+            confidence: aiData.confidence ?? "medium",
+            summary: aiData.summary ?? "",
+            recommendation: aiData.recommendation ?? "",
+            disclaimer: aiData.disclaimer ?? "",
+            originalImageUrl: fileUrl,
+            clinics: aiData.clinics ?? [],
+            issues: Array.isArray(aiData.issues) ? aiData.issues : [],
+            treatments: Array.isArray(aiData.treatments) ? aiData.treatments : [],
+            priceEstimate:
+              aiData.priceEstimate && typeof aiData.priceEstimate === "object"
+                ? aiData.priceEstimate
+                : {},
+            missingTooth:
+              aiData.missingTooth &&
+              typeof aiData.missingTooth === "object" &&
+              Array.isArray((aiData.missingTooth as MissingToothGuidance).options)
+                ? (aiData.missingTooth as MissingToothGuidance)
+                : undefined,
+            missingToothDetected:
+              typeof aiData.missingToothDetected === "boolean"
+                ? aiData.missingToothDetected
+                : !!(
+                    aiData.missingTooth &&
+                    typeof aiData.missingTooth === "object" &&
+                    Array.isArray((aiData.missingTooth as MissingToothGuidance).options)
+                  ),
+            missingToothConfidence:
+              (aiData.missingToothConfidence as AiResult["missingToothConfidence"]) ??
+              (aiData.missingTooth as MissingToothGuidance | undefined)?.confidence ??
+              null,
+            dentalCondition:
+              aiData.dentalCondition &&
+              typeof aiData.dentalCondition === "object" &&
+              typeof (aiData.dentalCondition as DentalConditionPayload).labelTr === "string"
+                ? (aiData.dentalCondition as DentalConditionPayload)
+                : undefined,
+          },
+        },
+      };
+      setLocalMessages(prev => [...prev, localAiMsg]);
+      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
     } finally {
-      // Step 4 – remove loading bubble & refresh
       setLocalMessages(prev => prev.filter(m => m.id !== loadingId));
       await fetchMessages(true);
     }
@@ -814,20 +638,25 @@ export default function MessagesScreen() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"],
       // Android: multi-select can fail to open on some OS versions; iOS keeps multi
       allowsMultipleSelection: Platform.OS === "ios",
       selectionLimit: Platform.OS === "ios" ? 5 : 1,
     });
     if (!result.canceled && result.assets.length > 0) {
-      // Process each photo independently (non-blocking: fire-and-forget per photo)
+      if (result.assets.length === 1) {
+        const a = result.assets[0];
+        setLastCapturedImage(a.uri);
+        goToAnalysis(router, { imageUri: a.uri }, { replace: true });
+        return;
+      }
       for (const a of result.assets) {
+        setLastCapturedImage(a.uri);
         processPhotoWithAI(
           a.uri,
           a.fileName || `photo_${Date.now()}.jpg`,
           a.mimeType || "image/jpeg"
         );
-        // Small stagger so loading bubbles appear in order
         await new Promise(r => setTimeout(r, 200));
       }
     }
@@ -848,16 +677,13 @@ export default function MessagesScreen() {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"],
       // No quality param — compressImage() handles all encoding
     });
     if (!result.canceled && result.assets[0]) {
       const a = result.assets[0];
-      processPhotoWithAI(
-        a.uri,
-        a.fileName || `photo_${Date.now()}.jpg`,
-        a.mimeType || "image/jpeg"
-      );
+      setLastCapturedImage(a.uri);
+      goToAnalysis(router, { imageUri: a.uri }, { replace: true });
     }
     } catch (e) {
       console.error("[capturePhotoForAI]", e);
@@ -869,19 +695,6 @@ export default function MessagesScreen() {
   pickImageRef.current    = capturePhotoForAI;
   processPhotoRef.current = processPhotoWithAI;
 
-  // Auto-open camera when navigated from profile with openCamera=true (fires once)
-  useEffect(() => {
-    if (openCamera !== "true" || autoCameraFiredRef.current) return;
-    autoCameraFiredRef.current = true;
-    // Short delay lets the screen fully mount before the camera opens
-    const timer = setTimeout(() => {
-      pickImageRef.current?.();
-      // Clear the param so back-navigation doesn't re-trigger
-      navigation.setParams({ openCamera: undefined } as any);
-    }, 600);
-    return () => clearTimeout(timer);
-  }, [openCamera, navigation]);
-
   const pickDocument = async () => {
     if (!await checkUploadConsent()) return;
     const result = await DocumentPicker.getDocumentAsync({
@@ -892,6 +705,35 @@ export default function MessagesScreen() {
       const a = result.assets[0];
       await uploadFile(a.uri, a.name, a.mimeType || "application/octet-stream");
     }
+  };
+
+  /** Gallery → Files (or chat upload) → composer attachment */
+  const attachComposerFromGallery = async () => {
+    if (!chatClinicId) {
+      Alert.alert(t("common.error"), t("messages.chatRequiresClinic"));
+      return;
+    }
+    if (!token || !patientId) return;
+    if (!(await checkUploadConsent())) return;
+    const picked = await openFilePicker({ type: "image" });
+    if (!picked) return;
+    const saved = await saveToFiles({
+      token,
+      patientId,
+      uri: picked.uri,
+      name: picked.name,
+      mimeType: picked.mimeType,
+      clinicId: chatClinicId,
+      clinicCode: selectedClinic?.clinic_code,
+    });
+    if (!saved.url && !saved.fileId) {
+      Alert.alert(t("common.error"), t("messages.attachmentSaveFailed"));
+      return;
+    }
+    setPendingAttachments((prev) => [
+      ...prev,
+      { localUri: picked.uri, fileId: saved.fileId, url: saved.url },
+    ]);
   };
 
   const openGuidedCamera = () => {
@@ -912,7 +754,10 @@ export default function MessagesScreen() {
         },
         (i) => {
           if (i === 1) capturePhotoForAI();
-          else if (i === 2) pickImage();
+          else if (i === 2) {
+            if (chatClinicId) void attachComposerFromGallery();
+            else void pickImage();
+          }
           else if (i === 3) pickDocument();
           else if (i === 4) openGuidedCamera();
         }
@@ -920,7 +765,13 @@ export default function MessagesScreen() {
     } else {
       Alert.alert(t("messages.addFile"), t("messages.selectSource"), [
         { text: CAMERA_LABEL,  onPress: capturePhotoForAI },
-        { text: GALLERY_LABEL, onPress: pickImage },
+        {
+          text: GALLERY_LABEL,
+          onPress: () => {
+            if (chatClinicId) void attachComposerFromGallery();
+            else void pickImage();
+          },
+        },
         { text: FILE_LABEL,    onPress: pickDocument },
         { text: INTRA_LABEL,   onPress: openGuidedCamera },
         { text: t("common.cancel"), style: "cancel" },
@@ -938,7 +789,7 @@ export default function MessagesScreen() {
       return;
     }
     // No quality param — compressImage() runs at upload time in submitIntraoralPhotos
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"] });
     if (!result.canceled && result.assets[0]) {
       const key = PHOTO_STEP_KEYS[intraoralStep]?.key;
       if (key) setIntraoralPhotos(prev => ({ ...prev, [key]: result.assets[0] }));
@@ -989,31 +840,6 @@ export default function MessagesScreen() {
           <Text style={s.headerTitle}>{t("messages.title")}</Text>
           <Text style={s.headerSub}>{t("messages.subtitle")}</Text>
         </View>
-
-        {/* Destination selector — below header, always visible */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={ds.row}
-          contentContainerStyle={ds.rowContent}
-          alwaysBounceHorizontal={false}
-        >
-          {DESTINATION_OPTIONS.map(opt => {
-            const active = preferredDestination === opt.id;
-            return (
-              <TouchableOpacity
-                key={opt.id}
-                style={[ds.chip, active && ds.chipActive]}
-                onPress={() => selectDestination(opt.id)}
-                activeOpacity={0.7}
-              >
-                <Text style={ds.chipFlag}>{opt.flag}</Text>
-                <Text style={[ds.chipLabel, active && ds.chipLabelActive]}>{opt.label}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
 
         {/* Message list */}
         <FlatList
@@ -1076,36 +902,84 @@ export default function MessagesScreen() {
           </View>
         )}
 
-        {/* Input bar — hidden when no clinic and no messages */}
-        {(hasClinic || allMessages.length > 0) && <View style={s.inputBar}>
-          <TouchableOpacity
-            style={s.attachBtn}
-            onPress={showAttachMenu}
-            disabled={uploading || sending}
-            activeOpacity={0.7}
-          >
-            <Text style={s.attachIcon}>📎</Text>
-          </TouchableOpacity>
-          <TextInput
-            style={s.input}
-            placeholder={t("chat.typeMessage")}
-            placeholderTextColor="#9ca3af"
-            value={text}
-            onChangeText={setText}
-            multiline
-            maxLength={2000}
-          />
-          <TouchableOpacity
-            style={[s.sendBtn, (!text.trim() || sending || uploading) && s.sendBtnOff]}
-            onPress={sendText}
-            disabled={!text.trim() || sending || uploading}
-            activeOpacity={0.8}
-          >
-            {sending
-              ? <ActivityIndicator size="small" color="#fff" />
-              : <Text style={s.sendIcon}>➤</Text>}
-          </TouchableOpacity>
-        </View>}
+        {!chatClinicId && allMessages.length > 0 ? (
+          <View style={s.chatHintBanner}>
+            <Text style={s.chatHintText}>{t("messages.openChatFromClinicCard")}</Text>
+          </View>
+        ) : null}
+
+        {/* Composer: requires active clinic thread (deep link / tab with clinicId) */}
+        {(hasClinic || allMessages.length > 0 || chatClinicId) && chatClinicId ? (
+          <View style={s.inputBarOuter}>
+            {pendingAttachments.length > 0 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={s.previewScroll}
+                contentContainerStyle={s.previewScrollContent}
+              >
+                {pendingAttachments.map((att, idx) => (
+                  <View key={`${att.localUri}-${idx}`} style={s.previewChip}>
+                    <Image
+                      source={{ uri: att.localUri }}
+                      style={s.previewChipImg}
+                      resizeMode="cover"
+                    />
+                    <TouchableOpacity
+                      style={s.previewChipRemove}
+                      onPress={() =>
+                        setPendingAttachments((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                    >
+                      <Text style={s.previewChipRemoveTxt}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : null}
+            <View style={s.inputBar}>
+              <TouchableOpacity
+                style={s.attachBtn}
+                onPress={showAttachMenu}
+                disabled={uploading || sending}
+                activeOpacity={0.7}
+              >
+                <Text style={s.attachIcon}>📎</Text>
+              </TouchableOpacity>
+              <TextInput
+                style={s.input}
+                placeholder={t("chat.typeMessage")}
+                placeholderTextColor="#9ca3af"
+                value={text}
+                onChangeText={setText}
+                multiline
+                maxLength={2000}
+              />
+              <TouchableOpacity
+                style={[
+                  s.sendBtn,
+                  (!text.trim() && pendingAttachments.length === 0) ||
+                  sending ||
+                  uploading
+                    ? s.sendBtnOff
+                    : null,
+                ]}
+                onPress={sendText}
+                disabled={
+                  (!text.trim() && pendingAttachments.length === 0) ||
+                  sending ||
+                  uploading
+                }
+                activeOpacity={0.8}
+              >
+                {sending
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={s.sendIcon}>➤</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
       </View>
 
       {/* Intraoral Modal */}
@@ -1126,6 +1000,7 @@ export default function MessagesScreen() {
 // ─── ClinicCard ───────────────────────────────────────────────────────────────
 
 function ClinicCard({ clinic }: { clinic: ClinicRecommendation }) {
+  const router = useRouter();
   const PREFILL = "AI analiz sonucuma göre sizinle görüşmek istiyorum.";
 
   return (
@@ -1152,7 +1027,9 @@ function ClinicCard({ clinic }: { clinic: ClinicRecommendation }) {
         <TouchableOpacity
           style={cl.ctaBtn}
           activeOpacity={0.8}
-          onPress={() => triggerClinicContact(PREFILL)}
+          onPress={() =>
+            goToChat(router, { clinicId: clinic.id, prefillText: PREFILL })
+          }
         >
           <Text style={cl.ctaBtnText}>Mesaj Gönder</Text>
         </TouchableOpacity>
@@ -1290,14 +1167,12 @@ function strengthenInsightForUi(line: string): string {
 function AiResultBubble({ msg }: { msg: Message }) {
   const result = msg.attachment?.aiResult;
   const { user } = useAuth();
-  const token = user?.token;
   const router = useRouter();
+  const { t } = useLanguage();
 
   const imgUrl = result?.originalImageUrl ?? "";
   const msgKey = msg.id;
 
-  const [offerLeadLoading, setOfferLeadLoading] = useState(false);
-  const [offerLeadSent, setOfferLeadSent] = useState(false);
   const [showClinicModal, setShowClinicModal] = useState(false);
 
   const [toothColorPreset, setToothColorPreset] = useState<ToothColorPreset>("natural");
@@ -1352,169 +1227,6 @@ function AiResultBubble({ msg }: { msg: Message }) {
     smileSimRetryNonce,
   ]);
 
-  const submitOfferLead = useCallback(async () => {
-    if (!user?.patientId || !token) {
-      Alert.alert("Giriş gerekli", "Teklif göndermek için oturum açın.");
-      return;
-    }
-    if (offerLeadSent) return;
-    setOfferLeadLoading(true);
-    try {
-      const country = (await AsyncStorage.getItem(PREFERRED_DESTINATION_KEY)) || "unknown";
-      const treatments = result?.treatments ?? [];
-      const preferred =
-        treatments.length > 0 ? treatments.slice(0, 12).join(", ") : "Çoklu tedavi — AI önerisi";
-
-      const descLines: string[] = ["[Cliniflow AI analiz — teklif talebi]"];
-      if (country && country !== "unknown") {
-        descLines.push(`Tercih edilen bölge: ${country}`);
-      }
-      for (const line of result?.insights ?? []) {
-        if (descLines.length >= 14) break;
-        if (line?.trim()) descLines.push(line.trim());
-      }
-      if (result?.summary?.trim()) descLines.push(result.summary.trim());
-      if (result?.recommendation?.trim()) descLines.push(result.recommendation.trim());
-      const description = descLines.join("\n").slice(0, 12000) || "AI ile oluşturulan tedavi talebi";
-
-      const priceBand = aggregatePriceEstimateLabel(result?.priceEstimate);
-      const budgetStr = priceBand ? `Tahmini aralık (AI): ${priceBand}` : undefined;
-
-      const resolveAbsUrl = (u: string | undefined | null) => {
-        const s = String(u || "").trim();
-        if (!s) return null;
-        if (/^https?:\/\//i.test(s)) return s;
-        return `${API_BASE}${s.startsWith("/") ? "" : "/"}${s}`;
-      };
-      const photoCandidates = [
-        resolveAbsUrl(imgUrl),
-        resolveAbsUrl(result?.originalImageUrl),
-        resolveAbsUrl(simulatedSmileUrl),
-      ]
-        .filter((u): u is string => Boolean(u))
-        .slice(0, 6);
-      const photo_urls = photoCandidates.length > 0 ? photoCandidates : undefined;
-
-      const hasClinic = Boolean(
-        selectedClinic?.id?.trim() ||
-          (user.clinicId && String(user.clinicId).trim()) ||
-          (user.clinicCode && String(user.clinicCode).trim())
-      );
-
-      const postTreatmentRequest = async () => {
-        const body: Record<string, unknown> = {
-          description,
-          preferred_treatment: preferred,
-        };
-        if (selectedClinic?.id?.trim()) {
-          body.clinic_id = String(selectedClinic.id).trim();
-        } else if (user.clinicId && String(user.clinicId).trim()) {
-          body.clinic_id = String(user.clinicId).trim();
-        }
-        if (selectedClinic?.clinic_code?.trim()) {
-          body.clinic_code = String(selectedClinic.clinic_code).trim();
-        } else if (user.clinicCode && String(user.clinicCode).trim()) {
-          body.clinic_code = String(user.clinicCode).trim();
-        }
-        if (budgetStr) body.budget = budgetStr;
-        if (photo_urls) body.photo_urls = photo_urls;
-
-        return fetch(`${API_BASE}/api/patient/treatment-requests`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "application/json",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-        });
-      };
-
-      const postLeadsFallback = async () => {
-        const res = await fetch(`${API_BASE}/api/leads`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "application/json",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            userId: user.patientId,
-            treatments,
-            country,
-            imageUrl: imgUrl || result?.originalImageUrl || "",
-          }),
-        });
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(
-            typeof j.message === "string" ? j.message : String(j.error || "İstek başarısız")
-          );
-        }
-        return j;
-      };
-
-      if (hasClinic) {
-        const trRes = await postTreatmentRequest();
-        const trJ = await trRes.json().catch(() => ({}));
-        if (trRes.ok && trJ.ok === true) {
-          setOfferLeadSent(true);
-          Alert.alert(
-            "Talebiniz kliniğe iletildi",
-            "Tedavi talebiniz bağlı olduğunuz kliniğin doktor paneline düştü. Yanıtları uygulamadaki talepler bölümünden takip edebilirsiniz."
-          );
-          return;
-        }
-        const errCode = trJ.error || trJ.code;
-        if (trRes.status === 422 || errCode === "CLINIC_NOT_RESOLVED") {
-          await postLeadsFallback();
-          setOfferLeadSent(true);
-          Alert.alert(
-            "Talebiniz kaydedildi (genel havuz)",
-            "Klinik eşlemesi net olmadığı için talep önce Cliniflow genel kaydına alındı; ekibimiz uygun klinikle iletişime geçebilir. Profilinizde klinik seçtiğinizden emin olun veya klinik kodunu güncelleyin."
-          );
-          return;
-        }
-        throw new Error(
-          typeof trJ.message === "string"
-            ? trJ.message
-            : String(trJ.error || "Tedavi talebi gönderilemedi")
-        );
-      }
-
-      await postLeadsFallback();
-      setOfferLeadSent(true);
-      Alert.alert(
-        "Talebiniz kaydedildi",
-        "Profilinize henüz klinik eklenmediyse talep doğrudan klinik sistemine düşmez. Kayıt Cliniflow ekibinin eşleştirme havuzuna alındı. Klinikle çalışmak için kayıtta veya profilde kliniğinizi seçin; ardından tekrar “teklif talebi” gönderebilirsiniz."
-      );
-    } catch (e) {
-      Alert.alert("Hata", String((e as Error)?.message || "Teklif gönderilemedi"));
-    } finally {
-      setOfferLeadLoading(false);
-    }
-  }, [
-    user?.patientId,
-    user?.clinicId,
-    user?.clinicCode,
-    selectedClinic?.id,
-    selectedClinic?.clinic_code,
-    token,
-    result?.treatments,
-    result?.insights,
-    result?.summary,
-    result?.recommendation,
-    result?.priceEstimate,
-    result?.originalImageUrl,
-    imgUrl,
-    simulatedSmileUrl,
-    offerLeadSent,
-  ]);
-
-  useEffect(() => {
-    setOfferLeadSent(false);
-  }, [msgKey]);
-
   if (!result) return null;
 
   const resolveUrl = (url: string) =>
@@ -1545,14 +1257,18 @@ function AiResultBubble({ msg }: { msg: Message }) {
     if (result.clinics && result.clinics.length > 0) {
       setShowClinicModal(true);
     } else {
-      // No pre-loaded clinic list — fill text input for current clinic
-      triggerClinicContact(prefillMessage);
+      const cid = user?.clinicId ? String(user.clinicId).trim() : "";
+      if (cid) {
+        goToChat(router, { clinicId: cid, prefillText: prefillMessage });
+      } else {
+        Alert.alert(t("common.error"), t("messages.chatRequiresClinic"));
+      }
     }
   };
 
-  const handleSelectClinic = (_clinic: ClinicRecommendation) => {
+  const handleSelectClinic = (clinic: ClinicRecommendation) => {
     setShowClinicModal(false);
-    triggerClinicContact(prefillMessage);
+    goToChat(router, { clinicId: clinic.id, prefillText: prefillMessage });
   };
 
   /** Teklif / klinik akışına giderken analiz veya simülasyon görselini quote-request için sakla. */
@@ -1783,24 +1499,26 @@ function AiResultBubble({ msg }: { msg: Message }) {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[ai.ctaSecondary, offerLeadSent && ai.ctaSecondarySent]}
-            onPress={submitOfferLead}
-            disabled={offerLeadLoading || offerLeadSent}
+            style={ai.ctaSecondary}
+            onPress={() => {
+              const cid =
+                result.clinics?.[0]?.id ||
+                (user?.clinicId ? String(user.clinicId) : "");
+              if (!String(cid).trim()) {
+                Alert.alert(t("common.error"), t("messages.chatRequiresClinic"));
+                return;
+              }
+              goToChat(router, {
+                clinicId: String(cid),
+                prefillText: t("messages.defaultComposerText"),
+              });
+            }}
             activeOpacity={0.88}
           >
-            {offerLeadLoading ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Text style={ai.ctaSecondaryText}>
-                {offerLeadSent ? "Talebiniz kaydedildi" : "Teklif talebi gönder"}
-              </Text>
-            )}
-          </TouchableOpacity>
-          {offerLeadSent ? (
-            <Text style={ai.offerLeadSuccess}>
-              Talebiniz kayıt altına alındı; ekip tarafından değerlendirilecek.
+            <Text style={ai.ctaSecondaryText}>
+              {t("messages.requestOffersFromClinics")}
             </Text>
-          ) : null}
+          </TouchableOpacity>
 
           <TouchableOpacity style={ai.linkRow} onPress={handleSendToClinic} activeOpacity={0.7}>
             <Text style={ai.linkRowText}>Sonucu mesaj olarak bir kliniğe gönder</Text>
@@ -2042,10 +1760,76 @@ const s = StyleSheet.create({
   },
   uploadBannerText: { color: "#fff", fontSize: 13, fontWeight: "600" },
 
+  inputBarOuter: {
+    backgroundColor: "#fff",
+    borderTopWidth: 1,
+    borderTopColor: "#e5e7eb",
+  },
+  composerPhotoRow: {
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  composerPhotoLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  composerPhotoLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#475569",
+  },
+  composerPhotoDismiss: {
+    fontSize: 16,
+    color: "#94a3b8",
+    fontWeight: "600",
+  },
+  composerPhotoThumb: {
+    width: "100%",
+    height: 96,
+    borderRadius: 12,
+    backgroundColor: "#e2e8f0",
+  },
+  chatHintBanner: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: "#fffbeb",
+    borderTopWidth: 1,
+    borderTopColor: "#fde68a",
+  },
+  chatHintText: { fontSize: 12, color: "#92400e", lineHeight: 17, textAlign: "center" },
+  previewScroll: { maxHeight: 92, marginBottom: 4 },
+  previewScrollContent: {
+    paddingHorizontal: 10,
+    alignItems: "center",
+    flexDirection: "row",
+  },
+  previewChip: {
+    width: 72,
+    height: 72,
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: "#e2e8f0",
+    marginRight: 8,
+  },
+  previewChipImg: { width: "100%", height: "100%" },
+  previewChipRemove: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  previewChipRemoveTxt: { color: "#fff", fontSize: 11, fontWeight: "700" },
   inputBar: {
     flexDirection: "row", alignItems: "flex-end", gap: 8,
-    backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 10,
-    borderTopWidth: 1, borderTopColor: "#e5e7eb",
+    paddingHorizontal: 12, paddingVertical: 10,
   },
   attachBtn:  { padding: 8, justifyContent: "center", alignItems: "center" },
   attachIcon: { fontSize: 22 },
@@ -2246,7 +2030,6 @@ const ai = StyleSheet.create({
     minHeight: 48,
     justifyContent: "center",
   },
-  ctaSecondarySent: { backgroundColor: "#6b7280" },
   ctaSecondaryText: { color: "#fff", fontSize: 15, fontWeight: "800" },
 
   linkRow: { alignItems: "center", paddingVertical: 10, marginTop: 4 },
@@ -2593,47 +2376,4 @@ const im = StyleSheet.create({
   submitBtnText: { color: "#fff" },
 
   hint: { fontSize: 11, color: "#9ca3af", textAlign: "center", lineHeight: 17 },
-});
-
-// ─── Destination selector styles ──────────────────────────────────────────────
-
-const ds = StyleSheet.create({
-  row: {
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
-  },
-  rowContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    gap: 10,
-  },
-  chip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 18,
-    paddingVertical: 13,
-    borderRadius: 28,
-    borderWidth: 2,
-    borderColor: "#d1d5db",
-    backgroundColor: "#f3f4f6",
-    minHeight: 48,
-  },
-  chipActive: {
-    backgroundColor: "#dbeafe",
-    borderColor: "#2563eb",
-  },
-  chipFlag: { fontSize: 18, lineHeight: 22 },
-  chipLabel: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#111827",
-    lineHeight: 20,
-  },
-  chipLabelActive: {
-    color: "#1d4ed8",
-  },
 });

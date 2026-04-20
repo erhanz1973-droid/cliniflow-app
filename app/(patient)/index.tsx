@@ -13,6 +13,9 @@ import {
   clearDentalScanReminder,
 } from "../../lib/patientOnboardingStorage";
 import { translateProcedureDisplay } from "../../lib/procedureLabels";
+import { PrimaryCard } from "../../components/home/PrimaryCard";
+import { SecondaryCard } from "../../components/home/SecondaryCard";
+import { track } from "../../lib/analytics";
 
 function formatShortDate(v: string | null | undefined, locale: string) {
   if (!v) return null;
@@ -160,6 +163,7 @@ export default function PatientDashboard() {
   const [inboxSummary, setInboxSummary] = useState({ new_offers: 0, doctor_messages: 0 });
   const [fileCounts, setFileCounts] = useState({ total: 0, xray: 0, image: 0, pdf: 0 });
   const [showDentalReminder, setShowDentalReminder] = useState(false);
+  const [isCameraBusy, setIsCameraBusy] = useState(false);
 
   const [fetchError, setFetchError] = useState(false);
   const patientId = String(user?.patientId || user?.id || "").trim();
@@ -327,7 +331,31 @@ export default function PatientDashboard() {
     } catch {}
   }, [user?.token, patientId]);
 
-  useFocusEffect(useCallback(() => { refreshInbox(); }, [refreshInbox]));
+  const goToJoinClinic = useCallback(() => {
+    track("home_join_clinic_click");
+    router.push({
+      pathname: "/(patient)/profile" as const,
+      params: { openJoinModal: "1" },
+    } as any);
+  }, [router]);
+
+  const goToClinicSearch = useCallback(() => {
+    track("home_clinic_search_click");
+    router.push("/clinic-onboarding" as any);
+  }, [router]);
+
+  const goToCamera = useCallback(() => {
+    setIsCameraBusy(true);
+    track("home_camera_click");
+    router.push({ pathname: "/(patient)/dental-camera" as const } as any);
+  }, [router]);
+
+  useFocusEffect(
+    useCallback(() => {
+      setIsCameraBusy(false);
+      refreshInbox();
+    }, [refreshInbox])
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -457,6 +485,33 @@ export default function PatientDashboard() {
           <View style={styles.docMsgBannerDot} />
         </TouchableOpacity>
       )}
+
+      {/* Primary CTA: foto + klinik (banner’ların altında, quick icon grid üstünde) */}
+      <View style={styles.ctaSection}>
+        <PrimaryCard
+          title={t("home.ctaDentalPhoto")}
+          subtitle={t("home.ctaDentalPhotoSub")}
+          icon="camera"
+          accentColor="#2563EB"
+          disabled={isCameraBusy}
+          loading={isCameraBusy}
+          onPress={goToCamera}
+        />
+        <View style={styles.ctaSecondaryRow}>
+          <SecondaryCard
+            title={t("home.ctaFindClinic")}
+            icon="search"
+            accentColor="#2563EB"
+            onPress={goToClinicSearch}
+          />
+          <SecondaryCard
+            title={t("home.ctaJoinWithCode")}
+            icon="key"
+            accentColor="#2563EB"
+            onPress={goToJoinClinic}
+          />
+        </View>
+      </View>
 
       {/* QUICK ACCESS CARDS */}
       <View style={styles.quickRow}>
@@ -718,6 +773,16 @@ export default function PatientDashboard() {
 }
 
 const styles = StyleSheet.create({
+  ctaSection: {
+    padding: 16,
+    paddingBottom: 8,
+    backgroundColor: "#f3f4f6",
+  },
+  ctaSecondaryRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 12,
+  },
   container: { flex: 1, backgroundColor: "#f3f4f6" },
   center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f3f4f6" },
   errorBanner: {

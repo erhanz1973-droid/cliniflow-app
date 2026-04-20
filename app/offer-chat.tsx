@@ -2,15 +2,17 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
-  StyleSheet, SafeAreaView, ActivityIndicator, KeyboardAvoidingView,
+  StyleSheet, ActivityIndicator, KeyboardAvoidingView,
   Platform, Alert, Image, Modal, ScrollView, Linking,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/language-context';
 import { API_BASE } from '../lib/api';
+import { getSupabaseClient, isSupabaseRealtimeConfigured } from '../lib/supabase';
 
 // Guided intraoral photo steps
 const PHOTO_STEP_KEYS = [
@@ -23,6 +25,8 @@ const PHOTO_STEP_KEYS = [
 
 type Message = {
   id: string;
+  /** Thread scope — must match route `currentOfferId` (prevents multi-offer leak). */
+  offer_id: string;
   sender_id: string;
   sender_role: 'patient' | 'doctor' | 'system';
   sender_name: string;
@@ -58,6 +62,62 @@ function resolveAttachmentMediaUrl(raw: string | null | undefined, apiBase: stri
   return u;
 }
 
+const OFFER_ID_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function paramString(v: string | string[] | undefined): string {
+  const s = Array.isArray(v) ? v[0] : v;
+  return String(s ?? '').trim();
+}
+
+/** Merge by `id` (last wins), sort by `created_at` — never replace list wholesale from fetch. */
+function mergeMessagesById(prev: Message[], fetched: Message[]): Message[] {
+  const merged = [...prev, ...fetched];
+  const map = new Map<string, Message>();
+  for (const m of merged) {
+    const id = String(m.id);
+    if (!id) continue;
+    map.set(id, m);
+  }
+  return Array.from(map.values()).sort(
+    (a, b) =>
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
+}
+
+/** Map DB row (Realtime or raw) → list item; attachment URLs normalized for RN. */
+function offerMessageRowToUI(
+  row: Record<string, unknown>,
+  apiBase: string,
+  fallbackOfferId = ''
+): Message {
+  const role = String(row.sender_role || 'patient').toLowerCase();
+  const sender_role =
+    role === 'doctor' || role === 'system' || role === 'patient'
+      ? (role as Message['sender_role'])
+      : 'patient';
+  return {
+    id: String(row.id ?? ''),
+    offer_id: String(row.offer_id ?? fallbackOfferId).trim(),
+    sender_id: String(row.sender_id ?? ''),
+    sender_role,
+    sender_name: String(row.sender_name ?? '').trim(),
+    text: row.text != null && String(row.text).trim() ? String(row.text) : null,
+    attachment_url: row.attachment_url
+      ? resolveAttachmentMediaUrl(String(row.attachment_url), apiBase)
+      : null,
+    attachment_type:
+      row.attachment_type === 'image' ||
+      row.attachment_type === 'xray' ||
+      row.attachment_type === 'document'
+        ? row.attachment_type
+        : null,
+    created_at: row.created_at
+      ? new Date(String(row.created_at)).toISOString()
+      : new Date().toISOString(),
+  };
+}
+
 function groupByDate(messages: Message[]) {
   const groups: { date: string; items: Message[] }[] = [];
   let lastDate = '';
@@ -82,20 +142,36 @@ export default function OfferChatScreen() {
   const { user } = useAuth();
   const { t } = useLanguage();
 
-  const { offerId, otherName, treatmentType } = useLocalSearchParams<{
+  const routeParams = useLocalSearchParams<{
     offerId: string;
     otherName: string;
     treatmentType: string;
   }>();
+
+  /** Route `offerId` only — safe primitive (no useMemo). */
+  const currentOfferId =
+    Array.isArray(routeParams.offerId)
+      ? routeParams.offerId[0]
+      : routeParams.offerId ?? null;
+
+  const otherName = paramString(routeParams.otherName);
+  const treatmentType = paramString(routeParams.treatmentType);
+
+  /** Always matches latest route offer id — used to drop stale async fetch/realtime. */
+  const offerIdRef = useRef<string | null>(null);
+  offerIdRef.current =
+    currentOfferId == null ? null : String(currentOfferId).trim();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** Bumps only for manual retry — same offer, merge without clearing optimistic. */
+  const [reloadToken, setReloadToken] = useState(0);
+  const [realtimeKey, setRealtimeKey] = useState(0);
   const flatListRef = useRef<FlatList>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
+  const prevOfferIdRef = useRef<string | null>(null);
   // Guided intraoral state
   const [intraoralVisible, setIntraoralVisible] = useState(false);
   const [intraoralStep, setIntraoralStep]       = useState(0);
@@ -105,44 +181,200 @@ export default function OfferChatScreen() {
 
   // Mark all patient messages in this thread as read (doctor only)
   const markAsRead = useCallback(async () => {
-    if (!user?.token || !offerId || user?.type !== 'doctor') return;
+    if (!user?.token || currentOfferId == null || !String(currentOfferId).trim() || user?.type !== 'doctor') return;
     try {
-      await fetch(`${API_BASE}/api/offer-messages/${encodeURIComponent(offerId)}/read`, {
+      await fetch(`${API_BASE}/api/offer-messages/${encodeURIComponent(String(currentOfferId))}/read`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${user.token}` },
       });
-    } catch { /* silent — badge will auto-correct on next poll */ }
-  }, [user?.token, user?.type, offerId]);
+    } catch { /* silent */ }
+  }, [user?.token, user?.type, currentOfferId]);
 
-  const fetchMessages = useCallback(async (silent = false) => {
-    if (!user?.token || !offerId) return;
-    if (!silent) setError(null);
-    try {
-      const res = await fetch(
-        `${API_BASE}/api/offer-messages?offer_id=${encodeURIComponent(offerId)}`,
-        { headers: { Authorization: `Bearer ${user.token}` } }
-      );
-      const data = await res.json();
-      if (!data?.ok) throw new Error(data?.error || 'error');
-      setMessages(data.messages || []);
-    } catch (e: any) {
-      if (!silent) setError(e.message || t('common.error'));
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, [user?.token, offerId, t]);
-
+  /** Fetch only runs here (offer / token / reloadToken) — not after send. */
   useEffect(() => {
-    fetchMessages(false).then(() => {
+    if (currentOfferId == null || !String(currentOfferId).trim()) {
+      prevOfferIdRef.current = null;
+      setMessages([]);
       setLoading(false);
-      markAsRead(); // mark existing messages as read as soon as chat opens
-    });
-  }, [fetchMessages, markAsRead]);
+      return;
+    }
 
+    const scope = String(currentOfferId).trim();
+    const offerChanged = prevOfferIdRef.current !== scope;
+    prevOfferIdRef.current = scope;
+
+    if (offerChanged) {
+      setMessages([]);
+      setError(null);
+    }
+
+    if (!user?.token) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    let cancelled = false;
+
+    console.log('[FETCH]', scope);
+
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/offer-messages?offer_id=${encodeURIComponent(scope)}`,
+          { headers: { Authorization: `Bearer ${user.token}` } }
+        );
+        const data = await res.json();
+        if (!data?.ok) throw new Error(data?.error || 'error');
+
+        if (cancelled || offerIdRef.current !== scope) {
+          console.warn('[FETCH] stale response ignored', {
+            scope,
+            current: offerIdRef.current,
+          });
+          return;
+        }
+
+        const rows = (data.messages || []) as Record<string, unknown>[];
+        const fetchedMessages: Message[] = rows
+          .map((row) => ({
+            ...offerMessageRowToUI(row, API_BASE, scope),
+            offer_id: String(row.offer_id ?? scope).trim(),
+          }))
+          .filter((m) => m.offer_id === scope);
+
+        setMessages((prev) => mergeMessagesById(prev, fetchedMessages));
+      } catch (e: any) {
+        if (!cancelled) setError(e.message || t('common.error'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentOfferId, user?.token, reloadToken, t]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (currentOfferId == null || !String(currentOfferId).trim()) return;
+      markAsRead();
+    }, [currentOfferId, markAsRead])
+  );
+
+  // Supabase Realtime: deps [currentOfferId, realtimeKey] only — no user/token. reconnectKey recovers from TIMED_OUT / async removeChannel races.
   useEffect(() => {
-    pollRef.current = setInterval(() => fetchMessages(true), 5000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [fetchMessages]);
+    if (currentOfferId == null || !String(currentOfferId).trim()) return;
+    const oid = String(currentOfferId).trim();
+    if (!OFFER_ID_UUID_RE.test(oid)) return;
+
+    if (!isSupabaseRealtimeConfigured()) {
+      if (__DEV__) {
+        console.warn(
+          '[offer-chat] Realtime disabled: add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to cliniflow-app/.env (see .env.example), then npx expo start -c'
+        );
+      }
+      return;
+    }
+
+    const sb = getSupabaseClient();
+    if (!sb) return;
+
+    let isActive = true;
+    let cancelled = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let hasReconnected = false;
+    let channel: ReturnType<typeof sb.channel> | null = null;
+
+    const subscribeDelayMs = 300;
+
+    void (async () => {
+      try {
+        const { data, error } = await sb.auth.getSession();
+        if (__DEV__) {
+          console.log('[offer-chat] Realtime getSession', {
+            hasSession: Boolean(data.session),
+            error: error?.message ?? null,
+          });
+        }
+      } catch (e) {
+        console.warn('[offer-chat] Realtime getSession failed', e);
+      }
+
+      await new Promise<void>((resolve) => setTimeout(resolve, subscribeDelayMs));
+      if (cancelled || !isActive) return;
+
+      const ch = sb.channel(`offer:${oid}`);
+      channel = ch;
+
+      ch.on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'offer_messages',
+          filter: `offer_id=eq.${oid}`,
+        },
+        (payload: { new?: Record<string, unknown> }) => {
+          if (!isActive) return;
+
+          const row = payload.new as Record<string, unknown> | undefined;
+          if (!row?.id) return;
+          const rid = String(row.offer_id ?? '').trim();
+          console.log('[REALTIME]', row.offer_id);
+          if (rid !== oid) return;
+
+          const mapped = offerMessageRowToUI(row, API_BASE, oid);
+          if (mapped.offer_id !== oid) return;
+
+          setMessages((prev) => {
+            if (offerIdRef.current !== oid) return prev;
+            return mergeMessagesById(prev, [mapped]);
+          });
+        }
+      );
+
+      ch.subscribe((status) => {
+        if (!isActive) return;
+
+        if (__DEV__) console.log('[offer-chat] REALTIME STATUS', status);
+
+        if (status === 'SUBSCRIBED') {
+          console.log('[offer-chat] Realtime SUBSCRIBED', oid);
+        }
+
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('[offer-chat] Realtime CHANNEL_ERROR');
+        }
+
+        if (status === 'TIMED_OUT' && !hasReconnected) {
+          hasReconnected = true;
+
+          console.log('Realtime timeout:', oid);
+
+          void sb.removeChannel(ch);
+
+          reconnectTimer = setTimeout(() => {
+            setRealtimeKey((k) => k + 1);
+          }, 1000);
+        }
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+      isActive = false;
+
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
+
+      if (channel) {
+        void sb.removeChannel(channel);
+      }
+    };
+  }, [currentOfferId, realtimeKey]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -159,7 +391,7 @@ export default function OfferChatScreen() {
   ): Promise<string> => {
     const formData = new FormData();
     formData.append('file', { uri, type: mimeType, name: fileName } as any);
-    formData.append('offer_id', offerId!);
+    formData.append('offer_id', String(currentOfferId));
     formData.append('attachment_type', attachmentType);
 
     const res = await fetch(`${API_BASE}/api/offer-messages/upload`, {
@@ -178,10 +410,15 @@ export default function OfferChatScreen() {
     attachment_url?: string;
     attachment_type?: 'image' | 'xray' | 'document';
   }) => {
-    if (!user?.token || !offerId) return;
+    if (!currentOfferId) return;
+    if (!user?.token || !String(currentOfferId).trim()) return;
+
+    const scope = String(currentOfferId).trim();
+    console.log('[SEND]', scope);
 
     const optimistic: Message = {
       id: `opt_${Date.now()}`,
+      offer_id: scope,
       sender_id: user.id || '',
       sender_role: myRole,
       sender_name: user.name || (myRole === 'doctor' ? 'Dr.' : t('offerChat.you')),
@@ -190,7 +427,7 @@ export default function OfferChatScreen() {
       attachment_type: opts.attachment_type || null,
       created_at: new Date().toISOString(),
     };
-    setMessages(prev => [...prev, optimistic]);
+    setMessages((prev) => mergeMessagesById(prev, [optimistic]));
     setSending(true);
 
     try {
@@ -198,7 +435,7 @@ export default function OfferChatScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
         body: JSON.stringify({
-          offer_id: offerId,
+          offer_id: scope,
           text: opts.text || '',
           attachment_url: opts.attachment_url,
           attachment_type: opts.attachment_type,
@@ -206,14 +443,34 @@ export default function OfferChatScreen() {
       });
       const data = await res.json();
       if (!data?.ok) throw new Error(data?.error || 'error');
-      setMessages(prev =>
-        prev.map(m => m.id === optimistic.id
-          ? { ...data.message, sender_name: optimistic.sender_name }
-          : m
-        )
-      );
+      const serverMsg = data.message as Message | Record<string, unknown> | undefined;
+      if (serverMsg && typeof serverMsg === 'object' && 'id' in serverMsg && serverMsg.id) {
+        const normalized = offerMessageRowToUI(
+          serverMsg as Record<string, unknown>,
+          API_BASE,
+          scope
+        );
+        if (normalized.offer_id !== scope) {
+          console.warn('[SEND] server message wrong offer scope', {
+            expected: scope,
+            got: normalized.offer_id,
+          });
+        } else {
+          setMessages((prev) => {
+            const rest = prev.filter((m) => m.id !== optimistic.id);
+            const withServer: Message = {
+              ...normalized,
+              offer_id: scope,
+              sender_name: String(
+                normalized.sender_name || optimistic.sender_name || ''
+              ).trim(),
+            };
+            return mergeMessagesById(rest, [withServer]);
+          });
+        }
+      }
     } catch (e: any) {
-      setMessages(prev => prev.filter(m => m.id !== optimistic.id));
+      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
       Alert.alert(t('common.error'), e.message || t('common.error'));
     } finally {
       setSending(false);
@@ -369,7 +626,7 @@ export default function OfferChatScreen() {
         ) : error ? (
           <View style={styles.center}>
             <Text style={styles.errorText}>⚠️ {error}</Text>
-            <TouchableOpacity style={styles.retryBtn} onPress={() => fetchMessages(false)}>
+            <TouchableOpacity style={styles.retryBtn} onPress={() => setReloadToken((k) => k + 1)}>
               <Text style={styles.retryBtnText}>{t('common.retry')}</Text>
             </TouchableOpacity>
           </View>

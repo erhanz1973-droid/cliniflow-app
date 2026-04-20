@@ -14,6 +14,7 @@ import {
   Linking,
   Alert,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
 import { useAuth } from "../../lib/auth";
 import { API_BASE } from "../../lib/api";
@@ -29,6 +30,10 @@ import {
   SUPPORTED_LANGUAGES,
   LANGUAGE_NAMES,
 } from "../../lib/i18n";
+import { PrimaryCard } from "../../components/home/PrimaryCard";
+import { SecondaryCard } from "../../components/home/SecondaryCard";
+import { ActionCard } from "../../components/home/ActionCard";
+import { track } from "../../lib/analytics";
 
 type PatientStatus =
   | "WAITING_APPROVAL"
@@ -101,6 +106,20 @@ type MessagePreview = {
   lastMessage?: string;
 };
 
+/** Flattened from GET /api/patient/treatment-requests (offers on each request) */
+type HomeOffer = {
+  id: string;
+  clinic_id: string | null;
+  clinic_name: string | null;
+  treatment_type: string;
+  price_range: string | null;
+  duration: string | null;
+  note: string | null;
+  disclaimer: string;
+  created_at: string;
+  doctor_name: string | null;
+};
+
 export default function Home() {
   const { user, isAuthReady, isDoctor, isPatient, signOut } = useAuth();
   const { t, setLanguage } = useLanguage();
@@ -157,10 +176,22 @@ export default function Home() {
   const [travelSummary, setTravelSummary] = useState<TravelSummary | null>(null);
   const [travelHasNew, setTravelHasNew] = useState(false);
   const [messagePreview, setMessagePreview] = useState<MessagePreview>({ unreadCount: 0 });
+  const [clinicMessages, setClinicMessages] = useState<unknown[]>([]);
+  const [offers, setOffers] = useState<HomeOffer[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   const [healthFormComplete, setHealthFormComplete] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [currentLang, setCurrentLang] = useState<Language>("tr");
   const previousUnreadCountRef = useRef<number>(0);
+
+  const hasClinic = useMemo(
+    () =>
+      !!(
+        String((user as { clinicId?: string })?.clinicId || "").trim() ||
+        String((user as { clinicCode?: string })?.clinicCode || "").trim()
+      ),
+    [user]
+  );
 
   // Helper function to get progress steps (moved inside component to access t)
   const getProgressSteps = (t: (key: string, params?: Record<string, string | number>) => string) => {
@@ -279,8 +310,15 @@ export default function Home() {
         loadTravelSummary(patientInfo.patientId, user.token);
         // Reload message preview
         loadMessagePreview(patientInfo.patientId, user.token);
+        void loadTreatmentOffers(user.token);
       }
     }, [isAuthReady, user?.token, patientInfo?.patientId])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      setIsUploading(false);
+    }, [])
   );
 
   // Periodically check for new messages (every 30 seconds)
@@ -389,6 +427,7 @@ export default function Home() {
         loadTreatmentSummary(patientId, token),
         loadTravelSummary(patientId, token),
         loadMessagePreview(patientId, token),
+        loadTreatmentOffers(token),
       ]);
     } catch (error) {
       console.error("[HOME] Load error:", error);
@@ -601,15 +640,88 @@ export default function Home() {
         };
         console.log("[HOME] Setting message preview:", previewData);
         setMessagePreview(previewData);
+        setClinicMessages(messages);
         console.log("[HOME] Message preview updated");
       } else {
         const text = await res.text().catch(() => "");
         console.error("[HOME] Messages API error:", res.status, text.slice(0, 300) || res.statusText);
+        setClinicMessages([]);
       }
     } catch (error) {
       console.error("[HOME] Load message preview error:", error);
+      setClinicMessages([]);
     }
   };
+
+  const loadTreatmentOffers = async (token: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/patient/treatment-requests`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        requests?: { offers?: HomeOffer[] }[];
+      };
+      if (!data?.ok || !Array.isArray(data.requests)) {
+        setOffers([]);
+        return;
+      }
+      const flat: HomeOffer[] = [];
+      for (const r of data.requests) {
+        if (!Array.isArray(r?.offers)) continue;
+        for (const o of r.offers) {
+          if (o && typeof o === "object" && String((o as HomeOffer).id || "").trim()) {
+            flat.push(o as HomeOffer);
+          }
+        }
+      }
+      setOffers(flat);
+    } catch {
+      setOffers([]);
+    }
+  };
+
+  const goToJoinClinic = useCallback(() => {
+    track("home_join_clinic_click");
+    router.push({
+      pathname: "/(patient)/profile" as const,
+      params: { openJoinModal: "1" },
+    } as any);
+  }, []);
+
+  const handleCameraPress = useCallback(() => {
+    setIsUploading(true);
+    track("home_camera_click");
+    router.push({ pathname: "/(patient)/dental-camera" as const } as any);
+  }, []);
+
+  const goToChats = useCallback(() => {
+    track("home_messages_click");
+    if (!patientInfo?.patientId) return;
+    const sorted = [...offers].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    const latest = sorted[0];
+    if (latest?.id) {
+      router.push({
+        pathname: "/offer-chat" as const,
+        params: {
+          offerId: latest.id,
+          otherName: encodeURIComponent(latest.doctor_name || "Doktor"),
+          treatmentType: latest.treatment_type || "",
+        },
+      } as any);
+      return;
+    }
+    const cid = String((user as { clinicId?: string })?.clinicId || "").trim();
+    router.push({
+      pathname: "/chat" as const,
+      params: {
+        patientId: patientInfo.patientId,
+        ...(cid ? { clinicId: cid } : {}),
+      },
+    } as any);
+  }, [offers, patientInfo?.patientId, user]);
 
   const mapStatus = (status: string): PatientStatus => {
     const upper = status.toUpperCase();
@@ -809,22 +921,31 @@ export default function Home() {
 
   if (loading) {
     return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color={primaryColor} style={styles.loader} />
-        <Text style={styles.loadingText}>{t("home.loading")}</Text>
-      </View>
+      <SafeAreaView style={styles.safeRoot} edges={["top", "left", "right"]}>
+        <View style={styles.container}>
+          <ActivityIndicator size="large" color={primaryColor} style={styles.loader} />
+          <Text style={styles.loadingText}>{t("home.loading")}</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
   if (!patientInfo) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.errorText}>{t("home.error")}</Text>
-      </View>
+      <SafeAreaView style={styles.safeRoot} edges={["top", "left", "right"]}>
+        <View style={styles.container}>
+          <Text style={styles.errorText}>{t("home.error")}</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
+  const hasOffers = offers.length > 0;
+  /** Klinik thread + teklif sohbetleri (offer-chat) gerçek state’ten — API’ler hardcode değil */
+  const hasMessages = clinicMessages.length > 0 || offers.length > 0;
+
   return (
+    <SafeAreaView style={styles.safeRoot} edges={["top", "left", "right"]}>
     <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
       {/* 1. Header (Branding) */}
       <View style={[styles.header, { backgroundColor: isPro ? "#FFFFFF" : "#F9FAFB" }]}>
@@ -970,6 +1091,59 @@ export default function Home() {
             <Ionicons name="log-out-outline" size={18} color="#DC2626" />
           </Pressable>
         </View>
+      </View>
+
+      {/* Primary patient actions (single source of truth — not duplicated on Profile) */}
+      <View style={styles.homeActions}>
+        <PrimaryCard
+          title={t("home.ctaDentalPhoto")}
+          subtitle={t("home.ctaDentalPhotoSub")}
+          icon="camera"
+          accentColor={primaryColor}
+          disabled={isUploading}
+          loading={isUploading}
+          onPress={handleCameraPress}
+        />
+        <View style={styles.secondaryRow}>
+          <SecondaryCard
+            title={t("home.ctaFindClinic")}
+            icon="search"
+            accentColor={primaryColor}
+            onPress={() => {
+              track("home_clinic_search_click");
+              router.push("/clinic-onboarding" as any);
+            }}
+          />
+          <SecondaryCard
+            title={t("home.ctaJoinWithCode")}
+            icon="key"
+            accentColor={primaryColor}
+            onPress={goToJoinClinic}
+          />
+        </View>
+        {!hasOffers ? (
+          <Text style={styles.offersEmptyHint}>
+            Henüz teklif yok. Fotoğraf göndererek başlayabilirsin.
+          </Text>
+        ) : null}
+        {hasOffers ? (
+          <ActionCard
+            title="Tekliflerini Gör"
+            leadingIcon="pricetags-outline"
+            onPress={() => {
+              track("home_offers_list_click");
+              router.push("/my-requests" as any);
+            }}
+          />
+        ) : null}
+        {hasMessages ? (
+          <ActionCard
+            title="Mesajlara Git"
+            leadingIcon="chatbubbles-outline"
+            badgeCount={messagePreview.unreadCount > 0 ? messagePreview.unreadCount : undefined}
+            onPress={goToChats}
+          />
+        ) : null}
       </View>
 
       {/* 2. Status Card */}
@@ -1173,54 +1347,7 @@ export default function Home() {
       </Pressable>
       )}
 
-      {/* 7b. Get Quote / My Requests */}
-      <View style={styles.quoteRow}>
-        <Pressable
-          style={[styles.quoteCard, { backgroundColor: '#2563EB' }]}
-          onPress={() => router.push('/request-treatment')}
-        >
-          <Text style={styles.quoteCardIcon}>💬</Text>
-          <Text style={styles.quoteCardLabel}>{t('home.getQuote')}</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.quoteCard, { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' }]}
-          onPress={() => router.push('/my-requests')}
-        >
-          <Text style={styles.quoteCardIcon}>📋</Text>
-          <Text style={[styles.quoteCardLabel, { color: '#374151' }]}>{t('home.myRequests')}</Text>
-        </Pressable>
-      </View>
-
-      {/* 8. Messages */}
-      <Pressable
-        style={styles.messageCard}
-        onPress={() => router.push(`/chat?patientId=${patientInfo.patientId}`)}
-      >
-        <View style={styles.messageHeader}>
-          <Ionicons name="chatbubbles" size={24} color={primaryColor} />
-          <Text style={styles.messageTitle}>{t("home.messageClinic")}</Text>
-          {messagePreview.unreadCount > 0 ? (
-            <View style={[styles.badge, { backgroundColor: "#EF4444", marginLeft: 8 }]}>
-              <Text style={styles.badgeText}>
-                {messagePreview.unreadCount > 99 ? "99+" : String(messagePreview.unreadCount)}
-              </Text>
-            </View>
-          ) : null}
-          {/* Debug: Show unread count in dev mode */}
-          {__DEV__ && (
-            <Text style={{ fontSize: 10, color: "#9CA3AF", marginLeft: 4 }}>
-              (unread: {messagePreview.unreadCount})
-            </Text>
-          )}
-        </View>
-        {messagePreview.lastMessage && (
-          <Text style={styles.messagePreview} numberOfLines={1}>
-            {messagePreview.lastMessage}
-          </Text>
-        )}
-      </Pressable>
-
-      {/* 9. Trust / Contact block (PRO feature) */}
+      {/* 8. Trust / Contact block (PRO feature) */}
       {isPro && (
         <View style={styles.contactCard}>
           <Text style={styles.contactTitle}>{t("home.needHelp")}</Text>
@@ -1231,10 +1358,15 @@ export default function Home() {
     </View>
       )}
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeRoot: {
+    flex: 1,
+    backgroundColor: "#F9FAFB",
+  },
   container: {
     flexGrow: 1,
     backgroundColor: "#F9FAFB",
@@ -1527,51 +1659,24 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     marginTop: 4,
   },
-  quoteRow: {
-    flexDirection: 'row',
-    marginHorizontal: 20,
-    marginBottom: 16,
-    gap: 10,
+  homeActions: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 8,
+    gap: 14,
   },
-  quoteCard: {
-    flex: 1,
-    borderRadius: 12,
-    padding: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 72,
-  },
-  quoteCardIcon: { fontSize: 22, marginBottom: 4 },
-  quoteCardLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#fff',
-    textAlign: 'center',
-  },
-  messageCard: {
-    backgroundColor: "#FFFFFF",
-    marginHorizontal: 20,
-    marginBottom: 16,
-    padding: 16,
-    borderRadius: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  messageHeader: {
+  secondaryRow: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8,
+    gap: 12,
+    alignItems: "stretch",
   },
-  messageTitle: {
-    flex: 1,
-    marginLeft: 12,
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#111827",
+  offersEmptyHint: {
+    fontSize: 14,
+    color: "#6B7280",
+    lineHeight: 20,
+    textAlign: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   badge: {
     minWidth: 20,

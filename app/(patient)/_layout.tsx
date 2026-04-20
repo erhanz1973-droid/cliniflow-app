@@ -1,5 +1,6 @@
 import { Tabs } from "expo-router";
 import { Text } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useLanguage } from "../../lib/language-context";
 import { useAuth } from "../../lib/auth";
 import { useUnreadMessages } from "../../lib/useUnreadMessages";
@@ -12,6 +13,7 @@ export default function PatientTabsLayout() {
   const { badgeLabel } = useUnreadMessages(patientId, token);
 
   return (
+    <SafeAreaProvider>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -75,6 +77,18 @@ export default function PatientTabsLayout() {
         options={{ href: null }}
       />
       <Tabs.Screen
+        name="dental-analysis"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="dental-camera"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="clinic-select-for-offer"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
         name="messages"
         options={{
           title: t("nav.messages"),
@@ -113,5 +127,6 @@ export default function PatientTabsLayout() {
         }}
       />
     </Tabs>
+    </SafeAreaProvider>
   );
 }

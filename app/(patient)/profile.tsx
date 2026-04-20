@@ -1,11 +1,11 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Alert, Image, ActivityIndicator, Platform, Modal, Linking, TextInput,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../../lib/auth";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { API_BASE } from "../../lib/api";
 import { useLanguage } from "../../lib/language-context";
 import { LANGUAGE_NAMES, SUPPORTED_LANGUAGES, Language } from "../../lib/i18n";
@@ -39,6 +39,7 @@ const pickerImageOptions: ImagePicker.ImagePickerOptions = {
 export default function ProfileScreen() {
   const { user, signOut, patchUser, signIn } = useAuth();
   const router = useRouter();
+  const params = useLocalSearchParams<{ openJoinModal?: string }>();
   const { t, currentLanguage, setLanguage } = useLanguage();
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [localPhotoUri, setLocalPhotoUri] = useState<string | null>(null);
@@ -249,6 +250,17 @@ export default function ProfileScreen() {
     } catch (_) {}
   };
 
+  useEffect(() => {
+    const v = params.openJoinModal;
+    if (v !== "1" && v !== "true") return;
+    setJoinModal(true);
+    try {
+      router.setParams({ openJoinModal: undefined } as any);
+    } catch {
+      /* ignore */
+    }
+  }, [params.openJoinModal, router]);
+
   const handleLogout = () => {
     Alert.alert(t("profile.logoutTitle"), t("profile.logoutConfirm"), [
       { text: t("profile.logoutCancel"), style: "cancel" },
@@ -307,10 +319,9 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {/* CLINIC SECTION — Find a Clinic or Leave Clinic depending on membership */}
-      <View style={styles.section}>
-        {hasClinic ? (
-          /* LEAVE CLINIC */
+      {/* CLINIC — leave only when already a member (search / join live on Home) */}
+      {hasClinic ? (
+        <View style={styles.section}>
           <TouchableOpacity
             style={styles.leaveClinicBtn}
             onPress={leaveClinic}
@@ -330,60 +341,8 @@ export default function ProfileScreen() {
             </View>
             <Text style={[styles.menuBtnArrow, { color: "#DC2626" }]}>›</Text>
           </TouchableOpacity>
-        ) : (
-          /* NO CLINIC — two options */
-          <View style={{ gap: 10 }}>
-            {/* Direct join with clinic code + referral code */}
-            <TouchableOpacity
-              style={styles.joinCodeBtn}
-              onPress={() => setJoinModal(true)}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.findClinicIcon}>🔑</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.joinCodeTitle}>{t("profile.joinWithCode.btn") || "Klinik Kodu ile Katıl"}</Text>
-                <Text style={styles.joinCodeSub}>{t("profile.joinWithCode.sub") || "Klinik kodu ve referral kodunla katıl"}</Text>
-              </View>
-              <Text style={styles.menuBtnArrow}>›</Text>
-            </TouchableOpacity>
-            {/* Marketplace clinic search */}
-            <TouchableOpacity
-              style={styles.findClinicBtn}
-              onPress={() => router.push("/clinic-onboarding" as any)}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.findClinicIcon}>🏥</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.findClinicTitle}>{t("profile.findClinic")}</Text>
-                <Text style={styles.findClinicSub}>{t("profile.findClinicSub")}</Text>
-              </View>
-              <Text style={styles.menuBtnArrow}>›</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-
-      {/* AI DENTAL ANALYSIS */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>AI Diş Analizi</Text>
-        <TouchableOpacity
-          style={styles.aiAnalysisBtn}
-          activeOpacity={0.85}
-          onPress={() =>
-            router.push({
-              pathname: "/(patient)/messages" as any,
-              params: { openCamera: "true" },
-            })
-          }
-        >
-          <Text style={styles.aiAnalysisIcon}>🦷</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.aiAnalysisTitle}>Diş Fotoğrafı Çek</Text>
-            <Text style={styles.aiAnalysisSub}>AI analizi ile klinik önerisi al</Text>
-          </View>
-          <Text style={styles.menuBtnArrow}>›</Text>
-        </TouchableOpacity>
-      </View>
+        </View>
+      ) : null}
 
       {/* LANGUAGE */}
       <View style={styles.section}>
