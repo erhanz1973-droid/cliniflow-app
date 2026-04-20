@@ -12,6 +12,7 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/language-context';
 import { API_BASE } from '../lib/api';
+import { formatTreatmentRequestDescription } from '../lib/treatmentRequestDescription';
 import { getSupabaseClient, isSupabaseRealtimeConfigured } from '../lib/supabase';
 
 // Guided intraoral photo steps
@@ -70,7 +71,7 @@ function paramString(v: string | string[] | undefined): string {
   return String(s ?? '').trim();
 }
 
-/** Merge by `id` (last wins), sort by `created_at` — never replace list wholesale from fetch. */
+/** Merge by `id` (last wins), sort by `created_at`. */
 function mergeMessagesById(prev: Message[], fetched: Message[]): Message[] {
   const merged = [...prev, ...fetched];
   const map = new Map<string, Message>();
@@ -172,12 +173,17 @@ export default function OfferChatScreen() {
   const [realtimeKey, setRealtimeKey] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const prevOfferIdRef = useRef<string | null>(null);
+  const sendingRef = useRef(false);
   // Guided intraoral state
   const [intraoralVisible, setIntraoralVisible] = useState(false);
   const [intraoralStep, setIntraoralStep]       = useState(0);
   const [intraoralPhotos, setIntraoralPhotos]   = useState<Record<string, any>>({});
 
   const myRole = user?.type === 'doctor' ? 'doctor' : 'patient';
+
+  useEffect(() => {
+    sendingRef.current = sending;
+  }, [sending]);
 
   // Mark all patient messages in this thread as read (doctor only)
   const markAsRead = useCallback(async () => {
@@ -213,12 +219,16 @@ export default function OfferChatScreen() {
       return;
     }
 
-    setLoading(true);
+    // Sadece thread değişince tam ekran loader; focus/refetch (reloadToken) sessiz yenileme.
+    if (offerChanged) {
+      setLoading(true);
+    }
     let cancelled = false;
 
-    console.log('[FETCH]', scope);
+    const scopeAtEffectStart = scope;
 
     void (async () => {
+      const offerChangedAtFetchStart = offerChanged;
       try {
         const res = await fetch(
           `${API_BASE}/api/offer-messages?offer_id=${encodeURIComponent(scope)}`,
@@ -227,10 +237,14 @@ export default function OfferChatScreen() {
         const data = await res.json();
         if (!data?.ok) throw new Error(data?.error || 'error');
 
-        if (cancelled || offerIdRef.current !== scope) {
+        const refNorm =
+          offerIdRef.current == null ? '' : String(offerIdRef.current).trim();
+        const scopeNorm = String(scope).trim();
+        if (cancelled || refNorm !== scopeNorm) {
           console.warn('[FETCH] stale response ignored', {
-            scope,
-            current: offerIdRef.current,
+            scope: scopeNorm,
+            current: refNorm,
+            cancelled,
           });
           return;
         }
@@ -243,7 +257,22 @@ export default function OfferChatScreen() {
           }))
           .filter((m) => m.offer_id === scope);
 
-        setMessages((prev) => mergeMessagesById(prev, fetchedMessages));
+        // Sunucu tek doğruluk kaynağı: tekrar girince eski prev ile merge yapmak hayalet / kayıp satırlara yol açabiliyor.
+        // Gönderim sırasında (opt_* + sending) birleştir; aksi halde listeyi GET ile değiştir.
+        setMessages((prev) => {
+          const scopeMatch = (m: Message) => String(m.offer_id).trim() === scope;
+          const pendingOptimistic = prev.some(
+            (m) => scopeMatch(m) && String(m.id).startsWith('opt_')
+          );
+          if (
+            !offerChangedAtFetchStart &&
+            pendingOptimistic &&
+            sendingRef.current
+          ) {
+            return mergeMessagesById(prev.filter(scopeMatch), fetchedMessages);
+          }
+          return mergeMessagesById([], fetchedMessages);
+        });
       } catch (e: any) {
         if (!cancelled) setError(e.message || t('common.error'));
       } finally {
@@ -251,8 +280,14 @@ export default function OfferChatScreen() {
       }
     })();
 
+    // reloadToken / focus yenilemesinde aynı offer_id iken önceki isteği iptal etme —
+    // aksi halde tamamlanan GET "cancelled" ile çöpe gidiyor ve hasta mesajları kayboluyor.
     return () => {
-      cancelled = true;
+      const refNow =
+        offerIdRef.current == null ? '' : String(offerIdRef.current).trim();
+      if (refNow !== scopeAtEffectStart) {
+        cancelled = true;
+      }
     };
   }, [currentOfferId, user?.token, reloadToken, t]);
 
@@ -260,7 +295,11 @@ export default function OfferChatScreen() {
     useCallback(() => {
       if (currentOfferId == null || !String(currentOfferId).trim()) return;
       markAsRead();
-    }, [currentOfferId, markAsRead])
+      // Realtime anon oturumu yokken TIMED_OUT olabilir; ekrana dönünce HTTP ile tazele.
+      if (user?.token) {
+        setReloadToken((k) => k + 1);
+      }
+    }, [currentOfferId, markAsRead, user?.token])
   );
 
   // Supabase Realtime: deps [currentOfferId, realtimeKey] only — no user/token. reconnectKey recovers from TIMED_OUT / async removeChannel races.
@@ -414,8 +453,6 @@ export default function OfferChatScreen() {
     if (!user?.token || !String(currentOfferId).trim()) return;
 
     const scope = String(currentOfferId).trim();
-    console.log('[SEND]', scope);
-
     const optimistic: Message = {
       id: `opt_${Date.now()}`,
       offer_id: scope,
@@ -443,10 +480,18 @@ export default function OfferChatScreen() {
       });
       const data = await res.json();
       if (!data?.ok) throw new Error(data?.error || 'error');
-      const serverMsg = data.message as Message | Record<string, unknown> | undefined;
-      if (serverMsg && typeof serverMsg === 'object' && 'id' in serverMsg && serverMsg.id) {
+      const serverMsg = data.message as Record<string, unknown> | undefined;
+      const sid =
+        serverMsg &&
+        typeof serverMsg === 'object' &&
+        serverMsg.id != null &&
+        String(serverMsg.id).trim() !== ''
+          ? String(serverMsg.id).trim()
+          : '';
+
+      if (sid) {
         const normalized = offerMessageRowToUI(
-          serverMsg as Record<string, unknown>,
+          { ...serverMsg, id: sid } as Record<string, unknown>,
           API_BASE,
           scope
         );
@@ -455,6 +500,7 @@ export default function OfferChatScreen() {
             expected: scope,
             got: normalized.offer_id,
           });
+          setReloadToken((k) => k + 1);
         } else {
           setMessages((prev) => {
             const rest = prev.filter((m) => m.id !== optimistic.id);
@@ -468,6 +514,9 @@ export default function OfferChatScreen() {
             return mergeMessagesById(rest, [withServer]);
           });
         }
+      } else {
+        console.warn('[SEND] POST ok but no message id; refetching thread');
+        setReloadToken((k) => k + 1);
       }
     } catch (e: any) {
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
@@ -676,6 +725,9 @@ export default function OfferChatScreen() {
               const hasImage = mediaUrl &&
                 (item.attachment_type === 'image' || item.attachment_type === 'xray');
               const hasDoc   = mediaUrl && item.attachment_type === 'document';
+              const bubbleText = item.text
+                ? formatTreatmentRequestDescription(item.text)
+                : '';
 
               return (
                 <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowOther]}>
@@ -734,9 +786,9 @@ export default function OfferChatScreen() {
                       </TouchableOpacity>
                     )}
 
-                    {item.text ? (
+                    {bubbleText ? (
                       <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
-                        {item.text}
+                        {bubbleText}
                       </Text>
                     ) : null}
 

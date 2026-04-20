@@ -9,6 +9,10 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
 import { API_BASE } from '../../lib/api';
+import {
+  formatTreatmentRequestDescription,
+  extractPhotoUrlFromDescription,
+} from '../../lib/treatmentRequestDescription';
 
 // ── Quick treatment presets ───────────────────────────────────────────────────
 const QUICK = [
@@ -269,6 +273,15 @@ function QuickOfferModal({
     ? `${preset.emoji} ${preset.label} ${t('requests.modal.sendOffer') || 'Send Offer'}`
     : (t('requests.modal.makeOffer') || 'Make an Offer');
 
+  const patientSummaryText = formatTreatmentRequestDescription(request.description);
+  const summaryFallbackPhoto = extractPhotoUrlFromDescription(request.description);
+  const summaryPhotos: RequestPhoto[] =
+    request.photos && request.photos.length > 0
+      ? request.photos
+      : summaryFallbackPhoto
+        ? [{ url: summaryFallbackPhoto, type: 'image' }]
+        : [];
+
   return (
     <>
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
@@ -295,17 +308,17 @@ function QuickOfferModal({
             {/* Patient request summary */}
             <View style={ms.summaryBox}>
               <Text style={ms.summaryLabel}>{t('requests.modal.patientRequest') || 'PATIENT REQUEST'}</Text>
-              <Text style={ms.summaryText} numberOfLines={3}>{request.description}</Text>
+              <Text style={ms.summaryText} numberOfLines={3}>{patientSummaryText || '—'}</Text>
               {request.budget && (
                 <Text style={ms.summaryBudget}>{t('requests.modal.budget') || 'Budget: '}{request.budget}</Text>
               )}
-              {request.photos && request.photos.length > 0 && (
+              {summaryPhotos.length > 0 && (
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   style={ms.summaryPhotosRow}
                 >
-                  {request.photos.filter(p => !!p.url).map((p, i) => (
+                  {summaryPhotos.filter(p => !!p.url).map((p, i) => (
                     <TouchableOpacity
                       key={i}
                       onPress={() => setPreviewUri(p.url)}
@@ -446,6 +459,15 @@ function RequestCard({
     ? (t('requests.card.offerSent1') || '1 offer sent')
     : (t('requests.card.offersSent') || '{n} offers sent').replace('{n}', String(req.offer_count));
 
+  const displayDesc = formatTreatmentRequestDescription(req.description);
+  const fallbackPhotoUrl = extractPhotoUrlFromDescription(req.description);
+  const photosForUi: RequestPhoto[] =
+    req.photos && req.photos.length > 0
+      ? req.photos
+      : fallbackPhotoUrl
+        ? [{ url: fallbackPhotoUrl, type: 'image' }]
+        : [];
+
   return (
     <View style={[cs.card, isPending && !hasMyOffer && cs.cardUrgent]}>
 
@@ -474,17 +496,17 @@ function RequestCard({
       {/* Description */}
       <TouchableOpacity onPress={() => setExpanded(e => !e)} activeOpacity={0.8}>
         <Text style={cs.description} numberOfLines={expanded ? undefined : 2}>
-          {req.description}
+          {displayDesc || '—'}
         </Text>
-        {!expanded && req.description.length > 80 && (
+        {!expanded && displayDesc.length > 80 && (
           <Text style={cs.readMore}>{t('requests.card.readMore') || 'more ▾'}</Text>
         )}
       </TouchableOpacity>
 
       {/* Attachments (photos / files) sent by patient */}
-      {req.photos && req.photos.length > 0 && (
+      {photosForUi.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={cs.photosRow}>
-          {req.photos.filter(p => !!p.url).map((p, i) => {
+          {photosForUi.filter(p => !!p.url).map((p, i) => {
             const isImage = p.type === 'image' || p.type === 'xray' ||
               /\.(jpg|jpeg|png|gif|webp|heic)$/i.test(p.url || '');
             return isImage ? (

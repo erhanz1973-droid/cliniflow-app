@@ -1,14 +1,18 @@
 // app/my-requests.tsx — Patient: View my treatment requests + doctor offers
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  SafeAreaView, ActivityIndicator, RefreshControl, Alert,
+  SafeAreaView, ActivityIndicator, RefreshControl, Alert, Image, BackHandler,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/language-context';
 import { API_BASE } from '../lib/api';
 import { saveSelectedChatClinic } from '../lib/selectedChatClinic';
+import {
+  formatTreatmentRequestDescription,
+  resolveRequestImageUrl,
+} from '../lib/treatmentRequestDescription';
 
 // DISCLAIMER — always use the translation key; this fallback is only used if i18n is unavailable
 const DISCLAIMER_FALLBACK = 'This is a preliminary estimate. Final diagnosis requires clinical examination.';
@@ -102,6 +106,9 @@ type Request = {
   clinic_id: string | null;
   clinic_name: string | null;
   description: string;
+  /** Sunucu (GET treatment-requests) — ham açıklamadaki URL yerine */
+  image_url?: string | null;
+  photos?: { url?: string }[] | null;
   budget: string | null;
   preferred_treatment: string | null;
   status: 'pending' | 'answered' | 'closed';
@@ -230,7 +237,14 @@ export default function MyRequestsScreen() {
         };
         throw new Error(errMsg[errKey] || `Hata: ${errKey}`);
       }
-      setRequests(reqData.requests || []);
+      const rawList = (reqData.requests || []) as Request[];
+      setRequests(
+        rawList.map((r) => ({
+          ...r,
+          image_url: r.image_url ?? null,
+          photos: Array.isArray(r.photos) ? r.photos : null,
+        }))
+      );
       // Build a set of already-rated keys (clinic-level: 1 patient × 1 clinic × 1 type)
       const keys = new Set<RatingKey>(
         ((ratData as any)?.ratings || []).map((r: any) =>
@@ -260,6 +274,23 @@ export default function MyRequestsScreen() {
 
   const onRefresh = () => { setRefreshing(true); load(); };
 
+  /** Teklif akışı my-requests'i `replace` ile açabiliyor — yığında geri yok; GO_BACK hatasını önle. */
+  const leaveScreen = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(patient)" as any);
+    }
+  }, [router]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      leaveScreen();
+      return true;
+    });
+    return () => sub.remove();
+  }, [leaveScreen]);
+
   const statusColor = (s: string) => {
     if (s === 'answered') return { bg: '#D1FAE5', text: '#065F46' };
     if (s === 'closed')   return { bg: '#E5E7EB', text: '#374151' };
@@ -270,7 +301,7 @@ export default function MyRequestsScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <TouchableOpacity onPress={leaveScreen} style={styles.backBtn}>
             <Text style={styles.backBtnText}>← {t('common.back')}</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{t('treatReq.myRequests')}</Text>
@@ -286,7 +317,7 @@ export default function MyRequestsScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={leaveScreen} style={styles.backBtn}>
           <Text style={styles.backBtnText}>← {t('common.back')}</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t('treatReq.myRequests')}</Text>
@@ -370,6 +401,8 @@ export default function MyRequestsScreen() {
         {requests.map(req => {
           const sc = statusColor(req.status);
           const isExpanded = expandedId === req.id;
+          const displayDescription = formatTreatmentRequestDescription(req.description);
+          const requestPhotoUrl = resolveRequestImageUrl(req);
           return (
             <View key={req.id} style={styles.card}>
               {/* Card header */}
@@ -402,10 +435,17 @@ export default function MyRequestsScreen() {
                 </View>
               </TouchableOpacity>
 
-              {/* Description preview */}
-              <Text style={styles.description} numberOfLines={isExpanded ? undefined : 2}>
-                {req.description}
+              {/* Mesaj / özet — ham JSON veya imzalı URL satırı gösterilmez */}
+              <Text style={styles.description} numberOfLines={isExpanded ? undefined : 3}>
+                {displayDescription || '—'}
               </Text>
+              {requestPhotoUrl ? (
+                <Image
+                  source={{ uri: requestPhotoUrl }}
+                  style={styles.requestPhoto}
+                  resizeMode="cover"
+                />
+              ) : null}
 
               {/* Details when expanded */}
               {isExpanded && (
@@ -656,6 +696,13 @@ const styles = StyleSheet.create({
   offerBadgeText: { fontSize: 11, color: '#1D4ED8', fontWeight: '700' },
   chevron: { fontSize: 12, color: '#9CA3AF' },
   description: { fontSize: 14, color: '#374151', lineHeight: 20 },
+  requestPhoto: {
+    width: '100%',
+    height: 168,
+    borderRadius: 10,
+    marginTop: 10,
+    backgroundColor: '#E5E7EB',
+  },
 
   details: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
   detailRow: { fontSize: 13, color: '#6B7280', marginBottom: 6 },
