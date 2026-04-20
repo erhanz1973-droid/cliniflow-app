@@ -13,6 +13,7 @@ import {
   formatTreatmentRequestDescription,
   resolveRequestImageUrl,
 } from '../lib/treatmentRequestDescription';
+import { goToOfferChat } from '../lib/goToOfferChat';
 
 // DISCLAIMER — always use the translation key; this fallback is only used if i18n is unavailable
 const DISCLAIMER_FALLBACK = 'This is a preliminary estimate. Final diagnosis requires clinical examination.';
@@ -565,14 +566,15 @@ export default function MyRequestsScreen() {
                                   <TouchableOpacity
                                     style={[styles.msgBtn, styles.actionBtn]}
                                     onPress={() =>
-                                      router.push({
-                                        pathname: '/offer-chat',
-                                        params: {
+                                      goToOfferChat(
+                                        router,
+                                        {
                                           offerId: offer.id,
-                                          otherName: encodeURIComponent(offer.doctor_name || t('treatReq.doctor')),
+                                          otherNameRaw: offer.doctor_name || t('treatReq.doctor'),
                                           treatmentType: offer.treatment_type,
                                         },
-                                      })
+                                        'my-requests'
+                                      )
                                     }
                                   >
                                     <Text style={styles.msgBtnText}>💬 {t('offerChat.messageDoctor')}</Text>

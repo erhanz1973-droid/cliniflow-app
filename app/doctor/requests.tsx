@@ -9,6 +9,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
 import { API_BASE } from '../../lib/api';
+import { goToOfferChat } from '../../lib/goToOfferChat';
 import {
   formatTreatmentRequestDescription,
   extractPhotoUrlFromDescription,
@@ -787,15 +788,16 @@ export default function DoctorRequestsScreen() {
                   t('requests.offerSent.msg')   || 'The patient will be notified.'
                 );
               }}
-              onChat={offerId =>
-                router.push({
-                  pathname: '/offer-chat',
-                  params: {
+              onChat={(offerId) =>
+                goToOfferChat(
+                  router,
+                  {
                     offerId,
-                    otherName: encodeURIComponent(req.patient_name),
+                    otherNameRaw: req.patient_name || 'Patient',
                     treatmentType: req.preferred_treatment || '',
                   },
-                })
+                  'doctor/requests'
+                )
               }
             />
           ))}

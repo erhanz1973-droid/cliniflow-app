@@ -6,33 +6,47 @@ type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
 export type SecondaryCardProps = {
   title: string;
+  subtitle?: string;
   icon?: IconName;
-  onPress: () => void;
+  onPress?: () => void;
+  /** No press feedback / interaction */
+  disabled?: boolean;
   accentColor?: string;
 };
 
 export function SecondaryCard({
   title,
+  subtitle,
   icon = "search",
   onPress,
+  disabled = false,
   accentColor = "#2563EB",
 }: SecondaryCardProps) {
+  const dimmed = disabled || !onPress;
   return (
     <Pressable
-      onPress={onPress}
+      onPress={dimmed ? undefined : onPress}
+      disabled={dimmed}
       style={({ pressed }) => [
         styles.wrap,
-        { borderColor: "#E5E7EB" },
-        pressed && styles.pressed,
+        { borderColor: dimmed ? "#E5E7EB" : "#E5E7EB" },
+        !dimmed && pressed && styles.pressed,
+        dimmed && styles.disabledWrap,
       ]}
       accessibilityRole="button"
+      accessibilityState={{ disabled: dimmed }}
     >
       <View style={[styles.iconCircle, { backgroundColor: `${accentColor}14` }]}>
-        <Ionicons name={icon} size={22} color={accentColor} />
+        <Ionicons name={icon} size={22} color={dimmed ? "#9CA3AF" : accentColor} />
       </View>
-      <Text style={styles.title} numberOfLines={2}>
+      <Text style={[styles.title, dimmed && styles.titleDimmed]} numberOfLines={2}>
         {title}
       </Text>
+      {subtitle ? (
+        <Text style={[styles.subtitle, dimmed && styles.subtitleDimmed]} numberOfLines={2}>
+          {subtitle}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -47,12 +61,15 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 12,
     alignItems: "center",
-    gap: 10,
+    gap: 6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 3,
     elevation: 1,
+  },
+  disabledWrap: {
+    backgroundColor: "#F9FAFB",
   },
   pressed: { opacity: 0.92 },
   iconCircle: {
@@ -68,5 +85,18 @@ const styles = StyleSheet.create({
     color: "#111827",
     textAlign: "center",
     lineHeight: 18,
+  },
+  titleDimmed: {
+    color: "#6B7280",
+  },
+  subtitle: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 15,
+  },
+  subtitleDimmed: {
+    color: "#9CA3AF",
   },
 });

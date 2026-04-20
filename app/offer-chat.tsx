@@ -9,9 +9,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/language-context';
 import { API_BASE } from '../lib/api';
+import { offerChatLastStorageKey } from '../lib/goToOfferChat';
 import { formatTreatmentRequestDescription } from '../lib/treatmentRequestDescription';
 import { getSupabaseClient, isSupabaseRealtimeConfigured } from '../lib/supabase';
 
@@ -173,7 +175,6 @@ export default function OfferChatScreen() {
   const [realtimeKey, setRealtimeKey] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const prevOfferIdRef = useRef<string | null>(null);
-  const sendingRef = useRef(false);
   // Guided intraoral state
   const [intraoralVisible, setIntraoralVisible] = useState(false);
   const [intraoralStep, setIntraoralStep]       = useState(0);
@@ -182,19 +183,31 @@ export default function OfferChatScreen() {
   const myRole = user?.type === 'doctor' ? 'doctor' : 'patient';
 
   useEffect(() => {
-    sendingRef.current = sending;
-  }, [sending]);
+    const id = currentOfferId == null ? '' : String(currentOfferId).trim();
+    if (id) console.log('[CHAT OFFER]', id);
+  }, [currentOfferId]);
 
-  // Mark all patient messages in this thread as read (doctor only)
+  /** Son açılan teklif thread'i (hasta ana sayfa Mesajlar) — yanlış "latest offer" seçimini önler. */
+  useEffect(() => {
+    const oid = currentOfferId == null ? '' : String(currentOfferId).trim();
+    const pid =
+      user?.type === 'patient' && user?.patientId
+        ? String(user.patientId).trim()
+        : '';
+    if (!oid || !pid || !OFFER_ID_UUID_RE.test(oid)) return;
+    void AsyncStorage.setItem(offerChatLastStorageKey(pid), oid);
+  }, [currentOfferId, user?.patientId, user?.type]);
+
+  /** Mark the other party's messages read (doctor ↔ patient); backend picks counterparty by actor. */
   const markAsRead = useCallback(async () => {
-    if (!user?.token || currentOfferId == null || !String(currentOfferId).trim() || user?.type !== 'doctor') return;
+    if (!user?.token || currentOfferId == null || !String(currentOfferId).trim()) return;
     try {
       await fetch(`${API_BASE}/api/offer-messages/${encodeURIComponent(String(currentOfferId))}/read`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${user.token}` },
       });
     } catch { /* silent */ }
-  }, [user?.token, user?.type, currentOfferId]);
+  }, [user?.token, currentOfferId]);
 
   /** Fetch only runs here (offer / token / reloadToken) — not after send. */
   useEffect(() => {
@@ -257,21 +270,17 @@ export default function OfferChatScreen() {
           }))
           .filter((m) => m.offer_id === scope);
 
-        // Sunucu tek doğruluk kaynağı: tekrar girince eski prev ile merge yapmak hayalet / kayıp satırlara yol açabiliyor.
-        // Gönderim sırasında (opt_* + sending) birleştir; aksi halde listeyi GET ile değiştir.
+        console.log('[MSG OFFER IDS]', fetchedMessages.map((m) => m.offer_id));
+
+        // İlk yükleme / offer değişimi: sadece sunucu. Aynı thread'de refocus/reload: prev ile merge —
+        // boş veya gecikmeli GET tüm geçmişi silmesin (doktor mesajları kaybolmasın).
         setMessages((prev) => {
           const scopeMatch = (m: Message) => String(m.offer_id).trim() === scope;
-          const pendingOptimistic = prev.some(
-            (m) => scopeMatch(m) && String(m.id).startsWith('opt_')
-          );
-          if (
-            !offerChangedAtFetchStart &&
-            pendingOptimistic &&
-            sendingRef.current
-          ) {
-            return mergeMessagesById(prev.filter(scopeMatch), fetchedMessages);
+          const scopedPrev = prev.filter(scopeMatch);
+          if (offerChangedAtFetchStart) {
+            return mergeMessagesById([], fetchedMessages);
           }
-          return mergeMessagesById([], fetchedMessages);
+          return mergeMessagesById(scopedPrev, fetchedMessages);
         });
       } catch (e: any) {
         if (!cancelled) setError(e.message || t('common.error'));
@@ -468,6 +477,7 @@ export default function OfferChatScreen() {
     setSending(true);
 
     try {
+      console.log('[MSG POST OFFER]', scope);
       const res = await fetch(`${API_BASE}/api/offer-messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },

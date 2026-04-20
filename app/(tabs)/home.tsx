@@ -34,6 +34,7 @@ import { PrimaryCard } from "../../components/home/PrimaryCard";
 import { SecondaryCard } from "../../components/home/SecondaryCard";
 import { ActionCard } from "../../components/home/ActionCard";
 import { track } from "../../lib/analytics";
+import { goToOfferChat, offerChatLastStorageKey } from "../../lib/goToOfferChat";
 
 type PatientStatus =
   | "WAITING_APPROVAL"
@@ -68,6 +69,10 @@ type PatientInfo = {
   patientId: string;
   name: string;
   status: PatientStatus;
+  /** Supabase clinics.id — from GET /api/patient/me */
+  clinicId?: string | null;
+  /** Resolved display name — from GET /api/patient/me */
+  clinicName?: string | null;
   clinicCode: string;
   clinicPlan: string;
   branding: ClinicBranding | null;
@@ -177,6 +182,8 @@ export default function Home() {
   const [travelHasNew, setTravelHasNew] = useState(false);
   const [messagePreview, setMessagePreview] = useState<MessagePreview>({ unreadCount: 0 });
   const [clinicMessages, setClinicMessages] = useState<unknown[]>([]);
+  /** Unread doctor rows in offer threads — GET /api/patient/inbox-summary */
+  const [inboxDoctorUnread, setInboxDoctorUnread] = useState(0);
   const [offers, setOffers] = useState<HomeOffer[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [healthFormComplete, setHealthFormComplete] = useState(false);
@@ -192,6 +199,25 @@ export default function Home() {
       ),
     [user]
   );
+
+  /** Auth + /api/patient/me — tek kaynak hissi; isim yoksa kod veya fallback */
+  const clinicAffiliation = useMemo(() => {
+    const uid = String((user as { clinicId?: string })?.clinicId || "").trim();
+    const ucode = String((user as { clinicCode?: string })?.clinicCode || "").trim();
+    const pid = String(patientInfo?.clinicId || "").trim();
+    const apiName = String(patientInfo?.clinicName || "").trim();
+    const brandName = String(patientInfo?.branding?.clinicName || "").trim();
+    const pcode = String(patientInfo?.clinicCode || "").trim();
+
+    const id = pid || uid;
+    const code = pcode || ucode;
+    const connected = !!(id || code);
+    const name = apiName || brandName || code;
+    const displayTitle =
+      name.trim() || (connected ? t("home.clinic.unnamed") : "");
+
+    return { connected, id, code, displayTitle };
+  }, [user, patientInfo, t]);
 
   // Helper function to get progress steps (moved inside component to access t)
   const getProgressSteps = (t: (key: string, params?: Record<string, string | number>) => string) => {
@@ -289,6 +315,9 @@ export default function Home() {
     }
   }, []);
 
+  const userClinicId = String((user as { clinicId?: string })?.clinicId || "").trim();
+  const userClinicCode = String((user as { clinicCode?: string })?.clinicCode || "").trim();
+
   useEffect(() => {
     console.log('[HOME] useEffect - isAuthReady:', isAuthReady, 'user?.token:', !!user?.token);
     if (!isAuthReady || !user?.token) {
@@ -298,7 +327,7 @@ export default function Home() {
     }
     console.log('[HOME] Guard passed - loading home data');
     loadHomeData();
-  }, [isAuthReady, user?.token]);
+  }, [isAuthReady, user?.token, userClinicId, userClinicCode]);
 
   // Reload health form status when screen comes into focus (e.g., returning from health form)
   useFocusEffect(
@@ -310,6 +339,7 @@ export default function Home() {
         loadTravelSummary(patientInfo.patientId, user.token);
         // Reload message preview
         loadMessagePreview(patientInfo.patientId, user.token);
+        void loadInboxSummary(user.token);
         void loadTreatmentOffers(user.token);
       }
     }, [isAuthReady, user?.token, patientInfo?.patientId])
@@ -327,11 +357,13 @@ export default function Home() {
 
     // Load immediately
     loadMessagePreview(patientInfo.patientId, user.token);
+    void loadInboxSummary(user.token);
 
     // Then check every 30 seconds
     const intervalId = setInterval(() => {
       if (user?.token && patientInfo?.patientId) {
         loadMessagePreview(patientInfo.patientId, user.token);
+        void loadInboxSummary(user.token);
       }
     }, 30000); // 30 seconds
 
@@ -401,6 +433,8 @@ export default function Home() {
         patientId,
         name: meData.name || "",
         status,
+        clinicId: meData.clinic_id != null ? String(meData.clinic_id) : null,
+        clinicName: meData.clinic_name != null ? String(meData.clinic_name) : null,
         clinicCode: meData.clinicCode || "",
         clinicPlan: meData.clinicPlan || "FREE",
         branding: meData.branding ? {
@@ -427,6 +461,7 @@ export default function Home() {
         loadTreatmentSummary(patientId, token),
         loadTravelSummary(patientId, token),
         loadMessagePreview(patientId, token),
+        loadInboxSummary(token),
         loadTreatmentOffers(token),
       ]);
     } catch (error) {
@@ -581,6 +616,24 @@ export default function Home() {
     }
   };
 
+  const loadInboxSummary = async (token: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/patient/inbox-summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        doctor_messages?: number;
+      };
+      if (data?.ok === false) return;
+      const n = Number(data.doctor_messages) || 0;
+      setInboxDoctorUnread(Number.isFinite(n) ? n : 0);
+    } catch {
+      /* keep previous count */
+    }
+  };
+
   const loadMessagePreview = async (patientId: string, token: string) => {
     try {
       console.log("[HOME] Loading message preview for patient:", patientId);
@@ -689,6 +742,11 @@ export default function Home() {
     } as any);
   }, []);
 
+  const goToClinicDetail = useCallback(() => {
+    track("home_clinic_detail_click");
+    router.push("/(patient)/profile" as any);
+  }, []);
+
   const handleCameraPress = useCallback(() => {
     setIsUploading(true);
     track("home_camera_click");
@@ -696,32 +754,60 @@ export default function Home() {
   }, []);
 
   const goToChats = useCallback(() => {
-    track("home_messages_click");
-    if (!patientInfo?.patientId) return;
-    const sorted = [...offers].sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-    const latest = sorted[0];
-    if (latest?.id) {
+    void (async () => {
+      track("home_messages_click");
+      if (!patientInfo?.patientId) return;
+      const pid = patientInfo.patientId;
+      const byId = new Map(offers.map((o) => [String(o.id), o] as const));
+
+      let chosen: HomeOffer | undefined;
+      try {
+        const raw = await AsyncStorage.getItem(offerChatLastStorageKey(pid));
+        const last = raw ? String(raw).trim() : "";
+        if (last && byId.has(last)) {
+          chosen = byId.get(last);
+        }
+      } catch {
+        /* ignore */
+      }
+
+      if (!chosen && offers.length === 1) {
+        chosen = offers[0];
+      }
+      if (!chosen && offers.length > 1) {
+        router.push("/my-requests" as any);
+        return;
+      }
+      if (!chosen && offers.length > 0) {
+        const sorted = [...offers].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        chosen = sorted[0];
+      }
+
+      if (chosen?.id) {
+        goToOfferChat(
+          router,
+          {
+            offerId: chosen.id,
+            otherNameRaw: chosen.doctor_name || "Doktor",
+            treatmentType: chosen.treatment_type || "",
+          },
+          "home"
+        );
+        return;
+      }
+
+      const cid = String((user as { clinicId?: string })?.clinicId || "").trim();
       router.push({
-        pathname: "/offer-chat" as const,
+        pathname: "/chat" as const,
         params: {
-          offerId: latest.id,
-          otherName: encodeURIComponent(latest.doctor_name || "Doktor"),
-          treatmentType: latest.treatment_type || "",
+          patientId: pid,
+          ...(cid ? { clinicId: cid } : {}),
         },
       } as any);
-      return;
-    }
-    const cid = String((user as { clinicId?: string })?.clinicId || "").trim();
-    router.push({
-      pathname: "/chat" as const,
-      params: {
-        patientId: patientInfo.patientId,
-        ...(cid ? { clinicId: cid } : {}),
-      },
-    } as any);
-  }, [offers, patientInfo?.patientId, user]);
+    })();
+  }, [offers, patientInfo?.patientId, user, router]);
 
   const mapStatus = (status: string): PatientStatus => {
     const upper = status.toUpperCase();
@@ -941,8 +1027,9 @@ export default function Home() {
   }
 
   const hasOffers = offers.length > 0;
-  /** Klinik thread + teklif sohbetleri (offer-chat) gerçek state’ten — API’ler hardcode değil */
-  const hasMessages = clinicMessages.length > 0 || offers.length > 0;
+  const messagesBadgeTotal =
+    (messagePreview.unreadCount > 0 ? messagePreview.unreadCount : 0) +
+    (inboxDoctorUnread > 0 ? inboxDoctorUnread : 0);
 
   return (
     <SafeAreaView style={styles.safeRoot} edges={["top", "left", "right"]}>
@@ -1114,36 +1201,45 @@ export default function Home() {
               router.push("/clinic-onboarding" as any);
             }}
           />
-          <SecondaryCard
-            title={t("home.ctaJoinWithCode")}
-            icon="key"
-            accentColor={primaryColor}
-            onPress={goToJoinClinic}
-          />
+          <View style={styles.secondaryCol}>
+            {clinicAffiliation.connected ? (
+              <>
+                <SecondaryCard
+                  title={clinicAffiliation.displayTitle}
+                  subtitle={t("home.clinic.connectedSubtitle")}
+                  icon="medical"
+                  accentColor={primaryColor}
+                  onPress={goToClinicDetail}
+                />
+                <Text style={styles.clinicCommsHint}>
+                  {t("home.clinic.communicationHint")}
+                </Text>
+              </>
+            ) : (
+              <SecondaryCard
+                title={t("home.ctaJoinWithCode")}
+                icon="key"
+                accentColor={primaryColor}
+                onPress={goToJoinClinic}
+              />
+            )}
+          </View>
         </View>
-        {!hasOffers ? (
-          <Text style={styles.offersEmptyHint}>
-            Henüz teklif yok. Fotoğraf göndererek başlayabilirsin.
-          </Text>
-        ) : null}
-        {hasOffers ? (
-          <ActionCard
-            title="Tekliflerini Gör"
-            leadingIcon="pricetags-outline"
-            onPress={() => {
-              track("home_offers_list_click");
-              router.push("/my-requests" as any);
-            }}
-          />
-        ) : null}
-        {hasMessages ? (
-          <ActionCard
-            title="Mesajlara Git"
-            leadingIcon="chatbubbles-outline"
-            badgeCount={messagePreview.unreadCount > 0 ? messagePreview.unreadCount : undefined}
-            onPress={goToChats}
-          />
-        ) : null}
+        <ActionCard
+          title={t("home.quickOffers")}
+          leadingIcon="pricetags-outline"
+          badgeCount={hasOffers ? offers.length : undefined}
+          onPress={() => {
+            track("home_offers_list_click");
+            router.push("/my-requests" as any);
+          }}
+        />
+        <ActionCard
+          title={t("home.messages")}
+          leadingIcon="chatbubbles-outline"
+          badgeCount={messagesBadgeTotal > 0 ? messagesBadgeTotal : undefined}
+          onPress={goToChats}
+        />
       </View>
 
       {/* 2. Status Card */}
@@ -1670,13 +1766,17 @@ const styles = StyleSheet.create({
     gap: 12,
     alignItems: "stretch",
   },
-  offersEmptyHint: {
-    fontSize: 14,
+  secondaryCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
+  },
+  clinicCommsHint: {
+    fontSize: 11,
     color: "#6B7280",
-    lineHeight: 20,
+    lineHeight: 15,
     textAlign: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 4,
   },
   badge: {
     minWidth: 20,
