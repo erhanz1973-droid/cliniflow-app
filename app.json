@@ -34,7 +34,7 @@
           }
         }
       },
-      "buildNumber": "13"
+      "buildNumber": "14"
     },
     "android": {
       "usesCleartextTraffic": true,
@@ -93,11 +93,6 @@
       ],
       "expo-notifications"
     ],
-    "extra": {
-      "eas": {
-        "projectId": "e0ac1304-7841-4e28-bbde-6bf8d53a6533"
-      }
-    },
     "owner": "erhanz"
   }
 }
