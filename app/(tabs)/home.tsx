@@ -134,25 +134,25 @@ export default function Home() {
   useEffect(() => {
     if (!isAuthReady) return;
     
-    console.log('[HOME] Role check - user:', user);
-    console.log('[HOME] Role check - isDoctor:', isDoctor, 'isPatient:', isPatient);
-    console.log('[HOME] Role check - user.role:', user?.role);
+    __DEV__ && console.log('[HOME] Role check - user:', user);
+    __DEV__ && console.log('[HOME] Role check - isDoctor:', isDoctor, 'isPatient:', isPatient);
+    __DEV__ && console.log('[HOME] Role check - user.role:', user?.role);
     
     // Prevent infinite redirects
     if (user?.role === "DOCTOR") {
-      console.log('[HOME] Doctor detected, redirecting to /doctor');
+      __DEV__ && console.log('[HOME] Doctor detected, redirecting to /doctor');
       router.replace('/doctor');
       return;
     }
     
     // Only redirect to login if user has no token (not logged in)
     if (!user?.token) {
-      console.log('[HOME] No token found, redirecting to login');
+      __DEV__ && console.log('[HOME] No token found, redirecting to login');
       router.replace('/login');
       return;
     }
     
-    console.log('[HOME] Patient confirmed, loading patient home');
+    __DEV__ && console.log('[HOME] Patient confirmed, loading patient home');
   }, [isAuthReady, user?.token, user?.role]);
   
   // Don't render patient home for doctors
@@ -166,12 +166,12 @@ export default function Home() {
   }
   
   // Debug logs to track provider states
-  console.log('[HOME] Render - isAuthReady:', isAuthReady, 'loading:', loading, 'user:', user ? 'exists' : 'null');
-  console.log('[HOME] t typeof:', typeof t);
+  __DEV__ && console.log('[HOME] Render - isAuthReady:', isAuthReady, 'loading:', loading, 'user:', user ? 'exists' : 'null');
+  __DEV__ && console.log('[HOME] t typeof:', typeof t);
   
   // Track state changes
   useEffect(() => {
-    console.log('[HOME] STATE CHANGE - isAuthReady:', isAuthReady, 'loading:', loading, 'user:', user ? 'exists' : 'null');
+    __DEV__ && console.log('[HOME] STATE CHANGE - isAuthReady:', isAuthReady, 'loading:', loading, 'user:', user ? 'exists' : 'null');
   }, [isAuthReady, loading, user]);
   
   const [patientInfo, setPatientInfo] = useState<PatientInfo | null>(null);
@@ -247,7 +247,7 @@ export default function Home() {
   // Play notification sound and haptic feedback
   const playNotificationSound = useCallback(async () => {
     try {
-      console.log("[HOME] Playing notification sound...");
+      __DEV__ && console.log("[HOME] Playing notification sound...");
       
       // Configure audio mode for playback
       try {
@@ -256,7 +256,7 @@ export default function Home() {
           staysActiveInBackground: true, // Keep audio active in background (for when screen is off)
           shouldDuckAndroid: true, // Duck other audio on Android
         });
-        console.log("[HOME] Audio mode configured");
+        __DEV__ && console.log("[HOME] Audio mode configured");
       } catch (audioModeError) {
         console.warn("[HOME] Could not set audio mode:", audioModeError);
       }
@@ -265,14 +265,14 @@ export default function Home() {
       try {
         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        console.log("[HOME] Haptic feedback played");
+        __DEV__ && console.log("[HOME] Haptic feedback played");
       } catch (hapticError) {
         console.warn("[HOME] Haptic feedback failed:", hapticError);
       }
       
       // Play notification sound file
       try {
-        console.log("[HOME] Loading sound file from assets/audio/notification.mp3...");
+        __DEV__ && console.log("[HOME] Loading sound file from assets/audio/notification.mp3...");
         
         // Try to require the sound file
         let soundSource;
@@ -280,7 +280,7 @@ export default function Home() {
           soundSource = require('../assets/audio/notification.mp3');
         } catch (requireError) {
           // Sound file not found - continue with haptic feedback only
-          console.log("[HOME] Sound file not available, using haptic feedback only");
+          __DEV__ && console.log("[HOME] Sound file not available, using haptic feedback only");
           return; // Exit early if sound file is not available
         }
         
@@ -292,24 +292,24 @@ export default function Home() {
             isLooping: false
           }
         );
-        console.log("[HOME] Sound loaded, playing...");
+        __DEV__ && console.log("[HOME] Sound loaded, playing...");
         
         // Wait for sound to finish playing
         sound.setOnPlaybackStatusUpdate((status: any) => {
           if (status.didJustFinish) {
             sound.unloadAsync().catch(() => {});
-            console.log("[HOME] Sound finished and unloaded");
+            __DEV__ && console.log("[HOME] Sound finished and unloaded");
           }
         });
         
         await sound.playAsync();
-        console.log("[HOME] Notification sound played successfully");
+        __DEV__ && console.log("[HOME] Notification sound played successfully");
       } catch (soundError) {
-        console.log("[HOME] Sound playback skipped (file may be missing)");
+        __DEV__ && console.log("[HOME] Sound playback skipped (file may be missing)");
         // Don't throw - continue without sound if file is missing
       }
       
-      console.log("[HOME] Notification played (haptic + sound)");
+      __DEV__ && console.log("[HOME] Notification played (haptic + sound)");
     } catch (error) {
       console.error("[HOME] Could not play notification:", error);
     }
@@ -319,13 +319,13 @@ export default function Home() {
   const userClinicCode = String((user as { clinicCode?: string })?.clinicCode || "").trim();
 
   useEffect(() => {
-    console.log('[HOME] useEffect - isAuthReady:', isAuthReady, 'user?.token:', !!user?.token);
+    __DEV__ && console.log('[HOME] useEffect - isAuthReady:', isAuthReady, 'user?.token:', !!user?.token);
     if (!isAuthReady || !user?.token) {
-      console.log('[HOME] Guard failed - setting loading to false');
+      __DEV__ && console.log('[HOME] Guard failed - setting loading to false');
       setLoading(false);
       return;
     }
-    console.log('[HOME] Guard passed - loading home data');
+    __DEV__ && console.log('[HOME] Guard passed - loading home data');
     loadHomeData();
   }, [isAuthReady, user?.token, userClinicId, userClinicCode]);
 
@@ -371,11 +371,11 @@ export default function Home() {
   }, [isAuthReady, user?.token, patientInfo?.patientId]);
 
   const loadHomeData = async (showRefreshing = false) => {
-    console.log('[HOME] loadHomeData started');
+    __DEV__ && console.log('[HOME] loadHomeData started');
     
     // Emergency timeout - force loading to complete after 15 seconds
     const emergencyTimeout = setTimeout(() => {
-      console.log('[HOME] EMERGENCY: Forcing loading to complete after 15 seconds');
+      __DEV__ && console.log('[HOME] EMERGENCY: Forcing loading to complete after 15 seconds');
       setLoading(false);
       setRefreshing(false);
     }, 15000);
@@ -389,13 +389,13 @@ export default function Home() {
       
       const token = user?.token;
       if (!token) {
-        console.log('[HOME] No token found - setting loading to false');
+        __DEV__ && console.log('[HOME] No token found - setting loading to false');
         setLoading(false);
         setRefreshing(false);
         return;
       }
 
-      console.log('[HOME] Loading patient info...');
+      __DEV__ && console.log('[HOME] Loading patient info...');
       // Load patient info with timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
@@ -407,20 +407,20 @@ export default function Home() {
       
       clearTimeout(timeoutId);
 
-      console.log('[HOME] Patient info response status:', meRes.status);
+      __DEV__ && console.log('[HOME] Patient info response status:', meRes.status);
 
       if (!meRes.ok) {
-        console.log('[HOME] Patient info response not ok - setting loading to false');
+        __DEV__ && console.log('[HOME] Patient info response not ok - setting loading to false');
         setLoading(false);
         setRefreshing(false);
         return;
       }
 
       const meData = await meRes.json();
-      console.log('[HOME] Patient info data received:', meData.ok ? 'success' : 'failed');
+      __DEV__ && console.log('[HOME] Patient info data received:', meData.ok ? 'success' : 'failed');
       
       if (!meData.ok) {
-        console.log('[HOME] Patient info data not ok - setting loading to false');
+        __DEV__ && console.log('[HOME] Patient info data not ok - setting loading to false');
         setLoading(false);
         setRefreshing(false);
         return;
@@ -471,7 +471,7 @@ export default function Home() {
       }
     } finally {
       clearTimeout(emergencyTimeout);
-      console.log('[HOME] loadHomeData completed - setting loading to false');
+      __DEV__ && console.log('[HOME] loadHomeData completed - setting loading to false');
       setLoading(false);
       setRefreshing(false);
     }
@@ -493,7 +493,7 @@ export default function Home() {
         // Check both isComplete and formCompleted fields (backend might use either)
         const isComplete = data.isComplete || data.formCompleted || false;
         setHealthFormComplete(isComplete);
-        console.log("[HOME] Health form status:", { isComplete, dataIsComplete: data.isComplete, dataFormCompleted: data.formCompleted });
+        __DEV__ && console.log("[HOME] Health form status:", { isComplete, dataIsComplete: data.isComplete, dataFormCompleted: data.formCompleted });
       }
     } catch (error) {
       // Silently fail
@@ -582,7 +582,7 @@ export default function Home() {
           }
         }
         
-        console.log("[HOME] Travel summary loaded:", {
+        __DEV__ && console.log("[HOME] Travel summary loaded:", {
           hasFlight: !!flightDate,
           hasHotel: !!hotelName,
           hasTransfer: !!transferStatus,
@@ -636,17 +636,17 @@ export default function Home() {
 
   const loadMessagePreview = async (patientId: string, token: string) => {
     try {
-      console.log("[HOME] Loading message preview for patient:", patientId);
+      __DEV__ && console.log("[HOME] Loading message preview for patient:", patientId);
       const res = await fetch(`${API_BASE}/api/patient/${patientId}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
-        console.log("[HOME] Messages API response:", { ok: data.ok, hasMessages: !!data.messages, hasItems: !!data.items });
+        __DEV__ && console.log("[HOME] Messages API response:", { ok: data.ok, hasMessages: !!data.messages, hasItems: !!data.items });
         
         // API returns { ok: true, messages: [...] } format
         const messages = Array.isArray(data.messages) ? data.messages : (Array.isArray(data.items) ? data.items : []);
-        console.log("[HOME] Total messages:", messages.length);
+        __DEV__ && console.log("[HOME] Total messages:", messages.length);
         
         // Get last seen timestamp from storage
         let lastSeenTimestamp = 0;
@@ -655,7 +655,7 @@ export default function Home() {
           if (lastSeen) {
             lastSeenTimestamp = parseInt(lastSeen, 10) || 0;
           }
-          console.log("[HOME] Last seen timestamp:", lastSeenTimestamp);
+          __DEV__ && console.log("[HOME] Last seen timestamp:", lastSeenTimestamp);
         } catch {}
         
         // Count unread messages (from ADMIN/clinic, not from patient, after last seen)
@@ -675,8 +675,8 @@ export default function Home() {
           return isUnread;
         }).length;
         
-        console.log("[HOME] Unread count:", unreadCount);
-        console.log("[HOME] Message preview state will be updated with:", { unreadCount, totalMessages: messages.length });
+        __DEV__ && console.log("[HOME] Unread count:", unreadCount);
+        __DEV__ && console.log("[HOME] Message preview state will be updated with:", { unreadCount, totalMessages: messages.length });
         
         // Check if new messages arrived (unread count increased)
         const previousUnread = previousUnreadCountRef.current;
@@ -691,10 +691,10 @@ export default function Home() {
           unreadCount,
           lastMessage: lastMessage?.text?.substring(0, 50),
         };
-        console.log("[HOME] Setting message preview:", previewData);
+        __DEV__ && console.log("[HOME] Setting message preview:", previewData);
         setMessagePreview(previewData);
         setClinicMessages(messages);
-        console.log("[HOME] Message preview updated");
+        __DEV__ && console.log("[HOME] Message preview updated");
       } else {
         const text = await res.text().catch(() => "");
         console.error("[HOME] Messages API error:", res.status, text.slice(0, 300) || res.statusText);
@@ -995,7 +995,7 @@ export default function Home() {
   // Debug logging for branding
   useEffect(() => {
     if (patientInfo) {
-      console.log("[HOME] Debug branding:", {
+      __DEV__ && console.log("[HOME] Debug branding:", {
         isPro,
         clinicPlan: patientInfo.clinicPlan,
         hasBranding: !!patientInfo.branding,
@@ -1049,7 +1049,7 @@ export default function Home() {
                     console.error("[HOME] Logo image load error:", error);
                   }}
                   onLoad={() => {
-                    console.log("[HOME] Logo image loaded successfully");
+                    __DEV__ && console.log("[HOME] Logo image loaded successfully");
                   }}
                 />
               )}
@@ -1088,7 +1088,7 @@ export default function Home() {
               {patientInfo.branding?.googleMapLink && (
                 <Pressable
                   onPress={() => {
-                    console.log("[HOME] Opening Google Maps link:", patientInfo.branding?.googleMapLink);
+                    __DEV__ && console.log("[HOME] Opening Google Maps link:", patientInfo.branding?.googleMapLink);
                     Linking.openURL(patientInfo.branding?.googleMapLink!);
                   }}
                   style={[styles.mapLinkButton, { borderColor: primaryColor, marginTop: 8 }]}

@@ -25,7 +25,7 @@ export function goToOfferChat(
     return;
   }
   const tag = source ? ` (${source})` : "";
-  console.log(`[CHAT OFFER] ${offerId}${tag}`);
+  if (__DEV__) console.log(`[CHAT OFFER] ${offerId}${tag}`);
   router.push({
     pathname: "/offer-chat",
     params: {

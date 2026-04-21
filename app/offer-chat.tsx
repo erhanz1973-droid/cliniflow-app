@@ -15,7 +15,6 @@ import { useLanguage } from '../lib/language-context';
 import { API_BASE } from '../lib/api';
 import { offerChatLastStorageKey } from '../lib/goToOfferChat';
 import { formatTreatmentRequestDescription } from '../lib/treatmentRequestDescription';
-import { getSupabaseClient, isSupabaseRealtimeConfigured } from '../lib/supabase';
 
 // Guided intraoral photo steps
 const PHOTO_STEP_KEYS = [
@@ -73,39 +72,41 @@ function paramString(v: string | string[] | undefined): string {
   return String(s ?? '').trim();
 }
 
-/** Merge by `id` (last wins), sort by `created_at`. */
-function mergeMessagesById(prev: Message[], fetched: Message[]): Message[] {
-  const merged = [...prev, ...fetched];
-  const map = new Map<string, Message>();
-  for (const m of merged) {
-    const id = String(m.id);
-    if (!id) continue;
-    map.set(id, m);
-  }
-  return Array.from(map.values()).sort(
-    (a, b) =>
-      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  );
-}
-
-/** Map DB row (Realtime or raw) → list item; attachment URLs normalized for RN. */
+/** Map DB / API row → list item. Uses DB names: offer_id, text; accepts offerId / message aliases. */
 function offerMessageRowToUI(
   row: Record<string, unknown>,
   apiBase: string,
-  fallbackOfferId = ''
+  fallbackOfferId = '',
+  rowIndex = 0
 ): Message {
+  const scope = String(fallbackOfferId).trim();
+  const rawOid = row.offer_id ?? row.offerId;
+  const offer_id =
+    rawOid != null && String(rawOid).trim() !== ''
+      ? String(rawOid).trim()
+      : scope;
+
+  const rawText = row.text ?? row.message;
+  const text = rawText == null ? null : String(rawText);
+
   const role = String(row.sender_role || 'patient').toLowerCase();
   const sender_role =
     role === 'doctor' || role === 'system' || role === 'patient'
       ? (role as Message['sender_role'])
       : 'patient';
+
+  let id = String(row.id ?? '').trim();
+  if (!id) {
+    id = `derived:${offer_id}:${rowIndex}:${String(row.created_at ?? '')}`;
+  }
+
   return {
-    id: String(row.id ?? ''),
-    offer_id: String(row.offer_id ?? fallbackOfferId).trim(),
+    id,
+    offer_id,
     sender_id: String(row.sender_id ?? ''),
     sender_role,
     sender_name: String(row.sender_name ?? '').trim(),
-    text: row.text != null && String(row.text).trim() ? String(row.text) : null,
+    text,
     attachment_url: row.attachment_url
       ? resolveAttachmentMediaUrl(String(row.attachment_url), apiBase)
       : null,
@@ -160,31 +161,27 @@ export default function OfferChatScreen() {
   const otherName = paramString(routeParams.otherName);
   const treatmentType = paramString(routeParams.treatmentType);
 
-  /** Always matches latest route offer id — used to drop stale async fetch/realtime. */
-  const offerIdRef = useRef<string | null>(null);
-  offerIdRef.current =
-    currentOfferId == null ? null : String(currentOfferId).trim();
-
   const [messages, setMessages] = useState<Message[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
-  /** Bumps only for manual retry — same offer, merge without clearing optimistic. */
-  const [reloadToken, setReloadToken] = useState(0);
-  const [realtimeKey, setRealtimeKey] = useState(0);
   const flatListRef = useRef<FlatList>(null);
-  const prevOfferIdRef = useRef<string | null>(null);
   // Guided intraoral state
   const [intraoralVisible, setIntraoralVisible] = useState(false);
   const [intraoralStep, setIntraoralStep]       = useState(0);
   const [intraoralPhotos, setIntraoralPhotos]   = useState<Record<string, any>>({});
 
+  /** Only the latest GET may update state — avoids stale responses wiping a newer thread (incl. after POST). */
+  const fetchMessagesSeqRef = useRef(0);
+  const fetchMessagesAbortRef = useRef<AbortController | null>(null);
+  const postSendFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const myRole = user?.type === 'doctor' ? 'doctor' : 'patient';
 
   useEffect(() => {
     const id = currentOfferId == null ? '' : String(currentOfferId).trim();
-    if (id) console.log('[CHAT OFFER]', id);
+    if (__DEV__ && id) console.log('[CHAT OFFER]', id);
   }, [currentOfferId]);
 
   /** Son açılan teklif thread'i (hasta ana sayfa Mesajlar) — yanlış "latest offer" seçimini önler. */
@@ -209,234 +206,110 @@ export default function OfferChatScreen() {
     } catch { /* silent */ }
   }, [user?.token, currentOfferId]);
 
-  /** Fetch only runs here (offer / token / reloadToken) — not after send. */
-  useEffect(() => {
-    if (currentOfferId == null || !String(currentOfferId).trim()) {
-      prevOfferIdRef.current = null;
-      setMessages([]);
-      setLoading(false);
-      return;
-    }
+  /** Single source of truth: GET — no merge, no client-side thread filter. */
+  const fetchMessages = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = options?.silent === true;
+      const oid = currentOfferId == null ? '' : String(currentOfferId).trim();
+      if (!oid || !user?.token) {
+        if (!silent) setLoading(false);
+        return;
+      }
 
-    const scope = String(currentOfferId).trim();
-    const offerChanged = prevOfferIdRef.current !== scope;
-    prevOfferIdRef.current = scope;
+      const seq = ++fetchMessagesSeqRef.current;
 
-    if (offerChanged) {
-      setMessages([]);
-      setError(null);
-    }
+      fetchMessagesAbortRef.current?.abort();
+      const controller = new AbortController();
+      fetchMessagesAbortRef.current = controller;
 
-    if (!user?.token) {
-      setLoading(false);
-      return;
-    }
-
-    // Sadece thread değişince tam ekran loader; focus/refetch (reloadToken) sessiz yenileme.
-    if (offerChanged) {
-      setLoading(true);
-    }
-    let cancelled = false;
-
-    const scopeAtEffectStart = scope;
-
-    void (async () => {
-      const offerChangedAtFetchStart = offerChanged;
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
       try {
         const res = await fetch(
-          `${API_BASE}/api/offer-messages?offer_id=${encodeURIComponent(scope)}`,
-          { headers: { Authorization: `Bearer ${user.token}` } }
+          `${API_BASE}/api/offer-messages?offer_id=${encodeURIComponent(oid)}`,
+          {
+            signal: controller.signal,
+            headers: { Authorization: `Bearer ${user.token}` },
+          }
         );
-        const data = await res.json();
-        if (!data?.ok) throw new Error(data?.error || 'error');
+        const raw = await res.json();
+        if (__DEV__) console.log('[GET RAW SOURCE]', raw);
 
-        const refNorm =
-          offerIdRef.current == null ? '' : String(offerIdRef.current).trim();
-        const scopeNorm = String(scope).trim();
-        if (cancelled || refNorm !== scopeNorm) {
-          console.warn('[FETCH] stale response ignored', {
-            scope: scopeNorm,
-            current: refNorm,
-            cancelled,
-          });
+        if (!raw?.ok) throw new Error(raw?.error || 'error');
+
+        if (seq !== fetchMessagesSeqRef.current) {
+          if (__DEV__) console.log('[offer-chat] GET stale response ignored', { seq, current: fetchMessagesSeqRef.current });
           return;
         }
 
-        const rows = (data.messages || []) as Record<string, unknown>[];
-        const apiLen = rows.length;
-        const fetchedMessages: Message[] = rows
-          .map((row) => ({
-            ...offerMessageRowToUI(row, API_BASE, scope),
-            offer_id: String(row.offer_id ?? scope).trim(),
-          }))
-          .filter((m) => m.offer_id === scope);
-        const mappedLen = fetchedMessages.length;
-
-        console.log('[OFFER-CHAT GET]', {
-          offerId: scope,
-          apiMessagesLength: apiLen,
-          mappedLength: mappedLen,
-          offerChanged: offerChangedAtFetchStart,
-        });
-
-        // Boş yanıt state'i silmesin (geçici API hatası / yanlış thread yanıtı).
-        if (mappedLen === 0) {
-          console.warn('[OFFER-CHAT GET] mapped messages empty — keeping previous state');
+        // Do not replace thread with legacy / empty payloads (keeps optimistic & real rows on screen).
+        if (raw.offer_messages_table_missing === true) {
+          if (__DEV__) console.log('IGNORE synthetic response');
+          return;
+        }
+        if (!raw.messages || !Array.isArray(raw.messages) || raw.messages.length === 0) {
+          if (__DEV__) console.log('IGNORE empty response');
           return;
         }
 
-        console.log('[MSG OFFER IDS]', fetchedMessages.map((m) => m.offer_id));
-
-        if (offerChangedAtFetchStart) {
-          setMessages(mergeMessagesById([], fetchedMessages));
-        } else {
-          setMessages((prev) => {
-            const scopeMatch = (m: Message) => String(m.offer_id).trim() === scope;
-            const scopedPrev = prev.filter(scopeMatch);
-            return mergeMessagesById(scopedPrev, fetchedMessages);
-          });
-        }
+        const rows = raw.messages as Record<string, unknown>[];
+        const next = rows.map((row, idx) => offerMessageRowToUI(row, API_BASE, oid, idx));
+        next.sort(
+          (a, b) =>
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+        setMessages(next);
       } catch (e: any) {
-        if (!cancelled) setError(e.message || t('common.error'));
+        if (e?.name === 'AbortError') return;
+        if (seq !== fetchMessagesSeqRef.current) return;
+        console.warn('[offer-chat] FETCH ERROR', e);
+        setError(e.message || t('common.error'));
       } finally {
-        if (!cancelled) setLoading(false);
+        if (seq === fetchMessagesSeqRef.current) {
+          setLoading(false);
+        }
       }
-    })();
+    },
+    [currentOfferId, user?.token, t]
+  );
 
-    // reloadToken / focus yenilemesinde aynı offer_id iken önceki isteği iptal etme —
-    // aksi halde tamamlanan GET "cancelled" ile çöpe gidiyor ve hasta mesajları kayboluyor.
-    return () => {
-      const refNow =
-        offerIdRef.current == null ? '' : String(offerIdRef.current).trim();
-      if (refNow !== scopeAtEffectStart) {
-        cancelled = true;
+  useEffect(() => {
+    if (currentOfferId == null || !String(currentOfferId).trim()) {
+      if (postSendFetchTimerRef.current) {
+        clearTimeout(postSendFetchTimerRef.current);
+        postSendFetchTimerRef.current = null;
       }
+      fetchMessagesSeqRef.current += 1;
+      fetchMessagesAbortRef.current?.abort();
+      fetchMessagesAbortRef.current = null;
+      setMessages([]);
+      setLoading(false);
+      return;
+    }
+    void fetchMessages();
+  }, [currentOfferId, fetchMessages]);
+
+  useEffect(() => {
+    return () => {
+      if (postSendFetchTimerRef.current) {
+        clearTimeout(postSendFetchTimerRef.current);
+        postSendFetchTimerRef.current = null;
+      }
+      fetchMessagesSeqRef.current += 1;
+      fetchMessagesAbortRef.current?.abort();
+      fetchMessagesAbortRef.current = null;
     };
-  }, [currentOfferId, user?.token, reloadToken, t]);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       if (currentOfferId == null || !String(currentOfferId).trim()) return;
-      markAsRead();
-      // Realtime anon oturumu yokken TIMED_OUT olabilir; ekrana dönünce HTTP ile tazele.
-      if (user?.token) {
-        setReloadToken((k) => k + 1);
-      }
-    }, [currentOfferId, markAsRead, user?.token])
+      void markAsRead();
+      if (user?.token) void fetchMessages();
+    }, [currentOfferId, markAsRead, user?.token, fetchMessages])
   );
-
-  // Supabase Realtime: deps [currentOfferId, realtimeKey] only — no user/token. reconnectKey recovers from TIMED_OUT / async removeChannel races.
-  useEffect(() => {
-    if (currentOfferId == null || !String(currentOfferId).trim()) return;
-    const oid = String(currentOfferId).trim();
-    if (!OFFER_ID_UUID_RE.test(oid)) return;
-
-    if (!isSupabaseRealtimeConfigured()) {
-      if (__DEV__) {
-        console.warn(
-          '[offer-chat] Realtime disabled: add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to cliniflow-app/.env (see .env.example), then npx expo start -c'
-        );
-      }
-      return;
-    }
-
-    const sb = getSupabaseClient();
-    if (!sb) return;
-
-    let isActive = true;
-    let cancelled = false;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let hasReconnected = false;
-    let channel: ReturnType<typeof sb.channel> | null = null;
-
-    const subscribeDelayMs = 300;
-
-    void (async () => {
-      try {
-        const { data, error } = await sb.auth.getSession();
-        if (__DEV__) {
-          console.log('[offer-chat] Realtime getSession', {
-            hasSession: Boolean(data.session),
-            error: error?.message ?? null,
-          });
-        }
-      } catch (e) {
-        console.warn('[offer-chat] Realtime getSession failed', e);
-      }
-
-      await new Promise<void>((resolve) => setTimeout(resolve, subscribeDelayMs));
-      if (cancelled || !isActive) return;
-
-      const ch = sb.channel(`offer:${oid}`);
-      channel = ch;
-
-      ch.on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'offer_messages',
-          filter: `offer_id=eq.${oid}`,
-        },
-        (payload: { new?: Record<string, unknown> }) => {
-          if (!isActive) return;
-
-          const row = payload.new as Record<string, unknown> | undefined;
-          if (!row?.id) return;
-          const rid = String(row.offer_id ?? '').trim();
-          console.log('[REALTIME]', row.offer_id);
-          if (rid !== oid) return;
-
-          const mapped = offerMessageRowToUI(row, API_BASE, oid);
-          if (mapped.offer_id !== oid) return;
-
-          setMessages((prev) => {
-            if (offerIdRef.current !== oid) return prev;
-            return mergeMessagesById(prev, [mapped]);
-          });
-        }
-      );
-
-      ch.subscribe((status) => {
-        if (!isActive) return;
-
-        if (__DEV__) console.log('[offer-chat] REALTIME STATUS', status);
-
-        if (status === 'SUBSCRIBED') {
-          console.log('[offer-chat] Realtime SUBSCRIBED', oid);
-        }
-
-        if (status === 'CHANNEL_ERROR') {
-          console.warn('[offer-chat] Realtime CHANNEL_ERROR');
-        }
-
-        if (status === 'TIMED_OUT' && !hasReconnected) {
-          hasReconnected = true;
-
-          console.log('Realtime timeout:', oid);
-
-          void sb.removeChannel(ch);
-
-          reconnectTimer = setTimeout(() => {
-            setRealtimeKey((k) => k + 1);
-          }, 1000);
-        }
-      });
-    })();
-
-    return () => {
-      cancelled = true;
-      isActive = false;
-
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-      }
-
-      if (channel) {
-        void sb.removeChannel(channel);
-      }
-    };
-  }, [currentOfferId, realtimeKey]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -487,11 +360,11 @@ export default function OfferChatScreen() {
       attachment_type: opts.attachment_type || null,
       created_at: new Date().toISOString(),
     };
-    setMessages((prev) => mergeMessagesById(prev, [optimistic]));
+    setMessages((prev) => [...prev, optimistic]);
     setSending(true);
 
     try {
-      console.log('[MSG POST OFFER]', scope);
+      if (__DEV__) console.log('[MSG POST OFFER]', scope);
       const res = await fetch(`${API_BASE}/api/offer-messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
@@ -504,44 +377,14 @@ export default function OfferChatScreen() {
       });
       const data = await res.json();
       if (!data?.ok) throw new Error(data?.error || 'error');
-      const serverMsg = data.message as Record<string, unknown> | undefined;
-      const sid =
-        serverMsg &&
-        typeof serverMsg === 'object' &&
-        serverMsg.id != null &&
-        String(serverMsg.id).trim() !== ''
-          ? String(serverMsg.id).trim()
-          : '';
-
-      if (sid) {
-        const normalized = offerMessageRowToUI(
-          { ...serverMsg, id: sid } as Record<string, unknown>,
-          API_BASE,
-          scope
-        );
-        if (normalized.offer_id !== scope) {
-          console.warn('[SEND] server message wrong offer scope', {
-            expected: scope,
-            got: normalized.offer_id,
-          });
-          setReloadToken((k) => k + 1);
-        } else {
-          setMessages((prev) => {
-            const rest = prev.filter((m) => m.id !== optimistic.id);
-            const withServer: Message = {
-              ...normalized,
-              offer_id: scope,
-              sender_name: String(
-                normalized.sender_name || optimistic.sender_name || ''
-              ).trim(),
-            };
-            return mergeMessagesById(rest, [withServer]);
-          });
-        }
-      } else {
-        console.warn('[SEND] POST ok but no message id; refetching thread');
-        setReloadToken((k) => k + 1);
+      if (postSendFetchTimerRef.current) {
+        clearTimeout(postSendFetchTimerRef.current);
+        postSendFetchTimerRef.current = null;
       }
+      postSendFetchTimerRef.current = setTimeout(() => {
+        postSendFetchTimerRef.current = null;
+        void fetchMessages({ silent: true });
+      }, 600);
     } catch (e: any) {
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
       Alert.alert(t('common.error'), e.message || t('common.error'));
@@ -699,7 +542,7 @@ export default function OfferChatScreen() {
         ) : error ? (
           <View style={styles.center}>
             <Text style={styles.errorText}>⚠️ {error}</Text>
-            <TouchableOpacity style={styles.retryBtn} onPress={() => setReloadToken((k) => k + 1)}>
+            <TouchableOpacity style={styles.retryBtn} onPress={() => void fetchMessages()}>
               <Text style={styles.retryBtnText}>{t('common.retry')}</Text>
             </TouchableOpacity>
           </View>
@@ -745,6 +588,11 @@ export default function OfferChatScreen() {
               }
 
               const isMe = item.sender_role === myRole;
+              /** Doctor: show patient name beside message body (not only a tiny header line). */
+              const isDoctorViewingPatient = myRole === 'doctor' && !isMe;
+              const patientSenderLabel = isDoctorViewingPatient
+                ? String(item.sender_name || '').trim() || t('offerChat.senderFallback')
+                : '';
               const mediaUrl = resolveAttachmentMediaUrl(item.attachment_url, API_BASE);
               const hasImage = mediaUrl &&
                 (item.attachment_type === 'image' || item.attachment_type === 'xray');
@@ -758,14 +606,19 @@ export default function OfferChatScreen() {
                   {!isMe && (
                     <View style={styles.avatar}>
                       <Text style={styles.avatarText}>
-                        {(item.sender_name || '?').charAt(0).toUpperCase()}
+                        {(patientSenderLabel || item.sender_name || '?').charAt(0).toUpperCase()}
                       </Text>
                     </View>
                   )}
                   <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleOther]}>
-                    {!isMe && (
+                    {!isMe && !isDoctorViewingPatient && (
                       <Text style={styles.senderName}>{item.sender_name}</Text>
                     )}
+                    {isDoctorViewingPatient && (hasImage || hasDoc) && !bubbleText ? (
+                      <Text style={styles.senderBesideMessage} numberOfLines={1}>
+                        {patientSenderLabel}
+                      </Text>
+                    ) : null}
 
                     {/* Attachment: image / x-ray */}
                     {hasImage && mediaUrl && (
@@ -812,7 +665,17 @@ export default function OfferChatScreen() {
 
                     {bubbleText ? (
                       <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
-                        {bubbleText}
+                        {isDoctorViewingPatient ? (
+                          <>
+                            <Text style={styles.senderBesideMessage}>{patientSenderLabel}</Text>
+                            <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
+                              {' · '}
+                              {bubbleText}
+                            </Text>
+                          </>
+                        ) : (
+                          bubbleText
+                        )}
                       </Text>
                     ) : null}
 
@@ -1116,6 +979,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#E5E7EB',
   },
   senderName: { fontSize: 10, fontWeight: '700', color: '#6B7280', marginBottom: 3 },
+  /** Doctor thread: patient name inline with message (same line, bold). */
+  senderBesideMessage: { fontSize: 14, fontWeight: '700', color: '#1E40AF' },
   bubbleText: { fontSize: 14, color: '#111827', lineHeight: 20 },
   bubbleTextMe: { color: '#fff' },
   bubbleTime: { fontSize: 10, color: '#9CA3AF', marginTop: 4, textAlign: 'right' },

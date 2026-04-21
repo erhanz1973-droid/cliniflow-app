@@ -23,7 +23,7 @@ export function goToAnalysis(
     goToDentalCamera(router);
     return;
   }
-  console.log("[FLOW] navigating to analysis", uri);
+  if (__DEV__) console.log("[FLOW] navigating to analysis", uri);
   setLastCapturedImage(uri);
   const href = {
     pathname: "/(patient)/dental-analysis" as const,

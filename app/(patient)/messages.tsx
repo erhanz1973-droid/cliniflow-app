@@ -427,7 +427,7 @@ export default function MessagesScreen() {
       console.warn("[UPLOAD] Could not read file size:", (sizeErr as Error)?.message);
     }
 
-    console.log("[UPLOAD START]:", { uri, sizeKB, mimeType, name, endpoint: `${API_BASE}/api/chat/upload` });
+    __DEV__ && console.log("[UPLOAD START]:", { uri, sizeKB, mimeType, name, endpoint: `${API_BASE}/api/chat/upload` });
 
     if (!selectedClinicReady) {
       Alert.alert(t("common.error") || "Error", "Please wait…");
@@ -452,7 +452,7 @@ export default function MessagesScreen() {
         formData.append("clinicCode", code);
         formData.append("clinic_code", code);
       }
-      console.log("SEND MESSAGE PAYLOAD (upload)", {
+      __DEV__ && console.log("SEND MESSAGE PAYLOAD (upload)", {
         clinic_id: selectedClinic?.id ?? null,
         userClinic: user?.clinicId ?? null,
       });
@@ -463,9 +463,9 @@ export default function MessagesScreen() {
         body: formData,
       });
 
-      console.log("[UPLOAD RESPONSE STATUS]:", res.status);
+      __DEV__ && console.log("[UPLOAD RESPONSE STATUS]:", res.status);
       const rawText = await res.text().catch((e) => `[text() failed: ${(e as Error).message}]`);
-      console.log("[UPLOAD RESPONSE RAW]:", rawText.slice(0, 600));
+      __DEV__ && console.log("[UPLOAD RESPONSE RAW]:", rawText.slice(0, 600));
 
       let json: Record<string, any> = {};
       try { json = JSON.parse(rawText); } catch { /* non-JSON response already logged */ }
@@ -499,7 +499,7 @@ export default function MessagesScreen() {
   ) => {
     void name;
     void mimeType;
-    console.log("[AI] Triggered for:", photoType, name);
+    __DEV__ && console.log("[AI] Triggered for:", photoType, name);
 
     if (!String(patientId || "").trim() || !token) {
       Alert.alert(t("chat.sessionError"), t("chat.sessionExpired"));
@@ -556,7 +556,7 @@ export default function MessagesScreen() {
       const aiData = result.aiData;
       const fileUrl = result.fileUrl;
       setLastCapturedImage(fileUrl);
-      console.log(
+      __DEV__ && console.log(
         "[AI] Analysis complete for:",
         photoType,
         "| ok:",
@@ -801,7 +801,7 @@ export default function MessagesScreen() {
     if (entries.length === 0) { Alert.alert(t("common.error"), t("messages.intraoral.noPhotoError")); return; }
     setIntraoralVisible(false);
 
-    console.log("[AI] Submitting", entries.length, "intraoral photo(s)");
+    __DEV__ && console.log("[AI] Submitting", entries.length, "intraoral photo(s)");
 
     // Fire each photo through the full AI pipeline independently (non-blocking).
     // processPhotoWithAI handles: compress → upload → loading bubble → AI → refresh.
@@ -1208,7 +1208,7 @@ function AiResultBubble({ msg }: { msg: Message }) {
         setSmileSimLoading(false);
         if (r.ok && r.simulatedImageUrl) {
           setSimulatedSmileUrl(r.simulatedImageUrl);
-          console.log("[SIM] Applying URL:", (r.simulatedImageUrl || "").slice(0, 80));
+          __DEV__ && console.log("[SIM] Applying URL:", (r.simulatedImageUrl || "").slice(0, 80));
         } else {
           setSmileSimError(r.error || "simulation_failed");
         }
@@ -1309,7 +1309,7 @@ function AiResultBubble({ msg }: { msg: Message }) {
                 source={{ uri: resolveUrl(result.originalImageUrl!) }}
                 style={ai.image}
                 resizeMode="cover"
-                onLoad={() => console.log("[IMG] AI original loaded:", resolveUrl(result.originalImageUrl!).slice(0, 60))}
+                onLoad={() => __DEV__ && console.log("[IMG] AI original loaded:", resolveUrl(result.originalImageUrl!).slice(0, 60))}
                 onError={(e) => console.warn("[IMG] AI original FAILED:", resolveUrl(result.originalImageUrl!).slice(0, 60), e.nativeEvent.error)}
               />
             </TouchableOpacity>
@@ -1372,7 +1372,7 @@ function AiResultBubble({ msg }: { msg: Message }) {
                         style={ai.halfImage}
                         resizeMode="cover"
                         onLoad={() =>
-                          console.log("[SLIDER] Before image loaded:", resolveUrl(result.originalImageUrl!).slice(0, 60))
+                          __DEV__ && console.log("[SLIDER] Before image loaded:", resolveUrl(result.originalImageUrl!).slice(0, 60))
                         }
                       />
                     </View>
@@ -1383,7 +1383,7 @@ function AiResultBubble({ msg }: { msg: Message }) {
                         style={ai.halfImage}
                         resizeMode="cover"
                         onLoad={() =>
-                          console.log("[SLIDER] After image loaded:", resolveUrl(simulatedSmileUrl).slice(0, 60))
+                          __DEV__ && console.log("[SLIDER] After image loaded:", resolveUrl(simulatedSmileUrl).slice(0, 60))
                         }
                       />
                     </View>
@@ -1577,7 +1577,7 @@ const MessageBubble = React.memo(function MessageBubble({ msg }: { msg: Message 
               source={{ uri: att.url.startsWith("http") ? att.url : `${API_BASE}${att.url}` }}
               style={s.attImage}
               resizeMode="cover"
-              onLoad={() => console.log("[IMG] chat attachment loaded")}
+              onLoad={() => __DEV__ && console.log("[IMG] chat attachment loaded")}
               onError={(e) => console.warn("[IMG] chat attachment FAILED:", att.url.slice(0, 60), e.nativeEvent.error)}
             />
             {att.name && (

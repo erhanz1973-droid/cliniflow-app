@@ -6,8 +6,6 @@
  */
 const API_BASE = "https://cliniflow-backend-clean-production.up.railway.app";
 
-console.log("🌍 API BASE:", API_BASE);
-
 /** POST /analyze-teeth on the same backend as API_BASE */
 export const ANALYZE_TEETH_URL = `${API_BASE.replace(/\/+$/, "")}/analyze-teeth`;
 
@@ -76,7 +74,7 @@ async function parseJsonSafe<T>(url: string, text: string): Promise<T> {
 export async function apiGet<T>(path: string): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
 
-  console.log("CALLING API:", url);
+  if (__DEV__) console.log("CALLING API:", url);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_GET);
@@ -116,7 +114,7 @@ export async function apiGet<T>(path: string): Promise<T> {
 export async function apiPost<T>(path: string, body: any): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
 
-  console.log("CALLING API:", url);
+  if (__DEV__) console.log("CALLING API:", url);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_POST);
@@ -157,7 +155,7 @@ export async function apiPost<T>(path: string, body: any): Promise<T> {
 export async function apiPut<T>(path: string, body: any): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
 
-  console.log("CALLING API:", url);
+  if (__DEV__) console.log("CALLING API:", url);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_PUT);
@@ -192,6 +190,3 @@ export async function apiPut<T>(path: string, body: any): Promise<T> {
   }
 }
 
-void apiGet<Record<string, unknown>>("/api/health")
-  .then(() => console.log("[API] /api/health OK"))
-  .catch((e) => console.warn("[API] /api/health:", String((e as Error)?.message ?? e)));
