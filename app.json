@@ -34,7 +34,7 @@
           }
         }
       },
-      "buildNumber": "15"
+      "buildNumber": "17"
     },
     "android": {
       "usesCleartextTraffic": true,
