@@ -34,7 +34,7 @@
           }
         }
       },
-      "buildNumber": "14"
+      "buildNumber": "15"
     },
     "android": {
       "usesCleartextTraffic": true,
@@ -93,6 +93,12 @@
       ],
       "expo-notifications"
     ],
-    "owner": "erhanzorlu"
+    "owner": "erhanzorlu",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "f970fe3c-b598-44e7-9f04-c938e4a4321d"
+      }
+    }
   }
 }
