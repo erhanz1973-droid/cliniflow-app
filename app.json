@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Clinifly",
-    "slug": "clinifly",
+    "slug": "clinifly-new",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -93,6 +93,6 @@
       ],
       "expo-notifications"
     ],
-    "owner": "erhanz"
+    "owner": "erhanzorlu"
   }
 }
