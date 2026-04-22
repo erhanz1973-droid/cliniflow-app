@@ -120,7 +120,20 @@ function pickAppointmentArrays(data: Record<string, unknown>): {
 function normalizeApptRaw(raw: unknown): DashboardAppt {
   const r = asObj(raw) ?? {};
   const patient = asObj(r.patient);
-  const startInst = r.start_at ?? r.startAt ?? r.start_time ?? r.startTime;
+  /** Öncelik: API start_at; yoksa encounter / visit zamanı (treatment_plans + patient_encounters kaynağı) */
+  const startInst =
+    r.start_at ??
+    r.startAt ??
+    r.encounter_scheduled_at ??
+    r.encounterScheduledAt ??
+    r.encounter_date ??
+    r.encounterDate ??
+    r.visit_date ??
+    r.visitDate ??
+    r.scheduled_at ??
+    r.scheduledAt ??
+    r.start_time ??
+    r.startTime;
   let dateStr = String(r.date ?? r.appointment_date ?? "").trim();
   let timeStr = String(r.time ?? r.appointment_time ?? "09:00").trim();
   if (!dateStr && startInst != null && String(startInst).length >= 10) {
@@ -215,36 +228,56 @@ export default function DoctorDashboardHome() {
     setError(null);
     try {
       setAuthToken(token);
-      const res = await fetch(`${API_BASE}/api/doctor/dashboard`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const [res, apptRes] = await Promise.all([
+        fetch(`${API_BASE}/api/doctor/dashboard`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`${API_BASE}/api/doctor/dashboard-appointments`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
       const data = (await res.json()) as Record<string, unknown>;
       if (!data?.ok) throw new Error(String(data?.error || data?.message || `HTTP ${res.status}`));
+
+      let apptPayload: Record<string, unknown> | null = null;
+      if (apptRes.ok) {
+        try {
+          apptPayload = (await apptRes.json()) as Record<string, unknown>;
+        } catch {
+          apptPayload = null;
+        }
+      }
 
       const d = asObj(data.doctor) ?? {};
       setDoctorName(String(d.name ?? user?.name ?? "Doctor"));
 
       const st = asObj(data.stats) ?? {};
+      const apptSt =
+        apptPayload && apptPayload.ok === true ? asObj(apptPayload.stats) ?? {} : {};
       setStats({
         planned: Number(st.planned) || 0,
         in_progress: Number(st.in_progress ?? st.inProgress) || 0,
         done: Number(st.done) || 0,
-        today: Number(st.today) || 0,
+        today: apptSt.today != null ? Number(apptSt.today) : Number(st.today) || 0,
         waiting: Number(st.waiting) || 0,
       });
 
-      const { today: rawToday, tomorrow: rawTomorrow } = pickAppointmentArrays(data);
+      const apptSource =
+        apptPayload && apptPayload.ok === true ? apptPayload : data;
+      const { today: rawToday, tomorrow: rawTomorrow } = pickAppointmentArrays(apptSource);
       let todayList = rawToday.map((row) => mapApptToPlan(normalizeApptRaw(row)));
       let tomorrowList = rawTomorrow.map((row) => mapApptToPlan(normalizeApptRaw(row)));
 
       if (__DEV__) {
         console.log(
           "[DoctorDashboard] stats.today:",
-          st.today,
+          apptSt.today != null ? apptSt.today : st.today,
           "raw today:",
           rawToday.length,
           "tomorrow:",
           rawTomorrow.length,
+          "apptEndpoint:",
+          apptPayload?.ok === true,
           "keys:",
           Object.keys(data).slice(0, 20)
         );
