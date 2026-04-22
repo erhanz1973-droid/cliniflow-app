@@ -7,7 +7,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
-import { apiGet, classifyApiError } from '../../lib/api';
+import { apiGet, classifyApiError, TIMEOUT_GET_LONG } from '../../lib/api';
 import { ErrorScreen, EmptyState } from '../../components/ScreenFeedback';
 
 const PAGE_SIZE = 20;
@@ -120,7 +120,7 @@ export default function DoctorPatientsScreen() {
         total?: number;
         totalPages?: number;
         hasMore?: boolean;
-      }>(`/api/doctor/patients?page=${pageNum}&limit=${PAGE_SIZE}`);
+      }>(`/api/doctor/patients?page=${pageNum}&limit=${PAGE_SIZE}`, { timeoutMs: TIMEOUT_GET_LONG });
       if (res?.ok) {
         const incoming = res.patients ?? [];
         setAllPatients((prev) => append ? [...prev, ...incoming] : incoming);

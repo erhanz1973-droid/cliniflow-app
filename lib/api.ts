@@ -10,7 +10,9 @@ const API_BASE = "https://cliniflow-backend-clean-production.up.railway.app";
 export const ANALYZE_TEETH_URL = `${API_BASE.replace(/\/+$/, "")}/analyze-teeth`;
 
 // ── Timeout constants (ms) ───────────────────────────────────────────────────
-export const TIMEOUT_GET  = 10_000;
+export const TIMEOUT_GET  = 25_000;
+/** Liste / ağır backend (ör. doctor patients + takvim birleşimi) */
+export const TIMEOUT_GET_LONG = 55_000;
 export const TIMEOUT_POST = 15_000;
 export const TIMEOUT_PUT  = 10_000;
 
@@ -71,13 +73,14 @@ async function parseJsonSafe<T>(url: string, text: string): Promise<T> {
 // GET
 // =====================
 
-export async function apiGet<T>(path: string): Promise<T> {
+export async function apiGet<T>(path: string, opts?: { timeoutMs?: number }): Promise<T> {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
+  const timeoutMs = opts?.timeoutMs ?? TIMEOUT_GET;
 
   if (__DEV__) console.log("CALLING API:", url);
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_GET);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch(url, {
