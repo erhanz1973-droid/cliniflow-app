@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, ScrollView,
-  Alert, ActivityIndicator, StyleSheet, SafeAreaView, Switch, Image, Linking,
+  View, Text, TextInput, TouchableOpacity, ScrollView, Pressable,
+  Alert, ActivityIndicator, StyleSheet, SafeAreaView, Switch, Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -9,26 +9,6 @@ import { useAuth } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
 import { apiGet, apiPut, API_BASE } from '../../lib/api';
 import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES, Language } from '../../lib/i18n';
-
-/** API may return strings, string[], or { id, name }[] from Supabase joins */
-function formatProfileListField(
-  value: unknown,
-): string {
-  if (value == null || value === '') return '';
-  if (typeof value === 'string') return value;
-  if (Array.isArray(value)) {
-    if (value.length === 0) return '';
-    const first = value[0];
-    if (first != null && typeof first === 'object' && ('name' in first || 'id' in first)) {
-      return (value as Array<{ id?: string; name?: string }>)
-        .map((x) => String(x?.name ?? x?.id ?? '').trim())
-        .filter(Boolean)
-        .join(', ');
-    }
-    return (value as string[]).map(String).join(', ');
-  }
-  return String(value);
-}
 
 interface DoctorProfile {
   doctorId: string;
@@ -39,8 +19,8 @@ interface DoctorProfile {
   title: string | null;
   bio: string;
   experience_years: number | null;
-  languages: string | string[] | Array<{ id?: string; name?: string }> | null;
-  specialties: string | string[] | Array<{ id?: string; name?: string }> | null;
+  languages: string | null;
+  specialties: string | null;
   university: string | null;
   graduation_year: number | null;
   public_profile: boolean;
@@ -115,8 +95,8 @@ export default function DoctorProfileScreen() {
           experience_years: d.experience_years != null ? String(d.experience_years) : '',
           university: d.university || '',
           graduation_year: d.graduation_year != null ? String(d.graduation_year) : '',
-          languages: formatProfileListField(d.languages),
-          specialties: formatProfileListField(d.specialties),
+          languages: Array.isArray(d.languages) ? (d.languages as any).join(', ') : (d.languages || ''),
+          specialties: Array.isArray(d.specialties) ? (d.specialties as any).join(', ') : (d.specialties || ''),
           public_profile: Boolean(d.public_profile),
         });
       }
@@ -399,9 +379,7 @@ export default function DoctorProfileScreen() {
                 onChangeText={v => setForm(f => ({ ...f, specialties: v }))}
                 placeholder={t('doctor.profile.specialtyAreas')} multiline />
             ) : (
-              <Text style={s.fieldValue}>
-                {formatProfileListField(profile?.specialties) || t('doctor.profile.notSpecified')}
-              </Text>
+              <Text style={s.fieldValue}>{profile?.specialties || t('doctor.profile.notSpecified')}</Text>
             )}
           </View>
           <View style={s.fieldRow}>
@@ -411,9 +389,7 @@ export default function DoctorProfileScreen() {
                 onChangeText={v => setForm(f => ({ ...f, languages: v }))}
                 placeholder={t('doctor.profile.languages')} />
             ) : (
-              <Text style={s.fieldValue}>
-                {formatProfileListField(profile?.languages) || t('doctor.profile.notSpecified')}
-              </Text>
+              <Text style={s.fieldValue}>{profile?.languages || t('doctor.profile.notSpecified')}</Text>
             )}
           </View>
           <View style={s.fieldRow}>
@@ -451,39 +427,23 @@ export default function DoctorProfileScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Legal */}
-        <View style={s.card}>
-          <Text style={s.cardTitle}>{t('profile.legal')}</Text>
-          <TouchableOpacity
-            style={s.legalBtn}
-            onPress={() => Linking.openURL('https://www.clinifly.net/privacy-policy')}
-            activeOpacity={0.7}
-          >
-            <Text style={s.legalIcon}>🔒</Text>
-            <Text style={s.legalBtnText}>{t('profile.privacyPolicy')}</Text>
-            <Text style={s.legalArrow}>›</Text>
-          </TouchableOpacity>
-          <View style={s.legalDivider} />
-          <TouchableOpacity
-            style={s.legalBtn}
-            onPress={() => Linking.openURL('https://www.clinifly.net/terms-and-conditions')}
-            activeOpacity={0.7}
-          >
-            <Text style={s.legalIcon}>📄</Text>
-            <Text style={s.legalBtnText}>{t('profile.termsOfService') || 'Terms of Service'}</Text>
-            <Text style={s.legalArrow}>›</Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity
-          onPress={() => Linking.openURL('https://www.clinifly.net/privacy-policy')}
-          style={{ marginTop: 20, alignItems: 'center' }}
-        >
-          <Text style={{ color: '#007AFF' }}>Privacy Policy</Text>
-        </TouchableOpacity>
-
         <View style={{ height: 32 }} />
       </ScrollView>
+
+      <View style={s.bottomNav}>
+        <Pressable style={s.navItem} onPress={() => router.replace('/doctor')}>
+          <Text style={s.navIcon}>🏠</Text>
+          <Text style={s.navLabel}>{t('nav.dashboard')}</Text>
+        </Pressable>
+        <Pressable style={s.navItem} onPress={() => router.push('/doctor/patients')}>
+          <Text style={s.navIcon}>👥</Text>
+          <Text style={s.navLabel}>{t('nav.patients')}</Text>
+        </Pressable>
+        <Pressable style={[s.navItem, s.navItemActive]}>
+          <Text style={s.navIcon}>👤</Text>
+          <Text style={[s.navLabel, s.navLabelActive]}>{t('nav.profile')}</Text>
+        </Pressable>
+      </View>
     </SafeAreaView>
   );
 }
@@ -577,11 +537,14 @@ const s = StyleSheet.create({
   langBtnText: { fontSize: 13, fontWeight: '600', color: '#374151' },
   langBtnTextActive: { color: '#fff' },
 
-  legalBtn: {
-    flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 10,
+  bottomNav: {
+    flexDirection: 'row', backgroundColor: '#fff',
+    borderTopWidth: 1, borderTopColor: '#E5E7EB',
+    paddingBottom: 8, paddingTop: 6,
   },
-  legalIcon: { fontSize: 18, width: 26, textAlign: 'center' },
-  legalBtnText: { flex: 1, fontSize: 15, fontWeight: '600', color: '#111827' },
-  legalArrow: { fontSize: 20, color: '#9CA3AF' },
-  legalDivider: { height: 1, backgroundColor: '#F3F4F6', marginHorizontal: -16 },
+  navItem: { flex: 1, alignItems: 'center', paddingVertical: 4 },
+  navItemActive: {},
+  navIcon: { fontSize: 22, marginBottom: 2 },
+  navLabel: { fontSize: 11, color: '#6B7280' },
+  navLabelActive: { color: '#2563EB', fontWeight: '600' },
 });

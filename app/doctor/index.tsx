@@ -451,14 +451,15 @@ export default function DoctorDashboardHome() {
   const displayName = doctorName || user?.name || "Doctor";
 
   return (
-    <ScrollView
-      style={styles.container}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2563eb" />
-      }
-      contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
-    >
+    <View style={styles.rootWithTabs}>
+      <ScrollView
+        style={styles.container}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2563eb" />
+        }
+        contentContainerStyle={{ paddingBottom: insets.bottom + 72 }}
+      >
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={{ flex: 1 }}>
           <Text style={styles.greeting}>{greeting()}</Text>
@@ -511,7 +512,7 @@ export default function DoctorDashboardHome() {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.actionBtn}
-            onPress={() => showSoon(t("doctor.quickActions.patients"))}
+            onPress={() => router.push("/doctor/patients")}
           >
             <Text style={styles.actionIcon}>👥</Text>
             <Text style={styles.actionLabel}>{t("doctor.quickActions.patients")}</Text>
@@ -631,12 +632,51 @@ export default function DoctorDashboardHome() {
 
       <View style={{ height: 16 }} />
     </ScrollView>
+
+      <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+        <TouchableOpacity style={[styles.navItem, styles.navItemActive]} activeOpacity={0.7}>
+          <Text style={styles.navIcon}>🏠</Text>
+          <Text style={[styles.navLabel, styles.navLabelActive]}>
+            {t("nav.dashboard") || "Dashboard"}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.navItem}
+          activeOpacity={0.7}
+          onPress={() => router.push("/doctor/patients")}
+        >
+          <Text style={styles.navIcon}>👥</Text>
+          <Text style={styles.navLabel}>{t("nav.patients") || "Patients"}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.navItem}
+          activeOpacity={0.7}
+          onPress={() => router.push("/doctor/profile")}
+        >
+          <Text style={styles.navIcon}>👤</Text>
+          <Text style={styles.navLabel}>{t("nav.profile") || "Profile"}</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#f3f4f6" },
+  rootWithTabs: { flex: 1, backgroundColor: "#f3f4f6" },
   container: { flex: 1, backgroundColor: "#f3f4f6" },
+  bottomNav: {
+    flexDirection: "row",
+    backgroundColor: "#ffffff",
+    borderTopWidth: 1,
+    borderTopColor: "#e5e7eb",
+    paddingTop: 6,
+  },
+  navItem: { flex: 1, alignItems: "center", paddingVertical: 4 },
+  navItemActive: {},
+  navIcon: { fontSize: 22, marginBottom: 2 },
+  navLabel: { fontSize: 11, color: "#6b7280", fontWeight: "500" },
+  navLabelActive: { color: "#2563eb", fontWeight: "700" },
   loadingWrap: { justifyContent: "center", alignItems: "center" },
   loadingText: { marginTop: 10, color: "#6b7280", fontSize: 14 },
   muted: { padding: 24, color: "#64748b" },

@@ -268,12 +268,12 @@ export default function DoctorPatientsScreen() {
                         )}
                       </View>
                       {/* Critical flags first, then relevant */}
-                      {(p.riskFlags || []).map((flag, idx) => {
+                      {(p.riskFlags || []).map((flag) => {
                         const riskKey = `risk.${flag.code}`;
                         const riskLabel = t(riskKey) !== riskKey ? t(riskKey) : flag.label;
                         return (
                           <View
-                            key={`${p.id}-risk-${String(flag.code)}-${idx}`}
+                            key={flag.code}
                             style={[styles.flagRow, flag.type === 'critical' ? styles.flagRowCritical : styles.flagRowRelevant]}
                           >
                             <Text style={[styles.flagText, flag.type === 'critical' ? styles.flagTextCritical : styles.flagTextRelevant]}>
