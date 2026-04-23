@@ -561,7 +561,7 @@ export default function DoctorDashboardHome() {
         <View style={[styles.actionsRow, { marginTop: 10 }]}>
           <TouchableOpacity
             style={[styles.actionBtn, { flex: 1 }]}
-            onPress={() => showSoon(t("doctor.quickActions.tasks"))}
+            onPress={() => router.push("/doctor/tasks")}
           >
             <Text style={styles.actionIcon}>📋</Text>
             <Text style={styles.actionLabel}>{t("doctor.quickActions.tasks")}</Text>

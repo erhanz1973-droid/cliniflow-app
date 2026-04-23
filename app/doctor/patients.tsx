@@ -2,8 +2,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, RefreshControl, Pressable,
-  TextInput, StyleSheet, SafeAreaView, ActivityIndicator,
+  TextInput, StyleSheet, ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
@@ -268,12 +269,12 @@ export default function DoctorPatientsScreen() {
                         )}
                       </View>
                       {/* Critical flags first, then relevant */}
-                      {(p.riskFlags || []).map((flag) => {
+                      {(p.riskFlags || []).map((flag, flagIdx) => {
                         const riskKey = `risk.${flag.code}`;
                         const riskLabel = t(riskKey) !== riskKey ? t(riskKey) : flag.label;
                         return (
                           <View
-                            key={flag.code}
+                            key={`${p.id}-rf-${flagIdx}-${flag.code}`}
                             style={[styles.flagRow, flag.type === 'critical' ? styles.flagRowCritical : styles.flagRowRelevant]}
                           >
                             <Text style={[styles.flagText, flag.type === 'critical' ? styles.flagTextCritical : styles.flagTextRelevant]}>

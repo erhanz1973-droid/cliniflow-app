@@ -1,18 +1,14 @@
 /**
- * Klinik konumu — harita + pin (dev build) veya koordinat girişi (Expo Go),
+ * Klinik konumu — koordinat girişi ve GPS (Konumum),
  * PUT /api/admin/clinic ile kayıt.
  * Route: /admin-clinic-location
- *
- * react-native-maps Expo Go'da yüklü değildir; bu yüzden harita modülü yalnızca
- * native binary'de dinamik import edilir.
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
   TextInput,
   StyleSheet,
-  Platform,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
@@ -25,31 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../lib/auth";
 import { API_BASE } from "../lib/api";
 
-type Region = {
-  latitude: number;
-  longitude: number;
-  latitudeDelta: number;
-  longitudeDelta: number;
-};
-
 type LatLng = { latitude: number; longitude: number };
-
-type MapsModule = { default: React.ComponentType<any>; Marker: React.ComponentType<any> };
-
-const DEFAULT_REGION: Region = {
-  latitude: 41.7151,
-  longitude: 44.8271,
-  latitudeDelta: 0.05,
-  longitudeDelta: 0.05,
-};
-
-/** Expo Go'da RNMaps yok; dev client / mağaza build'inde dinamik import kullanılır. */
-function canAttemptNativeMaps(): boolean {
-  if (Platform.OS === "web") return false;
-  const ownership = (Constants as { appOwnership?: string }).appOwnership;
-  if (ownership === "expo") return false;
-  return true;
-}
 
 function formatCoord(n: number): string {
   return Number.isFinite(n) ? String(n) : "";
@@ -60,12 +32,7 @@ export default function AdminClinicLocationScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const token = user?.token ?? "";
-  const mapRef = useRef<any>(null);
 
-  const [mapsModule, setMapsModule] = useState<MapsModule | null>(null);
-  const [mapsLoadFailed, setMapsLoadFailed] = useState(false);
-
-  const [region, setRegion] = useState<Region>(DEFAULT_REGION);
   const [marker, setMarker] = useState<LatLng | null>(null);
   const [latText, setLatText] = useState("");
   const [lngText, setLngText] = useState("");
@@ -73,24 +40,6 @@ export default function AdminClinicLocationScreen() {
   const [city, setCity] = useState("Tbilisi");
   const [country, setCountry] = useState("GE");
   const [saving, setSaving] = useState(false);
-
-  const showNativeMap = canAttemptNativeMaps() && mapsModule != null && !mapsLoadFailed;
-  const showCoordinateFallback = !showNativeMap;
-
-  useEffect(() => {
-    if (!canAttemptNativeMaps()) return;
-    let cancelled = false;
-    import("react-native-maps")
-      .then((m) => {
-        if (!cancelled) setMapsModule({ default: m.default, Marker: m.Marker });
-      })
-      .catch(() => {
-        if (!cancelled) setMapsLoadFailed(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (marker) {
@@ -111,17 +60,7 @@ export default function AdminClinicLocationScreen() {
       return;
     }
     setMarker({ latitude: lat, longitude: lng });
-    setRegion((r) => ({
-      ...r,
-      latitude: lat,
-      longitude: lng,
-    }));
   }, [latText, lngText]);
-
-  const handleMapPress = useCallback((e: { nativeEvent: { coordinate: LatLng } }) => {
-    const { latitude, longitude } = e.nativeEvent.coordinate;
-    setMarker({ latitude, longitude });
-  }, []);
 
   const setMyLocation = useCallback(async () => {
     try {
@@ -135,15 +74,7 @@ export default function AdminClinicLocationScreen() {
       });
       const lat = loc.coords.latitude;
       const lng = loc.coords.longitude;
-      const next: Region = {
-        latitude: lat,
-        longitude: lng,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
-      };
-      setRegion(next);
       setMarker({ latitude: lat, longitude: lng });
-      mapRef.current?.animateToRegion?.(next, 400);
     } catch {
       Alert.alert("Konum", "Konum alınamadı. Lütfen tekrar deneyin.");
     }
@@ -220,9 +151,6 @@ export default function AdminClinicLocationScreen() {
     );
   }
 
-  const MapView = mapsModule?.default;
-  const Marker = mapsModule?.Marker;
-
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
@@ -265,73 +193,43 @@ export default function AdminClinicLocationScreen() {
         />
       </View>
 
-      {showNativeMap && MapView && Marker ? (
-        <View style={styles.mapWrap}>
-          <MapView
-            ref={mapRef}
-            style={styles.map}
-            region={region}
-            onRegionChangeComplete={setRegion}
-            onPress={handleMapPress}
-          >
-            {marker ? <Marker coordinate={marker} /> : null}
-          </MapView>
-          <TouchableOpacity
-            style={styles.myLocationBtn}
-            onPress={() => void setMyLocation()}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.myLocationBtnText}>Konumum</Text>
-          </TouchableOpacity>
+      <View style={styles.fallbackBox}>
+        <Text style={styles.fallbackTitle}>
+          {Constants.appOwnership === "expo" ? "Expo Go: koordinat girişi" : "Koordinat girişi"}
+        </Text>
+        <Text style={styles.fallbackSub}>
+          {Constants.appOwnership === "expo"
+            ? "Koordinatları aşağıya yazın veya Konumum ile doldurun."
+            : "Enlem ve boylamı girin veya Konumum ile GPS kullanın."}
+        </Text>
+        <View style={styles.coordRow}>
+          <TextInput
+            style={[styles.input, styles.coordInput]}
+            placeholder="Enlem (lat)"
+            value={latText}
+            onChangeText={setLatText}
+            keyboardType="numbers-and-punctuation"
+            placeholderTextColor="#94a3b8"
+          />
+          <TextInput
+            style={[styles.input, styles.coordInput]}
+            placeholder="Boylam (lng)"
+            value={lngText}
+            onChangeText={setLngText}
+            keyboardType="numbers-and-punctuation"
+            placeholderTextColor="#94a3b8"
+          />
         </View>
-      ) : (
-        <View style={styles.fallbackBox}>
-          {canAttemptNativeMaps() && !mapsModule && !mapsLoadFailed ? (
-            <ActivityIndicator size="small" color="#2563eb" />
-          ) : null}
-          <Text style={styles.fallbackTitle}>
-            {Constants.appOwnership === "expo"
-              ? "Expo Go: harita modülü yok"
-              : mapsLoadFailed
-                ? "Harita yüklenemedi"
-                : "Koordinat girişi"}
-          </Text>
-          <Text style={styles.fallbackSub}>
-            {Constants.appOwnership === "expo"
-              ? "Koordinatları aşağıya yazın veya Konumum ile doldurun. Tam harita için development build (expo-dev-client + prebuild) kullanın."
-              : "Enlem ve boylamı girin veya Konumum ile GPS kullanın."}
-          </Text>
-          <View style={styles.coordRow}>
-            <TextInput
-              style={[styles.input, styles.coordInput]}
-              placeholder="Enlem (lat)"
-              value={latText}
-              onChangeText={setLatText}
-              keyboardType="numbers-and-punctuation"
-              placeholderTextColor="#94a3b8"
-            />
-            <TextInput
-              style={[styles.input, styles.coordInput]}
-              placeholder="Boylam (lng)"
-              value={lngText}
-              onChangeText={setLngText}
-              keyboardType="numbers-and-punctuation"
-              placeholderTextColor="#94a3b8"
-            />
-          </View>
-          <TouchableOpacity style={styles.applyCoordBtn} onPress={applyLatLngFromInputs}>
-            <Text style={styles.applyCoordBtnText}>Koordinatı uygula</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.myLocationBtnInline} onPress={() => void setMyLocation()}>
-            <Text style={styles.myLocationBtnText}>Konumum (GPS)</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+        <TouchableOpacity style={styles.applyCoordBtn} onPress={applyLatLngFromInputs}>
+          <Text style={styles.applyCoordBtnText}>Koordinatı uygula</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.myLocationBtnInline} onPress={() => void setMyLocation()}>
+          <Text style={styles.myLocationBtnText}>Konumum (GPS)</Text>
+        </TouchableOpacity>
+      </View>
 
       <Text style={styles.hint}>
-        {showNativeMap
-          ? "Haritaya dokunarak pin bırakın. Konumum ile GPS kullanın."
-          : "Koordinatları onaylayın veya Konumum ile doldurun. Kaydet sunucuya enlem/boylam yazar."}
+        Koordinatları onaylayın veya Konumum ile doldurun. Kaydet sunucuya enlem/boylam yazar.
       </Text>
     </View>
   );
@@ -373,30 +271,6 @@ const styles = StyleSheet.create({
   },
   row: { flexDirection: "row", gap: 8, paddingHorizontal: 12 },
   half: { flex: 1, marginHorizontal: 0 },
-  mapWrap: {
-    flex: 1,
-    margin: 12,
-    borderRadius: 12,
-    overflow: "hidden",
-    position: "relative",
-  },
-  map: { flex: 1 },
-  myLocationBtn: {
-    position: "absolute",
-    right: 12,
-    bottom: 12,
-    backgroundColor: "#fff",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.12,
-    shadowRadius: 2,
-    elevation: 3,
-  },
   myLocationBtnText: { fontSize: 14, fontWeight: "700", color: "#2563eb" },
   fallbackBox: {
     flex: 1,

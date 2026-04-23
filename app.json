@@ -34,7 +34,7 @@
           }
         }
       },
-      "buildNumber": "17"
+      "buildNumber": "20"
     },
     "android": {
       "usesCleartextTraffic": true,
@@ -44,7 +44,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.clinifly.mobile",
-      "versionCode": 10,
+      "versionCode": 30,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_MEDIA_IMAGES",
