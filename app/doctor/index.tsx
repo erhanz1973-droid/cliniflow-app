@@ -40,20 +40,49 @@ type PlanRow = {
   patient: { name: string };
 };
 
+type RecentRiskFlag = { type?: string; code: string; label?: string };
+
 type RecentPatient = {
   id: string;
   name: string;
   hasRisk?: boolean;
-  riskFlags?: string[];
+  riskFlags?: RecentRiskFlag[];
   lastVisit?: string | null;
 };
 
-type DashboardNotify = {
-  id?: string;
-  title?: string;
-  message?: string;
-  created_at?: string;
-};
+/** API: { code } (preferred) or legacy Turkish string — always show via i18n risk.* */
+function normalizeRecentRiskFlags(raw: unknown): RecentRiskFlag[] {
+  if (!Array.isArray(raw)) return [];
+  const out: RecentRiskFlag[] = [];
+  for (const x of raw) {
+    if (x && typeof x === "object" && "code" in x) {
+      const code = String((x as RecentRiskFlag).code || "").trim();
+      if (code) out.push({ ...(x as RecentRiskFlag), code });
+      continue;
+    }
+    const s = String(x || "").trim();
+    if (!s) continue;
+    if (/İlaç|ilac/i.test(s)) out.push({ code: "MEDICATION", type: "relevant" });
+    else if (/Allerji|Alerji|alerji/i.test(s)) out.push({ code: "DRUG_ALLERGY", type: "critical" });
+    else if (/Kanama|bleeding/i.test(s)) out.push({ code: "BLEEDING_RISK", type: "critical" });
+    else if (/Kalp|heart/i.test(s)) out.push({ code: "HEART_DISEASE", type: "relevant" });
+    else if (/Diyabet|diabetes/i.test(s)) out.push({ code: "DIABETES", type: "relevant" });
+    else out.push({ code: s });
+  }
+  const seen = new Set<string>();
+  return out.filter((f) => {
+    if (seen.has(f.code)) return false;
+    seen.add(f.code);
+    return true;
+  });
+}
+
+function labelForRecentRiskFlag(flag: RecentRiskFlag, t: (key: string) => string): string {
+  const k = `risk.${flag.code}`;
+  const tr = t(k);
+  if (tr !== k) return tr;
+  return flag.label || flag.code;
+}
 
 type Stats = {
   planned: number;
@@ -221,7 +250,6 @@ export default function DoctorDashboardHome() {
   const [tomorrowPlans, setTomorrowPlans] = useState<PlanRow[]>([]);
   const [upcomingPlans, setUpcomingPlans] = useState<PlanRow[]>([]);
   const [recentPatients, setRecentPatients] = useState<RecentPatient[]>([]);
-  const [notifications, setNotifications] = useState<DashboardNotify[]>([]);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -335,20 +363,16 @@ export default function DoctorDashboardHome() {
           id: String(p.id ?? ""),
           name: String(p.name ?? "Hasta"),
           hasRisk: Boolean(p.hasRisk),
-          riskFlags: Array.isArray(p.riskFlags) ? (p.riskFlags as string[]) : [],
+          riskFlags: normalizeRecentRiskFlags(p.riskFlags),
           lastVisit: p.lastVisit != null ? String(p.lastVisit) : null,
         }))
       );
-
-      const n = Array.isArray(data.notifications) ? data.notifications : [];
-      setNotifications(n.slice(0, 8));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Dashboard error");
       setTodayPlans([]);
       setTomorrowPlans([]);
       setUpcomingPlans([]);
       setRecentPatients([]);
-      setNotifications([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -569,25 +593,6 @@ export default function DoctorDashboardHome() {
         </View>
       </View>
 
-      {notifications.length > 0 ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            {t("doctor.notifications") || "Notifications"}
-          </Text>
-          <View style={styles.card}>
-            {notifications.map((n, i) => (
-              <View
-                key={String(n.id || i)}
-                style={[styles.notifyRow, i < notifications.length - 1 && styles.rowBorder]}
-              >
-                <Text style={styles.notifyTitle}>{n.title || "—"}</Text>
-                {n.message ? <Text style={styles.notifyMsg}>{n.message}</Text> : null}
-              </View>
-            ))}
-          </View>
-        </View>
-      ) : null}
-
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>
           {t("doctor.todayAppointments")} ({todayPlans.length})
@@ -650,7 +655,11 @@ export default function DoctorDashboardHome() {
                     {p.hasRisk && p.riskFlags && p.riskFlags.length > 0 ? (
                       <View style={styles.riskBadge}>
                         <Text style={styles.riskBadgeText}>
-                          ⚠ {p.riskFlags.slice(0, 2).join(", ")}
+                          ⚠{" "}
+                          {p.riskFlags
+                            .slice(0, 2)
+                            .map((f) => labelForRecentRiskFlag(f, t))
+                            .join(", ")}
                         </Text>
                       </View>
                     ) : null}
@@ -822,8 +831,8 @@ const styles = StyleSheet.create({
   planFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
   statusBadgeText: { fontSize: 10, fontWeight: "600" },
-  patientRow: { flexDirection: "row", alignItems: "center", padding: 14, gap: 12 },
   rowBorder: { borderBottomWidth: 1, borderBottomColor: "#f3f4f6" },
+  patientRow: { flexDirection: "row", alignItems: "center", padding: 14, gap: 12 },
   patientAvatar: {
     width: 36,
     height: 36,
@@ -844,7 +853,4 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   riskBadgeText: { color: "#b91c1c", fontSize: 10, fontWeight: "700" },
-  notifyRow: { paddingVertical: 10 },
-  notifyTitle: { fontSize: 14, fontWeight: "600", color: "#111827" },
-  notifyMsg: { fontSize: 13, color: "#6b7280", marginTop: 4 },
 });
