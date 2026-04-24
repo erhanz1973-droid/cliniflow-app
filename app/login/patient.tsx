@@ -137,7 +137,13 @@ export default function PatientLogin() {
           <Pressable
             key={lang}
             style={[styles.langBtn, currentLanguage === lang && styles.langBtnActive]}
-            onPress={() => setLanguage(lang as Language)}
+            onPress={async () => {
+              try {
+                await setLanguage(lang as Language);
+              } catch {
+                /* ignore */
+              }
+            }}
           >
             <Text style={[styles.langBtnText, currentLanguage === lang && styles.langBtnTextActive]}>
               {LANGUAGE_NAMES[lang as Language]}

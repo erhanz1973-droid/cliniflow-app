@@ -1,9 +1,21 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import * as SplashScreen from "expo-splash-screen";
 import { AuthProvider } from "../lib/auth";
-import { LanguageProvider } from "../lib/language-context";
+import { LanguageProvider, useLanguage } from "../lib/language-context";
 import { Stack } from "expo-router";
-import { View, Text } from "react-native";
+import { View, Text, ActivityIndicator } from "react-native";
+
+function LanguageReadyGate({ children }: { children: ReactNode }) {
+  const { isLoading } = useLanguage();
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f8faff" }}>
+        <ActivityIndicator size="large" color="#2563EB" />
+      </View>
+    );
+  }
+  return <>{children}</>;
+}
 
 function RootLayoutInner() {
   useEffect(() => {
@@ -32,9 +44,11 @@ function RootLayoutInner() {
 export default function RootLayout() {
   return (
     <LanguageProvider>
-      <AuthProvider>
-        <RootLayoutInner />
-      </AuthProvider>
+      <LanguageReadyGate>
+        <AuthProvider>
+          <RootLayoutInner />
+        </AuthProvider>
+      </LanguageReadyGate>
     </LanguageProvider>
   );
 }

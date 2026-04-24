@@ -51,7 +51,13 @@ export default function RoleSelectScreen() {
         {SUPPORTED_LANGUAGES.map((lang) => (
           <Pressable
             key={lang}
-            onPress={() => setLanguage(lang as Language)}
+            onPress={async () => {
+              try {
+                await setLanguage(lang as Language);
+              } catch {
+                /* storage errors are non-fatal */
+              }
+            }}
             style={[
               styles.langBtn,
               currentLanguage === lang && styles.langBtnActive,

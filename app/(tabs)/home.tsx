@@ -25,11 +25,7 @@ import * as Haptics from "expo-haptics";
 // Import expo-av for audio playback
 import { Audio } from "expo-av";
 import { useLanguage } from "../../lib/language-context";
-import {
-  type Language,
-  SUPPORTED_LANGUAGES,
-  LANGUAGE_NAMES,
-} from "../../lib/i18n";
+import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES } from "../../lib/i18n";
 import { PrimaryCard } from "../../components/home/PrimaryCard";
 import { SecondaryCard } from "../../components/home/SecondaryCard";
 import { ActionCard } from "../../components/home/ActionCard";
@@ -188,7 +184,6 @@ export default function Home() {
   const [isUploading, setIsUploading] = useState(false);
   const [healthFormComplete, setHealthFormComplete] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [currentLang, setCurrentLang] = useState<Language>("tr");
   const previousUnreadCountRef = useRef<number>(0);
 
   const hasClinic = useMemo(

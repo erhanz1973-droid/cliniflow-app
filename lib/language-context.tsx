@@ -1,6 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Language, SUPPORTED_LANGUAGES, translations, STORAGE_KEY } from './i18n';
+import {
+  Language,
+  SUPPORTED_LANGUAGES,
+  translations,
+  STORAGE_KEY,
+  LEGACY_STORAGE_KEY,
+} from './i18n';
 
 type LanguageContextType = {
   currentLanguage: Language;
@@ -23,11 +29,17 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         console.log('[LanguageContext] Starting initialization...');
         
         // Try to get saved language
-        const saved = await AsyncStorage.getItem(STORAGE_KEY);
-        const lang = (saved && SUPPORTED_LANGUAGES.includes(saved as Language)) 
-          ? saved as Language 
-          : 'tr';
-        
+        let raw = await AsyncStorage.getItem(STORAGE_KEY);
+        if (!raw) {
+          raw = await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
+        }
+        const lang = (raw && SUPPORTED_LANGUAGES.includes(raw as Language))
+          ? (raw as Language)
+          : "tr";
+
+        await AsyncStorage.setItem(STORAGE_KEY, lang);
+        await AsyncStorage.setItem(LEGACY_STORAGE_KEY, lang);
+
         setCurrentLanguageState(lang);
         console.log('[LanguageContext] Initialized with language:', lang);
       } catch (error) {
@@ -49,6 +61,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     
     try {
       await AsyncStorage.setItem(STORAGE_KEY, lang);
+      await AsyncStorage.setItem(LEGACY_STORAGE_KEY, lang);
       setCurrentLanguageState(lang);
       console.log('[LanguageContext] Language changed to:', lang);
     } catch (error) {

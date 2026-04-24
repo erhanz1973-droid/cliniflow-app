@@ -13,6 +13,9 @@ export const LANGUAGE_NAMES: Record<Language, string> = {
 
 export const STORAGE_KEY = "@cliniflow:language";
 
+/** Backwards-compatible key; read/write in sync with {@link STORAGE_KEY} */
+export const LEGACY_STORAGE_KEY = "lang";
+
 // Export translations for context usage
 export const translations: Record<Language, Record<string, string>> = {
   tr: {
