@@ -2,7 +2,7 @@
   "expo": {
     "name": "Clinifly",
     "slug": "clinifly-new",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "clinifly",
@@ -44,7 +44,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.clinifly.mobile",
-      "versionCode": 30,
+      "versionCode": 32,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_MEDIA_IMAGES",

@@ -146,8 +146,10 @@ export async function analyzePhoto(params: {
   patientId: string;
   token: string;
   photoType?: string;
+  /** App language: tr | en | ka | ru — sent to /api/chat/ai-analyze for localized AI */
+  lang?: string;
 }): Promise<AnalyzePhotoResult> {
-  const { imageUri, patientId, token, photoType = "general" } = params;
+  const { imageUri, patientId, token, photoType = "general", lang } = params;
   if (!String(patientId || "").trim()) {
     return { ok: false, phase: "session", message: "no_patient" };
   }
@@ -172,6 +174,8 @@ export async function analyzePhoto(params: {
   const fileUrl = up.url;
 
   const userLocation = await getUserLocationForAnalysis();
+  const effectiveLang = (lang && String(lang).trim()) || "en";
+  console.log("AI LANG:", effectiveLang);
   const controller = new AbortController();
   const tid = setTimeout(() => controller.abort(), ANALYZE_TIMEOUT_MS);
   try {
@@ -188,6 +192,7 @@ export async function analyzePhoto(params: {
         photoType,
         userLocation,
         preferredCountry: null,
+        lang: effectiveLang,
       }),
       signal: controller.signal,
     });

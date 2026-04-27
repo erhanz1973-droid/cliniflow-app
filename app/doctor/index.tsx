@@ -1,17 +1,19 @@
 /**
- * Doctor dashboard home — tam panel (GET /api/doctor/dashboard).
+ * Doctor dashboard home — tek kaynak: GET /api/doctor/dashboard (timeline: todayAppointments / tomorrowAppointments).
  * Route: /doctor
  */
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
+  Pressable,
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Modal,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -38,6 +40,8 @@ type PlanRow = {
   date?: string;
   created_at?: string;
   patient: { name: string };
+  /** Set only for merge/dedup (stripped before state) */
+  _sourceBucket?: "today" | "tomorrow" | "legacy";
 };
 
 type RecentRiskFlag = { type?: string; code: string; label?: string };
@@ -146,6 +150,111 @@ function pickAppointmentArrays(data: Record<string, unknown>): {
   return { today, tomorrow };
 }
 
+/** `YYYY-MM-DD` only — local calendar, no UTC-midnight shift */
+function parseYmdLocal(ymd: string): Date | null {
+  const t = ymd.trim();
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(t);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  const out = new Date(y, mo, d);
+  if (out.getFullYear() !== y || out.getMonth() !== mo || out.getDate() !== d) return null;
+  return out;
+}
+
+/**
+ * Unambiguous only: YYYY-MM-DD, ISO-8601 (…T…), or explicit Z/offset; YYYY-MM-DD HH:mm in local;
+ * Rejects e.g. DD/MM/YYYY.
+ */
+function parseIsoOrLocalDateTime(s: string): Date | null {
+  const t = s.trim();
+  if (!t) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return parseYmdLocal(t);
+  if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(t)) return null;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(t)) {
+    const inst = new Date(t);
+    return Number.isFinite(inst.getTime()) ? inst : null;
+  }
+  const m2 = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(t);
+  if (m2) {
+    const y = Number(m2[1]);
+    const mo = Number(m2[2]) - 1;
+    const d = Number(m2[3]);
+    const h = Number(m2[4]);
+    const min = Number(m2[5]);
+    const sec = m2[6] != null ? Number(m2[6]) : 0;
+    const out = new Date(y, mo, d, h, min, sec);
+    if (out.getFullYear() !== y || out.getMonth() !== mo || out.getDate() !== d) return null;
+    return out;
+  }
+  if (/\bGMT\b|Z$|[+-]\d{2}:?\d{2}\s*$/.test(t)) {
+    const inst = new Date(t);
+    return Number.isFinite(inst.getTime()) ? inst : null;
+  }
+  return null;
+}
+
+function parseScheduleLocal(sched: string | undefined | null): Date | null {
+  if (sched == null) return null;
+  return parseIsoOrLocalDateTime(String(sched).trim());
+}
+
+function warnUnparseableSchedule(context: string, raw: string | undefined, planId: string, extra?: Record<string, unknown>) {
+  if (!__DEV__) return;
+  const s = (raw ?? "").trim();
+  if (!s) return;
+  if (parseScheduleLocal(s)) return;
+  console.warn("[DoctorDashboard] unparseable schedule — using raw in UI", context, {
+    planId,
+    raw: s,
+    ...extra,
+  });
+}
+
+/** Unparseable / fallback schedule text in the card — cap length to avoid layout overflow */
+function truncateForUi(s: string, max = 40): string {
+  const t = s.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1)}…`;
+}
+
+function applyI18nVars(s: string, vars?: Record<string, string | number>): string {
+  if (!vars) return s;
+  let out = s;
+  for (const [k, v] of Object.entries(vars)) {
+    out = out.split(`{{${k}}}`).join(String(v));
+  }
+  return out;
+}
+
+function isMissingTranslation(resolved: unknown, key: string): boolean {
+  if (resolved == null) return true;
+  if (typeof resolved !== "string") return true;
+  const s = resolved.trim();
+  if (s === "") return true;
+  if (s === key) return true;
+  if (s === `[${key}]`) return true;
+  return false;
+}
+
+/** If `t` fails or returns a missing string, use fallback; supports `{{name}}` placeholders. */
+function translateOrFallback(
+  t: (key: string) => string,
+  key: string,
+  fallback: string,
+  vars?: Record<string, string | number>
+): string {
+  let resolved: unknown;
+  try {
+    resolved = t(key);
+  } catch {
+    resolved = null;
+  }
+  const base = isMissingTranslation(resolved, key) ? fallback : String(resolved);
+  return applyI18nVars(base, vars);
+}
+
 function normalizeApptRaw(raw: unknown): DashboardAppt {
   const r = asObj(raw) ?? {};
   const patient = asObj(r.patient);
@@ -169,8 +278,8 @@ function normalizeApptRaw(raw: unknown): DashboardAppt {
     const s = String(startInst);
     dateStr = s.slice(0, 10);
     if (!r.time && !r.appointment_time) {
-      const d = new Date(s);
-      if (Number.isFinite(d.getTime())) timeStr = d.toTimeString().slice(0, 5);
+      const inst = parseIsoOrLocalDateTime(s);
+      if (inst) timeStr = inst.toTimeString().slice(0, 5);
     }
   }
   return {
@@ -215,6 +324,13 @@ function mapApptToPlan(a: DashboardAppt): PlanRow {
   };
 }
 
+function mapApptToPlanWithSource(
+  a: DashboardAppt,
+  source: "today" | "tomorrow"
+): PlanRow {
+  return { ...mapApptToPlan(a), _sourceBucket: source };
+}
+
 function normalizeLegacyPlan(raw: Record<string, unknown>): PlanRow {
   const patient = raw.patient as { name?: string } | undefined;
   return {
@@ -225,6 +341,105 @@ function normalizeLegacyPlan(raw: Record<string, unknown>): PlanRow {
     date: raw.date != null ? String(raw.date) : undefined,
     created_at: raw.created_at != null ? String(raw.created_at) : undefined,
     patient: { name: patient?.name ?? "Hasta" },
+    _sourceBucket: "legacy",
+  };
+}
+
+function stripInternalPlanFields(p: PlanRow): PlanRow {
+  const { _sourceBucket, ...rest } = p;
+  return rest;
+}
+
+/**
+ * Stable ids from the API: collapse true duplicates (e.g. same row in both arrays).
+ * Synthetic `appt-…` ids also include patient, schedule, procedure so distinct rows are never merged.
+ */
+function planDedupeKey(p: PlanRow): string {
+  const id = (p.id || "").trim();
+  const t = (p.scheduled_date || p.date || p.created_at || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const name = p.patient.name.trim().toLowerCase();
+  const proc = p.procedure_name.trim().toLowerCase().slice(0, 120);
+  const src = p._sourceBucket ?? "u";
+  if (id && !id.toLowerCase().startsWith("appt-")) {
+    return `id:${id.toLowerCase()}`;
+  }
+  return `row|${src}|${id.toLowerCase() || "noid"}|${name}|${t}|${proc}`;
+}
+
+function dedupePlanRows(plans: PlanRow[], label: string): PlanRow[] {
+  const seen = new Set<string>();
+  const out: PlanRow[] = [];
+  for (const p of plans) {
+    const k = planDedupeKey(p);
+    if (seen.has(k)) {
+      if (__DEV__) {
+        console.log(`[DoctorDashboard] dedupe skipped duplicate (${label})`, k, p.id, p.patient.name);
+      }
+      continue;
+    }
+    seen.add(k);
+    out.push(p);
+  }
+  return out;
+}
+
+function getPlanSortKeyMs(p: PlanRow): number {
+  const t = parseScheduleLocal(p.scheduled_date || p.date || p.created_at);
+  return t && Number.isFinite(t.getTime()) ? t.getTime() : Number.MAX_SAFE_INTEGER;
+}
+
+function sortPlansByStart(plans: PlanRow[]): PlanRow[] {
+  return [...plans].sort((a, b) => getPlanSortKeyMs(a) - getPlanSortKeyMs(b));
+}
+
+/**
+ * Re-split merged API rows by device-local calendar (display only; backend is source of truth for membership).
+ * Does not place overdue (non–calendar-today) items into the today list.
+ */
+function rebucketByLocalZone(
+  plans: PlanRow[],
+  localToday: Date,
+  localTomorrow: Date
+): {
+  today: PlanRow[];
+  tomorrow: PlanRow[];
+  other: PlanRow[];
+  unparseableCount: number;
+  otherDayCount: number;
+} {
+  const today: PlanRow[] = [];
+  const tomorrow: PlanRow[] = [];
+  const other: PlanRow[] = [];
+  let unparseableCount = 0;
+  let otherDayCount = 0;
+
+  for (const p of plans) {
+    const rawS = p.scheduled_date || p.date;
+    const d = parseScheduleLocal(rawS);
+    if (!d) {
+      unparseableCount += 1;
+      warnUnparseableSchedule("rebucket", rawS, p.id, { sourceBucket: p._sourceBucket });
+      other.push(p);
+      continue;
+    }
+    if (isSameDay(d, localToday)) {
+      today.push(p);
+    } else if (isSameDay(d, localTomorrow)) {
+      tomorrow.push(p);
+    } else {
+      otherDayCount += 1;
+      other.push(p);
+    }
+  }
+  const otherSorted = sortPlansByStart(other);
+  return {
+    today,
+    tomorrow,
+    other: otherSorted,
+    unparseableCount,
+    otherDayCount,
   };
 }
 
@@ -250,67 +465,100 @@ export default function DoctorDashboardHome() {
   const [tomorrowPlans, setTomorrowPlans] = useState<PlanRow[]>([]);
   const [upcomingPlans, setUpcomingPlans] = useState<PlanRow[]>([]);
   const [recentPatients, setRecentPatients] = useState<RecentPatient[]>([]);
+  /** Internal: count of rows from API rebucket "other" (hint only; not on PlanRow) */
+  const [rebucketFromApiOtherCount, setRebucketFromApiOtherCount] = useState(0);
+  const [scheduleTextModal, setScheduleTextModal] = useState<{ open: boolean; text: string }>({
+    open: false,
+    text: "",
+  });
+  const openScheduleTextModal = useCallback((text: string) => {
+    setScheduleTextModal({ open: true, text });
+  }, []);
+  const closeScheduleTextModal = useCallback(() => {
+    setScheduleTextModal((prev) => ({ ...prev, open: false }));
+  }, []);
 
   const load = useCallback(async () => {
     if (!token) return;
     setError(null);
     try {
       setAuthToken(token);
-      const [res, apptRes] = await Promise.all([
-        fetch(`${API_BASE}/api/doctor/dashboard`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${API_BASE}/api/doctor/dashboard-appointments`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-      ]);
+      const res = await fetch(`${API_BASE}/api/doctor/dashboard`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = (await res.json()) as Record<string, unknown>;
       if (!data?.ok) throw new Error(String(data?.error || data?.message || `HTTP ${res.status}`));
 
-      let apptPayload: Record<string, unknown> | null = null;
-      if (apptRes.ok) {
-        try {
-          apptPayload = (await apptRes.json()) as Record<string, unknown>;
-        } catch {
-          apptPayload = null;
-        }
+      const apiPayload = data as {
+        todayAppointments?: unknown[] | null;
+        tomorrowAppointments?: unknown[] | null;
+      };
+      if (__DEV__) {
+        console.log("🧪 API todayAppointments:", apiPayload.todayAppointments?.length);
+        console.log("🧪 API tomorrowAppointments:", apiPayload.tomorrowAppointments?.length);
+        console.log("🧪 API sample:", apiPayload.todayAppointments?.[0]);
       }
 
       const d = asObj(data.doctor) ?? {};
       setDoctorName(String(d.name ?? user?.name ?? "Doctor"));
 
       const st = asObj(data.stats) ?? {};
-      const apptSt =
-        apptPayload && apptPayload.ok === true ? asObj(apptPayload.stats) ?? {} : {};
       setStats({
         planned: Number(st.planned) || 0,
         in_progress: Number(st.in_progress ?? st.inProgress) || 0,
         done: Number(st.done) || 0,
-        today: apptSt.today != null ? Number(apptSt.today) : Number(st.today) || 0,
+        today: Number(st.today) || 0,
         waiting: Number(st.waiting) || 0,
       });
 
-      const apptSource =
-        apptPayload && apptPayload.ok === true ? apptPayload : data;
-      const { today: rawToday, tomorrow: rawTomorrow } = pickAppointmentArrays(apptSource);
-      let todayList = rawToday.map((row) => mapApptToPlan(normalizeApptRaw(row)));
-      let tomorrowList = rawTomorrow.map((row) => mapApptToPlan(normalizeApptRaw(row)));
+      const { today: rawToday, tomorrow: rawTomorrow } = pickAppointmentArrays(data);
+      const mergedMapped = [
+        ...rawToday.map((row) => mapApptToPlanWithSource(normalizeApptRaw(row), "today")),
+        ...rawTomorrow.map((row) => mapApptToPlanWithSource(normalizeApptRaw(row), "tomorrow")),
+      ];
+      const afterDedup = dedupePlanRows(mergedMapped, "api merge");
 
       if (__DEV__) {
         console.log(
           "[DoctorDashboard] stats.today:",
-          apptSt.today != null ? apptSt.today : st.today,
+          st.today,
           "raw today:",
           rawToday.length,
           "tomorrow:",
           rawTomorrow.length,
-          "apptEndpoint:",
-          apptPayload?.ok === true,
+          "after dedup:",
+          afterDedup.length,
           "keys:",
           Object.keys(data).slice(0, 20)
         );
       }
       const upcomingList: PlanRow[] = [];
+
+      const today0 = new Date();
+      today0.setHours(0, 0, 0, 0);
+      const tomorrow0 = new Date(today0);
+      tomorrow0.setDate(today0.getDate() + 1);
+
+      const {
+        today: todayLocal,
+        tomorrow: tomorrowLocal,
+        other: apiOther,
+        unparseableCount: otherUnparseable,
+        otherDayCount: otherCalendarDay,
+      } = rebucketByLocalZone(afterDedup, today0, tomorrow0);
+      if (__DEV__) {
+        console.log("🧪 [DoctorDashboard] other bucket (rebucket)", {
+          total: apiOther.length,
+          unparseable: otherUnparseable,
+          otherCalendarDay: otherCalendarDay,
+        });
+      }
+      setRebucketFromApiOtherCount(apiOther.length);
+      for (const p of apiOther) {
+        upcomingList.push(p);
+      }
+      let todayList = sortPlansByStart(todayLocal);
+      let tomorrowList = sortPlansByStart(tomorrowLocal);
 
       const legacyRaw = Array.isArray(data.recentTreatmentPlans)
         ? data.recentTreatmentPlans
@@ -319,11 +567,6 @@ export default function DoctorDashboardHome() {
           : [];
       const legacy = legacyRaw.map((x: Record<string, unknown>) => normalizeLegacyPlan(x));
 
-      const today0 = new Date();
-      today0.setHours(0, 0, 0, 0);
-      const tomorrow0 = new Date(today0);
-      tomorrow0.setDate(today0.getDate() + 1);
-
       if (todayList.length === 0 && tomorrowList.length === 0 && legacy.length > 0) {
         legacy.forEach((plan) => {
           const dateStr = plan.scheduled_date || plan.date || plan.created_at;
@@ -331,7 +574,12 @@ export default function DoctorDashboardHome() {
             upcomingList.push(plan);
             return;
           }
-          const planDate = new Date(dateStr);
+          const planDate = parseScheduleLocal(dateStr);
+          if (!planDate) {
+            warnUnparseableSchedule("legacy (fill today/tomorrow)", dateStr, plan.id, { procedure: plan.procedure_name });
+            upcomingList.push(plan);
+            return;
+          }
           if (isSameDay(planDate, today0)) todayList.push(plan);
           else if (isSameDay(planDate, tomorrow0)) tomorrowList.push(plan);
           else if (planDate > today0) upcomingList.push(plan);
@@ -343,15 +591,39 @@ export default function DoctorDashboardHome() {
             upcomingList.push(plan);
             return;
           }
-          const planDate = new Date(dateStr);
+          const planDate = parseScheduleLocal(dateStr);
+          if (!planDate) {
+            warnUnparseableSchedule("legacy (upcoming path)", dateStr, plan.id, { procedure: plan.procedure_name });
+            upcomingList.push(plan);
+            return;
+          }
           if (isSameDay(planDate, today0) || isSameDay(planDate, tomorrow0)) return;
           if (planDate > tomorrow0) upcomingList.push(plan);
         });
       }
 
+      todayList = sortPlansByStart(dedupePlanRows(todayList, "today list")).map(stripInternalPlanFields);
+      tomorrowList = sortPlansByStart(dedupePlanRows(tomorrowList, "tomorrow list")).map(
+        stripInternalPlanFields
+      );
+
+      const topTodayLen = apiPayload.todayAppointments?.length ?? 0;
+      const topTomorrowLen = apiPayload.tomorrowAppointments?.length ?? 0;
+      if (__DEV__) {
+        if (topTodayLen > 0 && todayList.length === 0) {
+          console.log("⚠️ UI EMPTY BUT DATA EXISTS (todayAppointments from API, mapped today list empty)");
+        }
+        if (topTomorrowLen > 0 && tomorrowList.length === 0) {
+          console.log("⚠️ UI EMPTY BUT DATA EXISTS (tomorrowAppointments from API, mapped tomorrow list empty)");
+        }
+        if (todayList.length === 0 && Number(st.today) > 0) {
+          console.log("⚠️ UI EMPTY BUT DATA EXISTS (stats.today > 0 but today list is empty)");
+        }
+      }
+
       setTodayPlans(todayList);
       setTomorrowPlans(tomorrowList);
-      setUpcomingPlans(upcomingList);
+      setUpcomingPlans(upcomingList.map(stripInternalPlanFields));
 
       const rp = Array.isArray(data.recentPatients)
         ? data.recentPatients
@@ -372,6 +644,7 @@ export default function DoctorDashboardHome() {
       setTodayPlans([]);
       setTomorrowPlans([]);
       setUpcomingPlans([]);
+      setRebucketFromApiOtherCount(0);
       setRecentPatients([]);
     } finally {
       setLoading(false);
@@ -385,6 +658,12 @@ export default function DoctorDashboardHome() {
       void load();
     }, [load])
   );
+
+  useEffect(() => {
+    if (__DEV__) {
+      console.log("🧪 UI todayAppointments (mapped → todayPlans):", todayPlans);
+    }
+  }, [todayPlans]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -419,49 +698,61 @@ export default function DoctorDashboardHome() {
     const dateStr = plan.scheduled_date || plan.date || plan.created_at;
     let dateLabel = "—";
     let timeLabel = "";
+    const fullScheduleRaw = dateStr ? String(dateStr).replace(/\s+/g, " ").trim() : "";
+    const parsed = dateStr ? parseScheduleLocal(dateStr) : null;
+    const isScheduleTruncated = Boolean(dateStr && !parsed && fullScheduleRaw.length > 40);
+
     if (dateStr) {
-      const date = new Date(dateStr);
-      if (isToday) dateLabel = `📅 ${t("doctor.stats.today")}`;
-      else if (isTomorrow) dateLabel = `📅 ${t("timeline.tomorrow")}`;
-      else
-        dateLabel = `📅 ${date.toLocaleDateString(undefined, {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-        })}`;
-      if (!Number.isNaN(date.getTime())) {
-        timeLabel = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+      const date = parsed;
+      if (date) {
+        if (isToday) dateLabel = `📅 ${translateOrFallback(t, "doctor.stats.today", "Today")}`;
+        else if (isTomorrow) dateLabel = `📅 ${translateOrFallback(t, "timeline.tomorrow", "Tomorrow")}`;
+        else
+          dateLabel = `📅 ${date.toLocaleDateString(undefined, {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          })}`;
+        if (!Number.isNaN(date.getTime())) {
+          timeLabel = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+        }
+      } else {
+        const raw = truncateForUi(fullScheduleRaw);
+        dateLabel = `📅 ${raw}`;
+        timeLabel = raw;
       }
     }
 
     const isPlanned =
       plan.status === "planned" || plan.status === "scheduled" || plan.status === "SCHEDULED";
 
-    return (
-      <TouchableOpacity
-        style={styles.planCard}
-        activeOpacity={0.75}
-        onPress={() =>
-          Alert.alert(plan.patient.name, plan.procedure_name, [{ text: "OK" }], { cancelable: true })
-        }
+    const showPatientAlert = () =>
+      Alert.alert(plan.patient.name, plan.procedure_name, [
+        { text: translateOrFallback(t, "common.ok", "OK") },
+      ], { cancelable: true });
+
+    const dateBadgeEl = (
+      <View
+        style={[
+          styles.dateBadge,
+          isToday && styles.dateBadgeToday,
+          isTomorrow && styles.dateBadgeTomorrow,
+        ]}
       >
-        <View
+        <Text
           style={[
-            styles.dateBadge,
-            isToday && styles.dateBadgeToday,
-            isTomorrow && styles.dateBadgeTomorrow,
+            styles.dateBadgeText,
+            (isToday || isTomorrow) && styles.dateBadgeTextHighlight,
           ]}
         >
-          <Text
-            style={[
-              styles.dateBadgeText,
-              (isToday || isTomorrow) && styles.dateBadgeTextHighlight,
-            ]}
-          >
-            {dateLabel}
-          </Text>
-          {timeLabel ? <Text style={styles.timeText}>{timeLabel}</Text> : null}
-        </View>
+          {dateLabel}
+        </Text>
+        {timeLabel ? <Text style={styles.timeText}>{timeLabel}</Text> : null}
+      </View>
+    );
+
+    const bodyEl = (
+      <>
         <Text style={styles.planPatient}>{plan.patient.name}</Text>
         <Text style={styles.planProcedure}>{plan.procedure_name}</Text>
         <View style={styles.planFooter}>
@@ -477,11 +768,50 @@ export default function DoctorDashboardHome() {
                 { color: isPlanned ? "#1e40af" : "#166534" },
               ]}
             >
-              {isPlanned ? t("doctor.status.scheduled") : plan.status}
+              {isPlanned ? translateOrFallback(t, "doctor.status.scheduled", "Scheduled") : plan.status}
             </Text>
           </View>
         </View>
-      </TouchableOpacity>
+      </>
+    );
+
+    if (isScheduleTruncated) {
+      return (
+        <View style={styles.planCard}>
+          <Pressable
+            onPress={() => openScheduleTextModal(fullScheduleRaw)}
+            style={({ pressed }) => [styles.scheduleBadgePress, pressed && styles.planPressablePressed]}
+            accessibilityRole="button"
+            accessibilityLabel={translateOrFallback(
+              t,
+              "doctor.scheduleExpandA11y",
+              "View full schedule text"
+            )}
+          >
+            {dateBadgeEl}
+          </Pressable>
+          <Pressable
+            onPress={showPatientAlert}
+            style={({ pressed }) => [styles.planCardBodyTap, pressed && styles.planPressablePressed]}
+            accessibilityLabel={plan.patient.name}
+            accessibilityRole="button"
+          >
+            {bodyEl}
+          </Pressable>
+        </View>
+      );
+    }
+
+    return (
+      <Pressable
+        onPress={showPatientAlert}
+        style={({ pressed }) => [styles.planCard, pressed && styles.planPressablePressed]}
+        accessibilityLabel={`${plan.patient.name}, ${plan.procedure_name}`}
+        accessibilityRole="button"
+      >
+        {dateBadgeEl}
+        {bodyEl}
+      </Pressable>
     );
   };
 
@@ -629,8 +959,18 @@ export default function DoctorDashboardHome() {
       {hasUpcoming ? (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
-            {t("doctor.upcomingPlans") || "Upcoming"} ({upcomingPlans.length})
+            {translateOrFallback(t, "doctor.upcomingPlans", "Upcoming")} ({upcomingPlans.length})
           </Text>
+          {rebucketFromApiOtherCount > 0 ? (
+            <Text style={styles.otherBucketHint} numberOfLines={4}>
+              {translateOrFallback(
+                t,
+                "doctor.upcomingRebucketOtherHint",
+                "{{count}} visit(s) below are outside the Today/Tomorrow window (or the time could not be parsed on this device).",
+                { count: rebucketFromApiOtherCount }
+              )}
+            </Text>
+          ) : null}
           <View style={styles.card}>{upcomingPlans.map((p) => renderPlanCard(p, false, false))}</View>
         </View>
       ) : null}
@@ -699,6 +1039,48 @@ export default function DoctorDashboardHome() {
           <Text style={styles.navLabel}>{t("nav.profile") || "Profile"}</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={scheduleTextModal.open}
+        transparent
+        animationType="fade"
+        onRequestClose={closeScheduleTextModal}
+      >
+        <View style={styles.scheduleModalRoot}>
+          <Pressable
+            style={styles.scheduleModalBackdrop}
+            onPress={closeScheduleTextModal}
+            accessibilityLabel={translateOrFallback(t, "doctor.scheduleModalDismissA11y", "Dismiss")}
+            accessibilityRole="button"
+          />
+          <View
+            style={[styles.scheduleModalCard, { marginBottom: Math.max(insets.bottom, 12), maxHeight: "85%" }]}
+          >
+            <Text style={styles.scheduleModalTitle}>
+              {translateOrFallback(t, "doctor.scheduleFullTitle", "Schedule")}
+            </Text>
+            <ScrollView
+              style={styles.scheduleModalScroll}
+              contentContainerStyle={styles.scheduleModalScrollContent}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={styles.scheduleModalBody} selectable>
+                {scheduleTextModal.text}
+              </Text>
+            </ScrollView>
+            <Pressable
+              onPress={closeScheduleTextModal}
+              style={({ pressed }) => [styles.scheduleModalButton, pressed && styles.planPressablePressed]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.scheduleModalButtonText}>
+                {translateOrFallback(t, "common.ok", "OK")}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -778,6 +1160,14 @@ const styles = StyleSheet.create({
   section: { paddingHorizontal: 16, marginBottom: 16 },
   sectionTitle: { fontSize: 16, fontWeight: "600", color: "#374151", marginBottom: 10 },
   syncHint: { fontSize: 13, fontWeight: "500", color: "#d97706" },
+  otherBucketHint: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: "#64748b",
+    marginBottom: 8,
+    marginTop: 2,
+    paddingHorizontal: 2,
+  },
   card: {
     backgroundColor: "#ffffff",
     borderRadius: 12,
@@ -812,6 +1202,70 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderWidth: 1,
     borderColor: "#e5e7eb",
+  },
+  planPressablePressed: {
+    opacity: 0.88,
+  },
+  scheduleBadgePress: {
+    alignSelf: "flex-start",
+  },
+  planCardBodyTap: {
+    alignSelf: "stretch",
+    marginTop: 0,
+  },
+  scheduleModalRoot: {
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  scheduleModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  scheduleModalCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 14,
+    padding: 16,
+    width: "100%",
+    maxWidth: 420,
+    alignSelf: "center",
+    zIndex: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  scheduleModalTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 10,
+  },
+  scheduleModalScroll: {
+    flexGrow: 0,
+    maxHeight: 420,
+  },
+  scheduleModalScrollContent: {
+    paddingBottom: 8,
+  },
+  scheduleModalBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#374151",
+  },
+  scheduleModalButton: {
+    marginTop: 14,
+    alignSelf: "flex-end",
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    backgroundColor: "#2563eb",
+    borderRadius: 8,
+  },
+  scheduleModalButtonText: {
+    color: "#ffffff",
+    fontWeight: "600",
+    fontSize: 15,
   },
   dateBadge: {
     backgroundColor: "#f3f4f6",

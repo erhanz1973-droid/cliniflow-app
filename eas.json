@@ -1,6 +1,8 @@
 {
   "build": {
-    "production": {}
+    "production": {
+      "credentialsSource": "local"
+    }
   },
   "cli": {
     "appVersionSource": "local"

@@ -22,9 +22,48 @@ import { goToDentalCamera } from "../../lib/dentalPhotoNavigation";
 import { goToClinicSelect } from "../../lib/offerRequestFlow";
 import { leaveToPatientHome } from "../../lib/safePatientNavigation";
 
+type AllTranslationsMap = Record<string, { insights?: unknown[]; summary?: string; recommendation?: string }> | null;
+
+function getLocalizedView(
+  analysis: Record<string, unknown> | null,
+  lang: string
+): { insights: string[]; summary: string; recommendation: string } {
+  if (!analysis) {
+    return { insights: [], summary: "", recommendation: "" };
+  }
+
+  const key = String(lang || "en")
+    .toLowerCase()
+    .replace(/_/g, "-")
+    .split("-")[0];
+
+  const at =
+    analysis.allTranslations ?? (analysis as { _allTranslations?: AllTranslationsMap })._allTranslations;
+
+  const block = (at as Record<string, unknown> | null | undefined)?.[key] as
+    | { insights?: unknown[]; summary?: string; recommendation?: string }
+    | undefined;
+
+  console.log("SELECTED BLOCK:", key, block);
+
+  if (block) {
+    return {
+      insights: Array.isArray(block.insights) ? block.insights.map((x) => String(x)) : [],
+      summary: String(block.summary ?? ""),
+      recommendation: String(block.recommendation ?? ""),
+    };
+  }
+
+  return {
+    insights: Array.isArray(analysis.insights) ? (analysis.insights as unknown[]).map((x) => String(x)) : [],
+    summary: String(analysis.summary ?? ""),
+    recommendation: String(analysis.recommendation ?? ""),
+  };
+}
+
 export default function DentalAnalysisScreen() {
   const router = useRouter();
-  const { t } = useLanguage();
+  const { t, currentLanguage } = useLanguage();
   const { user } = useAuth();
   const params = useLocalSearchParams<{ imageUri?: string }>();
   const storeUri = useLastCapturedImage();
@@ -39,9 +78,31 @@ export default function DentalAnalysisScreen() {
   const [phase, setPhase] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [errorText, setErrorText] = useState<string | null>(null);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
-  const [insights, setInsights] = useState<string[]>([]);
-  const [summary, setSummary] = useState<string>("");
   const [analysisPayload, setAnalysisPayload] = useState<Record<string, unknown> | null>(null);
+
+  const normAppLang = useMemo(() => {
+    const s = String(currentLanguage || "en")
+      .toLowerCase()
+      .replace(/_/g, "-");
+    return (s.split("-")[0] || "en").trim() || "en";
+  }, [currentLanguage]);
+
+  const localized = useMemo(
+    () => getLocalizedView(analysisPayload, currentLanguage),
+    [analysisPayload, currentLanguage, normAppLang]
+  );
+
+  const allTranslationsMap = useMemo(() => {
+    if (!analysisPayload) return null;
+    const v = (analysisPayload.allTranslations ??
+      (analysisPayload as { _allTranslations?: AllTranslationsMap })._allTranslations) as AllTranslationsMap;
+    return v && typeof v === "object" ? v : null;
+  }, [analysisPayload]);
+
+  const showTranslatedBadge = useMemo(() => {
+    if (normAppLang === "en" || !allTranslationsMap) return false;
+    return !!allTranslationsMap[normAppLang];
+  }, [allTranslationsMap, normAppLang]);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -72,25 +133,22 @@ export default function DentalAnalysisScreen() {
     setPhase("loading");
     setErrorText(null);
     setFileUrl(null);
-    setInsights([]);
-    setSummary("");
     setAnalysisPayload(null);
 
     (async () => {
+      console.log("AI LANG:", currentLanguage);
       const result = await analyzePhoto({
         imageUri,
         patientId,
         token,
         photoType: "general",
+        lang: currentLanguage,
       });
       if (cancelled) return;
       if (result.ok) {
         setLastCapturedImage(result.fileUrl);
         setFileUrl(result.fileUrl);
         setAnalysisPayload({ ...result.aiData });
-        const ins = Array.isArray(result.aiData.insights) ? result.aiData.insights : [];
-        setInsights(ins.map((x: unknown) => String(x)));
-        setSummary(String(result.aiData.summary || result.aiData.recommendation || ""));
         setPhase("done");
       } else {
         setPhase("error");
@@ -113,12 +171,24 @@ export default function DentalAnalysisScreen() {
     return () => {
       cancelled = true;
     };
-  }, [imageUri, patientId, token, t]);
+  }, [imageUri, patientId, token, t, currentLanguage]);
+
+  useEffect(() => {
+    if (phase !== "done" || !analysisPayload) return;
+    console.log("LANG:", currentLanguage);
+    console.log("ALL:", analysisPayload.allTranslations ?? (analysisPayload as { _allTranslations?: unknown })._allTranslations);
+  }, [phase, analysisPayload, currentLanguage]);
 
   const sendToClinics = () => {
     const img = fileUrl || imageUri;
     if (!img || !analysisPayload) return;
-    void goToClinicSelect(router, { image: img, analysis: analysisPayload });
+    const analysis = {
+      ...analysisPayload,
+      insights: localized.insights,
+      summary: localized.summary,
+      recommendation: localized.recommendation,
+    };
+    void goToClinicSelect(router, { image: img, analysis });
   };
 
   if (!imageUri) {
@@ -146,7 +216,7 @@ export default function DentalAnalysisScreen() {
       {phase === "loading" && (
         <View style={styles.loadingBox}>
           <ActivityIndicator size="large" color="#2563eb" />
-          <Text style={styles.loadingText}>Fotoğraf analiz ediliyor…</Text>
+          <Text style={styles.loadingText}>{t("analysis.processing")}</Text>
         </View>
       )}
 
@@ -165,20 +235,38 @@ export default function DentalAnalysisScreen() {
 
       {phase === "done" && (
         <View style={styles.resultCard}>
-          <Text style={styles.resultTitle}>AI Dental Analysis</Text>
-          {insights.length > 0 ? (
-            insights.map((line, i) => (
+          <View style={styles.resultTitleRow}>
+            <Text style={styles.resultTitle}>{t("analysis.resultTitle")}</Text>
+            {showTranslatedBadge && (
+              <View
+                style={styles.translatedBadge}
+                accessibilityLabel={t("analysis.translatedBadge")}
+                accessibilityHint={t("analysis.translatedHint")}
+              >
+                <Text style={styles.translatedBadgeText}>{t("analysis.translatedBadge")}</Text>
+              </View>
+            )}
+          </View>
+          {localized.insights.length > 0 ? (
+            localized.insights.map((line, i) => (
               <Text key={i} style={styles.insightLine}>
                 {i + 1}. {line}
               </Text>
             ))
           ) : (
             <Text style={styles.placeholder}>
-              {summary || t("messages.emptySub")}
+              {localized.summary || t("messages.emptySub")}
             </Text>
           )}
+          {String(localized.recommendation || "").trim() ? (
+            <Text style={styles.recommendation}>{localized.recommendation}</Text>
+          ) : null}
           <Text style={styles.disclaimer}>
-            Bu analiz AI tarafından oluşturulmuştur ve kesin teşhis değildir.
+            {allTranslationsMap
+              ? t("analysis.disclaimer")
+              : typeof analysisPayload?.disclaimer === "string" && String(analysisPayload.disclaimer).trim()
+                ? String(analysisPayload.disclaimer)
+                : t("analysis.disclaimer")}
           </Text>
 
           <TouchableOpacity style={styles.primaryBtn} onPress={sendToClinics} activeOpacity={0.88}>
@@ -260,9 +348,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
-  resultTitle: { fontSize: 17, fontWeight: "800", color: "#0f172a", marginBottom: 12 },
+  resultTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 12,
+  },
+  resultTitle: { fontSize: 17, fontWeight: "800", color: "#0f172a", flex: 1, minWidth: 120 },
+  translatedBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: "#e0e7ff",
+  },
+  translatedBadgeText: { fontSize: 11, fontWeight: "700", color: "#3730a3" },
   insightLine: { fontSize: 14, color: "#334155", marginBottom: 8, lineHeight: 20 },
   placeholder: { fontSize: 14, color: "#64748b", marginBottom: 8 },
+  recommendation: { fontSize: 14, color: "#1e40af", marginTop: 10, marginBottom: 4, lineHeight: 20, fontWeight: "600" },
   disclaimer: { fontSize: 11, color: "#94a3b8", marginTop: 12, marginBottom: 16, lineHeight: 16 },
   primaryBtn: {
     backgroundColor: "#2563eb",

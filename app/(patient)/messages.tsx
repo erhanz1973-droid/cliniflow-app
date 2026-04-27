@@ -151,7 +151,7 @@ function fmtDay(ts: number, locale: string) {
 
 export default function MessagesScreen() {
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, currentLanguage } = useLanguage();
   const locale = useDateLocale();
   const router = useRouter();
   const navigation = useNavigation();
@@ -511,7 +511,7 @@ export default function MessagesScreen() {
       id: loadingId,
       from: "CLINIC",
       type: "ai_loading",
-      text: "Fotoğraf analiz ediliyor...",
+      text: t("analysis.processing"),
       createdAt: Date.now() + 500,
       _local: true,
     };
@@ -519,11 +519,13 @@ export default function MessagesScreen() {
     setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 150);
 
     try {
+      console.log("AI LANG:", currentLanguage);
       const result = await analyzePhoto({
         imageUri: uri,
         patientId,
         token,
         photoType,
+        lang: currentLanguage,
       });
 
       if (!result.ok) {
@@ -1041,6 +1043,7 @@ function ClinicCard({ clinic }: { clinic: ClinicRecommendation }) {
 // ─── AiLoadingBubble ──────────────────────────────────────────────────────────
 
 function AiLoadingBubble() {
+  const { t } = useLanguage();
   const [dots, setDots] = useState(".");
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1054,7 +1057,7 @@ function AiLoadingBubble() {
       <View style={[s.bubble, s.bubbleClinic, ai.loadingBubble]}>
         <View style={ai.loadingRow}>
           <ActivityIndicator size="small" color="#6366f1" />
-          <Text style={ai.loadingText}>Fotoğraf analiz ediliyor{dots}</Text>
+          <Text style={ai.loadingText}>{t("analysis.processing")}{dots}</Text>
         </View>
       </View>
     </View>
