@@ -1,15 +1,24 @@
 // app/doctor/patient-chat.tsx — Doctor ↔ Patient messaging (no tab bar)
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { Socket } from 'socket.io-client';
 import {
-  View, Text, TextInput, TouchableOpacity, FlatList,
-  StyleSheet, ActivityIndicator, KeyboardAvoidingView,
-  Platform, SafeAreaView, Alert,
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  FlatList,
+  StyleSheet,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  Alert,
+  type ListRenderItemInfo,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { API_BASE } from '../../lib/api';
-import { subscribePrimaryChatRealtime, THREAD_ID_UUID_RE, waitOnceSocketConnected } from '../../lib/chatRealtime';
+import { subscribePrimaryChatRealtime, waitOnceSocketConnected } from '../../lib/chatRealtime';
 
 interface Message {
   id: string;
@@ -18,9 +27,8 @@ interface Message {
   createdAt: number;
   senderName?: string;
   pending?: boolean;
+  thread_id?: string;
 }
-
-const POLL_FALLBACK_MS = 120_000;
 
 export default function DoctorPatientChatScreen() {
   const router = useRouter();
@@ -36,12 +44,11 @@ export default function DoctorPatientChatScreen() {
   const [text, setText]         = useState('');
   const [loading, setLoading]   = useState(true);
   const [sending, setSending] = useState(false);
-  const [chatRealtimeConnected, setChatRealtimeConnected] = useState(false);
   const [leadThreadId, setLeadThreadId] = useState<string | null>(null);
 
   const flatRef = useRef<FlatList>(null);
-  const fallbackPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const chatSocketRef = useRef<Socket | null>(null);
+  const patientRouteKeyRef = useRef("");
 
   // ── Fetch messages ────────────────────────────────────────────
   const fetchMessages = useCallback(async (silent = false) => {
@@ -66,15 +73,25 @@ export default function DoctorPatientChatScreen() {
         );
       }
       if (json.ok && Array.isArray(json.messages)) {
-        setMessages(json.messages.map((m: any) => ({
-          id:         m.id || String(m.createdAt || Math.random()),
-          text:       m.text || m.content || m.message || '',
-          from:       m.from || m.senderRole || 'CLINIC',
-          createdAt:  m.createdAt || m.created_at
-            ? new Date(m.createdAt || m.created_at).getTime()
-            : Date.now(),
-          senderName: m.senderName || m.sender_name,
-        })));
+        const mapped = json.messages.map((m: any) => {
+          const threadIdRaw = m.thread_id ?? m.threadId;
+          const thread_id =
+            threadIdRaw != null && String(threadIdRaw).trim() !== ""
+              ? String(threadIdRaw).trim()
+              : undefined;
+          return {
+            id:         m.id || String(m.createdAt || Math.random()),
+            text:       m.text || m.content || m.message || '',
+            from:       m.from || m.senderRole || 'CLINIC',
+            createdAt:  m.createdAt || m.created_at
+              ? new Date(m.createdAt || m.created_at).getTime()
+              : Date.now(),
+            senderName: m.senderName || m.sender_name,
+            ...(thread_id ? { thread_id } : {}),
+          };
+        });
+        const sorted = [...mapped].sort((a, b) => a.createdAt - b.createdAt);
+        setMessages(sorted.slice(-50));
       }
     } catch (err: any) {
       console.error('[DR CHAT fetch]', err.message);
@@ -83,27 +100,43 @@ export default function DoctorPatientChatScreen() {
     }
   }, [user?.token, patientId]);
 
-  useEffect(() => {
-    void fetchMessages(false);
-  }, [fetchMessages]);
+  const resolvedThreadId = useMemo(() => {
+    const la = leadThreadId != null ? String(leadThreadId).trim() : '';
+    const firstWith = messages.find((m) => (m.thread_id ?? '').trim() !== '');
+    const fromMsg = firstWith?.thread_id != null ? String(firstWith.thread_id).trim() : '';
+    return la || fromMsg;
+  }, [leadThreadId, messages]);
 
   useEffect(() => {
+    const k = String(patientId ?? "").trim();
+    if (patientRouteKeyRef.current === k) return;
+    patientRouteKeyRef.current = k;
+    setMessages([]);
     setLeadThreadId(null);
   }, [patientId]);
 
   useEffect(() => {
-    const tid = String(leadThreadId ?? '').trim();
-    if (!user?.token || !THREAD_ID_UUID_RE.test(tid)) {
-      setChatRealtimeConnected(false);
-      return;
+    if (!user?.token || !patientId) return;
+    void fetchMessages(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sadece token/patientId değişince ilk yükleme
+  }, [user?.token, patientId]);
+
+  useEffect(() => {
+    if (!user?.token) {
+      return () => {};
     }
-    if (__DEV__) {
-      console.log(
-        '[DR-CHAT] Socket.IO join_chat will use threadId=',
-        tid,
-        '(after connect; ROOM_SIZE≥2 when patient connected same thread)',
-      );
+
+    if (loading) {
+      return () => {};
     }
+
+    const tid = resolvedThreadId.trim();
+    if (!tid) {
+      console.log('NO THREAD ID YET');
+      return () => {};
+    }
+
+    console.log('START REALTIME SOCKET:', tid);
     const { unsubscribe, socket } = subscribePrimaryChatRealtime({
       token: user.token,
       threadId: tid,
@@ -111,7 +144,7 @@ export default function DoctorPatientChatScreen() {
         const id = String(legacy.id || "").trim();
         if (!id) return;
         setMessages((prev) => {
-          if (prev.some((x) => x.id === id)) return prev;
+          if (prev.find((m) => m.id === id)) return prev;
           const text = String(legacy.text || '');
           const withoutPending = prev.filter(
             (m) =>
@@ -119,46 +152,37 @@ export default function DoctorPatientChatScreen() {
           );
           const fromRaw = String(legacy.from || "").toUpperCase();
           const from = fromRaw === 'PATIENT' ? 'PATIENT' : 'CLINIC';
+          const tidLegacy = legacy.thread_id ?? legacy.threadId;
+          const thread_id =
+            tidLegacy != null && String(tidLegacy).trim() !== ''
+              ? String(tidLegacy).trim()
+              : undefined;
           const row: Message = {
             id,
             text,
             from,
             createdAt: typeof legacy.createdAt === 'number' ? legacy.createdAt : Date.now(),
             senderName: undefined,
+            ...(thread_id ? { thread_id } : {}),
           };
-          return [...withoutPending, row].sort((a, b) => a.createdAt - b.createdAt);
+          const next = [...withoutPending, row].sort((a, b) => a.createdAt - b.createdAt);
+          return next.slice(-50);
         });
       },
-      onConnect: () => setChatRealtimeConnected(true),
-      onDisconnect: () => {
-        setChatRealtimeConnected(false);
-        void fetchMessages(true);
-      },
+      onConnect: () => {},
+      onDisconnect: () => {},
     });
     chatSocketRef.current = socket;
     return () => {
       unsubscribe();
       chatSocketRef.current = null;
-      setChatRealtimeConnected(false);
     };
-  }, [user?.token, leadThreadId, fetchMessages]);
+  }, [user?.token, loading, resolvedThreadId]);
 
-  useEffect(() => {
-    if (fallbackPollRef.current) {
-      clearInterval(fallbackPollRef.current);
-      fallbackPollRef.current = null;
-    }
-    if (!user?.token || !patientId || chatRealtimeConnected) return () => {};
-    fallbackPollRef.current = setInterval(() => void fetchMessages(true), POLL_FALLBACK_MS);
-    return () => {
-      if (fallbackPollRef.current) clearInterval(fallbackPollRef.current);
-    };
-  }, [fetchMessages, user?.token, patientId, chatRealtimeConnected]);
-
-  // Scroll to bottom on new messages
+  // Inverted liste: alt (yeni) tarafa kaydır
   useEffect(() => {
     if (messages.length > 0) {
-      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 120);
+      setTimeout(() => flatRef.current?.scrollToOffset({ offset: 0, animated: true }), 120);
     }
   }, [messages.length]);
 
@@ -169,16 +193,13 @@ export default function DoctorPatientChatScreen() {
 
     const optimisticId = `tmp-${Date.now()}`;
     setMessages((prev) =>
-      [
-        ...prev,
-        {
+      [...prev, {
           id: optimisticId,
           text: trimmed,
           from: 'CLINIC' as const,
           createdAt: Date.now(),
           pending: true,
-        },
-      ].sort((a, b) => a.createdAt - b.createdAt),
+      }].sort((a, b) => a.createdAt - b.createdAt).slice(-50),
     );
     setText('');
     setSending(true);
@@ -198,9 +219,7 @@ export default function DoctorPatientChatScreen() {
         },
       );
       const json = await res.json().catch(() => ({}));
-      if (json.ok) {
-        fetchMessages(true);
-      } else {
+      if (!json.ok) {
         setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
         Alert.alert('Hata', json.error || 'Mesaj gönderilemedi.');
         setText(trimmed);
@@ -215,24 +234,16 @@ export default function DoctorPatientChatScreen() {
     }
   };
 
-  // ── Render message bubble ─────────────────────────────────────
-  const renderItem = ({ item }: { item: Message }) => {
-    const isDoctor = item.from === 'CLINIC' || item.from === 'DOCTOR' || item.from === 'admin';
-    const timeStr  = new Date(item.createdAt).toLocaleTimeString('tr-TR', {
-      hour: '2-digit', minute: '2-digit',
-    });
-    return (
-      <View style={[styles.bubble, isDoctor ? styles.bubbleDoctor : styles.bubblePatient]}>
-        {!isDoctor && item.senderName && (
-          <Text style={styles.bubbleSender}>{item.senderName}</Text>
-        )}
-        <Text style={[styles.bubbleText, isDoctor && styles.bubbleTextDoctor]}>
-          {item.text}
-        </Text>
-        <Text style={[styles.bubbleTime, isDoctor && styles.bubbleTimeDoctor]}>{timeStr}</Text>
-      </View>
-    );
-  };
+  const renderDoctorMessageItem = useCallback(
+    ({ item }: ListRenderItemInfo<Message>) => <MessageItem message={item} />,
+    [],
+  );
+
+  const doctorMessageKeyExtractor = useCallback((item: Message) => {
+    const id = String(item.id ?? '').trim();
+    if (id !== '') return id;
+    return `fb-${item.createdAt}-${item.from}`;
+  }, []);
 
   return (
     <SafeAreaView style={styles.root}>
@@ -253,31 +264,40 @@ export default function DoctorPatientChatScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Messages */}
-      {loading ? (
-        <ActivityIndicator style={{ flex: 1 }} size="large" color="#2563EB" />
-      ) : (
-        <FlatList
-          ref={flatRef}
-          data={messages}
-          keyExtractor={m => m.id}
-          contentContainerStyle={styles.listContent}
-          renderItem={renderItem}
-          onContentSizeChange={() => flatRef.current?.scrollToEnd({ animated: false })}
-          ListEmptyComponent={
-            <View style={styles.emptyBox}>
-              <Text style={styles.emptyIcon}>💬</Text>
-              <Text style={styles.emptyText}>Henüz mesaj yok</Text>
-            </View>
-          }
-        />
-      )}
-
-      {/* Input bar */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
+        style={{ flex: 1 }}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
+        {loading ? (
+          <ActivityIndicator style={{ flex: 1 }} size="large" color="#2563EB" />
+        ) : (
+          <FlatList
+            ref={flatRef}
+            data={messages}
+            keyExtractor={doctorMessageKeyExtractor}
+            contentContainerStyle={styles.listContent}
+            renderItem={renderDoctorMessageItem}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            inverted
+            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+            initialNumToRender={10}
+            maxToRenderPerBatch={10}
+            windowSize={5}
+            removeClippedSubviews={true}
+            onContentSizeChange={() =>
+              flatRef.current?.scrollToOffset({ offset: 0, animated: false })
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyBox}>
+                <Text style={styles.emptyIcon}>💬</Text>
+                <Text style={styles.emptyText}>Henüz mesaj yok</Text>
+              </View>
+            }
+          />
+        )}
+
         <View style={styles.inputBar}>
           <TextInput
             style={styles.input}
@@ -371,3 +391,38 @@ const styles = StyleSheet.create({
   sendBtnDisabled: { backgroundColor: '#93C5FD' },
   sendBtnText:     { color: '#fff', fontWeight: '700', fontSize: 14 },
 });
+
+const MessageItem = React.memo(
+  function MessageItem({ message }: { message: Message }) {
+    const isDoctor =
+      message.from === 'CLINIC' ||
+      message.from === 'DOCTOR' ||
+      message.from === 'admin';
+    const timeStr = new Date(message.createdAt).toLocaleTimeString('tr-TR', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    return (
+      <View
+        style={[
+          styles.bubble,
+          isDoctor ? styles.bubbleDoctor : styles.bubblePatient,
+        ]}
+      >
+        {!isDoctor && message.senderName ? (
+          <Text style={styles.bubbleSender}>{message.senderName}</Text>
+        ) : null}
+        <Text style={[styles.bubbleText, isDoctor && styles.bubbleTextDoctor]}>
+          {message.text}
+        </Text>
+        <Text
+          style={[styles.bubbleTime, isDoctor && styles.bubbleTimeDoctor]}
+        >
+          {timeStr}
+        </Text>
+      </View>
+    );
+  },
+  (prev, next) => prev.message === next.message,
+);
+

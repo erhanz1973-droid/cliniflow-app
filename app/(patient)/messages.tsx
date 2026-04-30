@@ -1,10 +1,23 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
 import { useRouter, useLocalSearchParams, useNavigation, useFocusEffect } from "expo-router";
 import {
-  View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  ActivityIndicator, KeyboardAvoidingView, Platform, Alert, Image,
-  Linking, Modal, ScrollView, ActionSheetIOS,
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TextInput,
+  TouchableOpacity,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
+  Image,
+  Linking,
+  Modal,
+  ScrollView,
+  ActionSheetIOS,
+  type ListRenderItemInfo,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -29,7 +42,6 @@ import { playInAppNewMessageSoundDebouncedForThread } from "../../lib/playInAppM
 import { getMessageSoundPreference } from "../../lib/messageSoundPreference";
 import {
   subscribePrimaryChatRealtime,
-  THREAD_ID_UUID_RE,
   waitOnceSocketConnected,
 } from "../../lib/chatRealtime";
 import ToothColorSelector, {
@@ -109,11 +121,24 @@ type Message = {
   text?: string; type: string;
   attachment?: Attachment;
   createdAt: number;
+  thread_id?: string;
   /** true for locally-generated loading bubbles (not persisted) */
   _local?: boolean;
   /** optimistic send — cleared when server row arrives via fetch/socket */
   pending?: boolean;
 };
+
+/** FlatList row — precomputed day header so renderItem stays a stable callback. */
+type PatientChatListRow = {
+  msg: Message;
+  showDay: boolean;
+};
+
+function patientChatListKey(row: PatientChatListRow): string {
+  const id = String(row.msg.id ?? "").trim();
+  if (id !== "") return id;
+  return `fb-${row.msg.createdAt}-${row.msg.type}-${row.msg.from}`;
+}
 
 type PendingAttachment = {
   localUri: string;
@@ -188,6 +213,9 @@ function socketLegacyToPatientMessage(raw: Record<string, unknown>): Message | n
   const from: Message["from"] = fr === "PATIENT" ? "PATIENT" : "CLINIC";
   let createdAt = Date.now();
   if (typeof raw.createdAt === "number") createdAt = raw.createdAt as number;
+  const tidRaw = raw.thread_id ?? raw.threadId;
+  const thread_id =
+    tidRaw != null && String(tidRaw).trim() !== "" ? String(tidRaw).trim() : undefined;
   return {
     id,
     from,
@@ -195,6 +223,7 @@ function socketLegacyToPatientMessage(raw: Record<string, unknown>): Message | n
     type: String(raw.type || "text"),
     attachment: raw.attachment as Message["attachment"],
     createdAt,
+    ...(thread_id ? { thread_id } : {}),
   };
 }
 
@@ -240,7 +269,6 @@ export default function MessagesScreen() {
   const [intraoralPhotos, setIntraoralPhotos]     = useState<Record<string, any>>({});
 
   const flatRef           = useRef<FlatList>(null);
-  const pollRef           = useRef<ReturnType<typeof setInterval> | null>(null);
   const chatSocketRef     = useRef<Socket | null>(null);
   const lastCountRef      = useRef(0);
   /** In-app ding when foreground + new inbound clinic/staff rows (poll). */
@@ -342,27 +370,28 @@ export default function MessagesScreen() {
     (a, b) => a.createdAt - b.createdAt
   );
 
-  // Stable renderItem reference — prevents FlatList from re-rendering all rows
-  // on every parent state change. MessageBubble is React.memo'd so it skips
-  // items whose msg object reference hasn't changed.
-  const renderChatItem = useCallback(
-    ({ item, index }: { item: Message; index: number }) => {
-      const prev = allMessages[index - 1];
-      const showDay = !prev || fmtDay(prev.createdAt, locale) !== fmtDay(item.createdAt, locale);
-      return (
-        <>
-          {showDay && (
-            <View style={s.dayRow}>
-              <View style={s.dayLine} />
-              <Text style={s.dayLabel}>{fmtDay(item.createdAt, locale)}</Text>
-              <View style={s.dayLine} />
-            </View>
-          )}
-          <MessageBubble msg={item} />
-        </>
-      );
-    },
-    [allMessages, locale], // locale rarely changes; allMessages identity changes on new msgs
+  const chatListData = useMemo<PatientChatListRow[]>(() => {
+    const out: PatientChatListRow[] = [];
+    for (let i = 0; i < allMessages.length; i++) {
+      const msg = allMessages[i]!;
+      const prev = i > 0 ? allMessages[i - 1]! : null;
+      const showDay =
+        !prev || fmtDay(prev.createdAt, locale) !== fmtDay(msg.createdAt, locale);
+      out.push({ msg, showDay });
+    }
+    return out;
+  }, [allMessages, locale]);
+
+  const renderPatientChatItem = useCallback(
+    ({ item }: ListRenderItemInfo<PatientChatListRow>) => (
+      <MessageItem message={item.msg} showDay={item.showDay} />
+    ),
+    [],
+  );
+
+  const patientChatKeyExtractor = useCallback(
+    (row: PatientChatListRow) => patientChatListKey(row),
+    [],
   );
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
@@ -415,7 +444,7 @@ export default function MessagesScreen() {
       const doctorLabel = leadAssignmentDoctorDisplayName(la);
       const eligibleForBanner = !!nextAid && !!doctorLabel && !skipHint;
 
-      setMessages(msgs);
+      setMessages(msgs.slice(-50));
 
       try {
         const soundOn = await getMessageSoundPreference();
@@ -472,83 +501,34 @@ export default function MessagesScreen() {
 
       if (msgs.length > lastCountRef.current) {
         lastCountRef.current = msgs.length;
-        setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+        setTimeout(
+          () => flatRef.current?.scrollToOffset({ offset: 0, animated: true }),
+          100,
+        );
       }
     } catch {}
     finally { if (!silent) setLoading(false); }
   }, [token, authHeaders, chatClinicId, patientId]);
 
-  /** Initial / reaction fetch — API is source of truth */
-  useEffect(() => {
-    void fetchMessages();
-  }, [fetchMessages]);
-
-  /** Socket.IO — room is always `chat:{threadId}` (patient_chat_threads.id) */
-  useEffect(() => {
-    const tid =
+  /** Prefer leadAssignment from GET; fall back to first message row (API may hydrate thread before assignment object). */
+  const resolvedThreadId = useMemo(() => {
+    const la =
       leadAssignment?.threadId != null ? String(leadAssignment.threadId).trim() : "";
-    if (!token?.trim() || !THREAD_ID_UUID_RE.test(tid)) {
-      setChatRealtimeConnected(false);
-      return;
-    }
-    const { unsubscribe, socket } = subscribePrimaryChatRealtime({
-      token,
-      threadId: tid,
-      onNewMessage: (legacy) => {
-        const mapped = socketLegacyToPatientMessage(legacy);
-        if (!mapped) return;
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === mapped.id)) return prev;
-          let base = prev;
-          if (mapped.from === "PATIENT") {
-            base = prev.filter(
-              (m) =>
-                !(
-                  (m.pending || m._local) &&
-                  m.from === "PATIENT" &&
-                  String(m.text || "") === String(mapped.text || "")
-                ),
-            );
-          }
-          return [...base, mapped].sort((a, b) => a.createdAt - b.createdAt);
-        });
-      },
-      onConnect: () => setChatRealtimeConnected(true),
-      onDisconnect: () => {
-        setChatRealtimeConnected(false);
-        void fetchMessages(true);
-      },
+    const firstWithThread = messages.find((m) => {
+      const t =
+        (m as Message).thread_id ?? (m as { threadId?: string }).threadId;
+      return t != null && String(t).trim() !== "";
     });
-    chatSocketRef.current = socket;
-    return () => {
-      unsubscribe();
-      chatSocketRef.current = null;
-      setChatRealtimeConnected(false);
-    };
-  }, [token, fetchMessages, leadAssignment?.threadId]);
-
-  /** Fallback when socket disconnected only — slower interval so HTTP does not hide realtime latency */
-  const FALLBACK_POLL_MS = 120_000;
-  useEffect(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    if (chatRealtimeConnected) return () => {};
-    pollRef.current = setInterval(() => void fetchMessages(true), FALLBACK_POLL_MS);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [fetchMessages, chatRealtimeConnected]);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!token) return;
-      void resetAppIconBadgeCount();
-      void postPatientChatAckOpen(token);
-      markRead();
-    }, [token, markRead]),
-  );
+    const fromMsg =
+      firstWithThread != null
+        ? String(
+            (firstWithThread as Message).thread_id ??
+              (firstWithThread as { threadId?: string }).threadId ??
+              "",
+          ).trim()
+        : "";
+    return la || fromMsg;
+  }, [leadAssignment, messages]);
 
   const patientClinicThreadKeyRef = useRef<string>("");
   useEffect(() => {
@@ -561,7 +541,85 @@ export default function MessagesScreen() {
     chatInboundIdsPrimedRef.current = false;
     setShowDoctorBanner(false);
     setLeadAssignment(null);
+    setMessages([]);
   }, [patientId, chatClinicId]);
+
+  /** İlk yükleme: HTTP sadece thread (token + hasta + clinic) değiştiğinde. */
+  useEffect(() => {
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    void fetchMessages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- kasıtlı: sonsuz yeniden-fetch yok
+  }, [token, patientId, chatClinicId]);
+
+  /** Socket.IO — only after first messages fetch settles and we have a thread UUID (from assignment or message rows). */
+  useEffect(() => {
+    const tokenTrim = token?.trim() ?? "";
+
+    if (!tokenTrim) {
+      setChatRealtimeConnected(false);
+      return () => {};
+    }
+
+    if (loading) {
+      return () => {};
+    }
+
+    if (!resolvedThreadId) {
+      console.log("NO THREAD ID YET");
+      setChatRealtimeConnected(false);
+      return () => {};
+    }
+
+    console.log("START REALTIME SOCKET:", resolvedThreadId);
+
+    const { unsubscribe, socket } = subscribePrimaryChatRealtime({
+      token: tokenTrim,
+      threadId: resolvedThreadId,
+      onNewMessage: (legacy) => {
+        const mapped = socketLegacyToPatientMessage(legacy);
+        if (!mapped) return;
+        setMessages((prev) => {
+          if (prev.find((m) => m.id === mapped.id)) return prev;
+          let base = prev;
+          if (mapped.from === "PATIENT") {
+            base = prev.filter(
+              (m) =>
+                !(
+                  (m.pending || m._local) &&
+                  m.from === "PATIENT" &&
+                  String(m.text || "") === String(mapped.text || "")
+                ),
+            );
+          }
+          return [...base, mapped]
+            .sort((a, b) => a.createdAt - b.createdAt)
+            .slice(-50);
+        });
+      },
+      onConnect: () => setChatRealtimeConnected(true),
+      onDisconnect: () => {
+        setChatRealtimeConnected(false);
+      },
+    });
+    chatSocketRef.current = socket;
+    return () => {
+      unsubscribe();
+      chatSocketRef.current = null;
+      setChatRealtimeConnected(false);
+    };
+  }, [token, resolvedThreadId, loading]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return;
+      void resetAppIconBadgeCount();
+      void postPatientChatAckOpen(token);
+      markRead();
+    }, [token, markRead]),
+  );
 
   // ── Send text ──────────────────────────────────────────────────────────────
 
@@ -588,7 +646,9 @@ export default function MessagesScreen() {
       _local: true,
       pending: true,
     };
-    setMessages((prev) => [...prev, optimisticRow].sort((a, b) => a.createdAt - b.createdAt));
+    setMessages((prev) =>
+      [...prev, optimisticRow].sort((a, b) => a.createdAt - b.createdAt).slice(-50),
+    );
     setText("");
     setPendingAttachments([]);
     try {
@@ -621,7 +681,6 @@ export default function MessagesScreen() {
         }
         return;
       }
-      fetchMessages(true);
     } catch {
       setText(msgSnapshot);
       setPendingAttachments(attSnapshot);
@@ -726,7 +785,6 @@ export default function MessagesScreen() {
         ]);
         return null;
       }
-      await fetchMessages(true);
       return json.files?.[0]?.url ?? null;
     } catch (uploadErr) {
       const err = uploadErr as Error;
@@ -765,7 +823,7 @@ export default function MessagesScreen() {
       _local: true,
     };
     setLocalMessages(prev => [...prev, loadingMsg]);
-    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 150);
+    setTimeout(() => flatRef.current?.scrollToOffset({ offset: 0, animated: true }), 150);
 
     try {
       console.log("AI LANG:", currentLanguage);
@@ -871,10 +929,9 @@ export default function MessagesScreen() {
         },
       };
       setLocalMessages(prev => [...prev, localAiMsg]);
-      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+      setTimeout(() => flatRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
     } finally {
       setLocalMessages(prev => prev.filter(m => m.id !== loadingId));
-      await fetchMessages(true);
     }
   };
 
@@ -1082,7 +1139,7 @@ export default function MessagesScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior="padding"
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
       <View style={s.container}>
@@ -1093,39 +1150,44 @@ export default function MessagesScreen() {
         </View>
 
         {/* Message list */}
-        <FlatList
-          ref={flatRef}
-          data={allMessages}
-          keyExtractor={(m, i) => m.id || String(i)}
-          contentContainerStyle={{ padding: 12, paddingBottom: 8 }}
-          showsVerticalScrollIndicator={false}
-          ListHeaderComponent={
-            showDoctorBanner && leadAssignmentDoctorDisplayName(leadAssignment) ? (
-              <View style={s.doctorAssignBanner} accessibilityRole="text">
-                <Text style={s.doctorAssignBannerText}>
-                  {t("messages.doctorAssignedBanner").replace(
-                    "{doctorName}",
-                    leadAssignmentDoctorDisplayName(leadAssignment)
-                  )}
-                </Text>
-              </View>
-            ) : null
-          }
-          renderItem={renderChatItem}
-          initialNumToRender={10}
-          maxToRenderPerBatch={5}
-          windowSize={10}
-          removeClippedSubviews={false}
-          ListEmptyComponent={
-            hasClinic ? (
-              <View style={s.empty}>
-                <Text style={s.emptyIcon}>💬</Text>
-                <Text style={s.emptyTitle}>{t("chat.noMessages")}</Text>
-                <Text style={s.emptySub}>{t("messages.emptySub")}</Text>
-              </View>
-            ) : null   // no clinic → full empty state shown below
-          }
-        />
+        <View style={{ flex: 1 }}>
+          {showDoctorBanner && leadAssignmentDoctorDisplayName(leadAssignment) ? (
+            <View style={s.doctorAssignBanner} accessibilityRole="text">
+              <Text style={s.doctorAssignBannerText}>
+                {t("messages.doctorAssignedBanner").replace(
+                  "{doctorName}",
+                  leadAssignmentDoctorDisplayName(leadAssignment)
+                )}
+              </Text>
+            </View>
+          ) : null}
+          <FlatList
+            ref={flatRef}
+            style={{ flex: 1 }}
+            data={chatListData}
+            keyExtractor={patientChatKeyExtractor}
+            contentContainerStyle={{ padding: 12, paddingBottom: 8, flexGrow: 1 }}
+            showsVerticalScrollIndicator={false}
+            inverted
+            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            renderItem={renderPatientChatItem}
+            initialNumToRender={10}
+            maxToRenderPerBatch={10}
+            windowSize={5}
+            removeClippedSubviews={true}
+            ListEmptyComponent={
+              hasClinic ? (
+                <View style={s.empty}>
+                  <Text style={s.emptyIcon}>💬</Text>
+                  <Text style={s.emptyTitle}>{t("chat.noMessages")}</Text>
+                  <Text style={s.emptySub}>{t("messages.emptySub")}</Text>
+                </View>
+              ) : null
+            }
+          />
+        </View>
 
         {/* No-clinic empty state — replaces input bar */}
         {!hasClinic && allMessages.length === 0 && (
@@ -1874,6 +1936,34 @@ const MessageBubble = React.memo(function MessageBubble({ msg }: { msg: Message 
 // setMessages() with our partial update returns the same object for
 // unchanged messages, so those bubbles are skipped entirely.
 }, (prev, next) => prev.msg === next.msg);
+
+// ─── FlatList row (memo): day divider + MessageBubble — renderItem useCallback([], []) ───
+
+const MessageItem = React.memo(
+  function MessageItem({
+    message,
+    showDay,
+  }: {
+    message: Message;
+    showDay: boolean;
+  }) {
+    const locale = useDateLocale();
+    return (
+      <>
+        {showDay ? (
+          <View style={s.dayRow}>
+            <View style={s.dayLine} />
+            <Text style={s.dayLabel}>{fmtDay(message.createdAt, locale)}</Text>
+            <View style={s.dayLine} />
+          </View>
+        ) : null}
+        <MessageBubble msg={message} />
+      </>
+    );
+  },
+  (prev, next) =>
+    prev.message === next.message && prev.showDay === next.showDay,
+);
 
 // ─── IntraoralModal ───────────────────────────────────────────────────────────
 

@@ -1,11 +1,10 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import type { Socket } from "socket.io-client";
 import {
   View,
   Text,
   TextInput,
   Pressable,
-  ScrollView,
   StyleSheet,
   ActivityIndicator,
   Image,
@@ -13,6 +12,8 @@ import {
   Linking,
   KeyboardAvoidingView,
   Platform,
+  FlatList,
+  type ListRenderItemInfo,
 } from "react-native";
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { safeSetItem } from "../../lib/asyncStorageSafe";
@@ -35,6 +36,7 @@ import {
   waitOnceSocketConnected,
 } from "../../lib/chatRealtime";
 
+
 type Attachment = {
   name: string;
   size: number;
@@ -50,6 +52,7 @@ type ChatMessage = {
   type: "text" | "image" | "pdf";
   attachment?: Attachment;
   createdAt: number;
+  thread_id?: string;
   pending?: boolean;
 };
 
@@ -79,6 +82,9 @@ function socketLegacyToDoctorChatMessage(raw: Record<string, unknown>): ChatMess
             : "pdf",
     };
   }
+  const tidRaw = raw.thread_id ?? raw.threadId;
+  const thread_id =
+    tidRaw != null && String(tidRaw).trim() !== "" ? String(tidRaw).trim() : undefined;
   return {
     id,
     from,
@@ -89,6 +95,7 @@ function socketLegacyToDoctorChatMessage(raw: Record<string, unknown>): ChatMess
         : "text",
     attachment,
     createdAt,
+    ...(thread_id ? { thread_id } : {}),
   };
 }
 
@@ -118,12 +125,11 @@ export default function ChatScreen() {
   // Ref for TextInput to manage cursor and focus
   const inputRef = useRef<TextInput>(null);
   const [uploading, setUploading] = useState(false);
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<FlatList<ChatMessage>>(null);
   const isRedirectingRef = useRef(false);
   const isSendingMessageRef = useRef(false);
   const seenServerMessageIdsRef = useRef<Set<string>>(new Set());
   const chatInboundIdsPrimedRef = useRef(false);
-  const fallbackPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const chatSocketRef = useRef<Socket | null>(null);
   const [chatRealtimeConnected, setChatRealtimeConnected] = useState(false);
   /** Backend GET .../messages → leadAssignment.threadId (patient_chat_threads row) */
@@ -212,13 +218,13 @@ export default function ChatScreen() {
       });
 
       if (res.status === 403 || res.status === 401) {
-        setMessages([]);
+        setMessages((prev) => (prev.length === 0 ? prev : []));
         setLoading(false);
         return;
       }
 
       if (!res.ok) {
-        setMessages([]);
+        setMessages((prev) => (prev.length === 0 ? prev : []));
         setLoading(false);
         return;
       }
@@ -238,24 +244,33 @@ export default function ChatScreen() {
         );
       }
 
-      const formattedMessages: ChatMessage[] = (json.messages || []).map((msg: any) => ({
-        id: msg.id,
-        from: msg.from === "CLINIC" || msg.from === "admin" ? "CLINIC" : "PATIENT",
-        text: msg.text || "",
-        type: msg.type || "text",
-        attachment: msg.attachment
-          ? {
-              name: msg.attachment.name || t("chat.file"),
-              size: msg.attachment.size || 0,
-              url: msg.attachment.url,
-              mimeType: msg.attachment.mimeType || msg.attachment.mime,
-              fileType:
-                msg.attachment.fileType ||
-                (msg.attachment.mimeType?.startsWith("image/") ? "image" : "pdf"),
-            }
-          : undefined,
-        createdAt: msg.createdAt || Date.now(),
-      }));
+      const formattedMessages: ChatMessage[] = (json.messages || []).map((msg: any) => {
+        const tid =
+          msg.thread_id != null
+            ? String(msg.thread_id).trim()
+            : msg.threadId != null
+              ? String(msg.threadId).trim()
+              : undefined;
+        return {
+          id: msg.id,
+          from: msg.from === "CLINIC" || msg.from === "admin" ? "CLINIC" : "PATIENT",
+          text: msg.text || "",
+          type: msg.type || "text",
+          attachment: msg.attachment
+            ? {
+                name: msg.attachment.name || t("chat.file"),
+                size: msg.attachment.size || 0,
+                url: msg.attachment.url,
+                mimeType: msg.attachment.mimeType || msg.attachment.mime,
+                fileType:
+                  msg.attachment.fileType ||
+                  (msg.attachment.mimeType?.startsWith("image/") ? "image" : "pdf"),
+              }
+            : undefined,
+          createdAt: msg.createdAt || Date.now(),
+          ...(tid ? { thread_id: tid } : {}),
+        };
+      });
 
       const soundPref = await getMessageSoundPreference();
       const inboundPatient = (m: ChatMessage) =>
@@ -292,7 +307,10 @@ export default function ChatScreen() {
         isSendingMessageRef.current = false;
       }
 
-      setMessages(formattedMessages);
+      const sortedMsgs = [...formattedMessages].sort(
+        (a, b) => a.createdAt - b.createdAt,
+      );
+      setMessages(sortedMsgs.slice(-50));
       setLoading(false);
     } catch (error) {
       console.error("Error fetching messages:", error);
@@ -308,8 +326,31 @@ export default function ChatScreen() {
     playInboundPatientAlert,
   ]);
 
+  const resolvedChatThreadId = useMemo(() => {
+    const la = leadThreadId != null ? String(leadThreadId).trim() : "";
+    const firstWithThread = messages.find(
+      (m) => (m.thread_id ?? "").trim() !== "",
+    );
+    const fromMsg =
+      firstWithThread?.thread_id != null
+        ? String(firstWithThread.thread_id).trim()
+        : "";
+    return la || fromMsg;
+  }, [leadThreadId, messages]);
+
+  const chatRouteKeyRef = useRef("");
+  useEffect(() => {
+    const k = `${patientId}|${String(selectedClinic?.id ?? "").trim()}`;
+    if (chatRouteKeyRef.current === k) return;
+    chatRouteKeyRef.current = k;
+    seenServerMessageIdsRef.current.clear();
+    chatInboundIdsPrimedRef.current = false;
+    setMessages([]);
+    setLeadThreadId(null);
+  }, [patientId, selectedClinic?.id]);
+
   // Check patient status on mount only - status check removed to prevent redirects
-  // Status is checked in fetchMessages instead
+  // İlk yüklemede tek HTTP çağrısı; sonrasında sadece socket ile büyüt.
   useEffect(() => {
     if (!isAuthReady) return;
     
@@ -321,9 +362,9 @@ export default function ChatScreen() {
     // Reset redirect flag
     isRedirectingRef.current = false;
 
-    // Load messages directly - backend handles status checking, 403/401 won't redirect
-    fetchMessages();
-  }, [isAuthReady, user?.token, patientId, fetchMessages]);
+    void fetchMessages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchMessages güncellenince tekrar çekme
+  }, [isAuthReady, user?.token, patientId, selectedClinic?.id]);
 
   useFocusEffect(
     useCallback(() => {
@@ -339,13 +380,25 @@ export default function ChatScreen() {
     }, [patientId, user?.token])
   );
 
-  /** Realtime — single room `chat:{threadId}` */
+  /** Realtime — after messages load + thread UUID (leadAssignment or message rows). */
   useEffect(() => {
-    const tid = String(leadThreadId || "").trim();
-    if (!user?.token?.trim() || !THREAD_ID_UUID_RE.test(tid)) {
+    if (!user?.token?.trim()) {
       setChatRealtimeConnected(false);
-      return;
+      return () => {};
     }
+
+    if (loading) {
+      return () => {};
+    }
+
+    const tid = resolvedChatThreadId.trim();
+    if (!tid) {
+      console.log("NO THREAD ID YET");
+      setChatRealtimeConnected(false);
+      return () => {};
+    }
+
+    console.log("START REALTIME SOCKET:", tid);
     if (__DEV__ && user?.role === "DOCTOR") {
       console.log(
         "[CHAT doctor] realtime: join_chat(threadId)=",
@@ -360,7 +413,7 @@ export default function ChatScreen() {
         const mapped = socketLegacyToDoctorChatMessage(legacy);
         if (!mapped) return;
         setMessages((prev) => {
-          if (prev.some((m) => m.id === mapped.id)) return prev;
+          if (prev.find((m) => m.id === mapped.id)) return prev;
           const withoutPendingDup = prev.filter(
             (m) =>
               !(
@@ -369,13 +422,14 @@ export default function ChatScreen() {
                 m.text === mapped.text
               ),
           );
-          return [...withoutPendingDup, mapped].sort((a, b) => a.createdAt - b.createdAt);
+          return [...withoutPendingDup, mapped]
+            .sort((a, b) => a.createdAt - b.createdAt)
+            .slice(-50);
         });
       },
       onConnect: () => setChatRealtimeConnected(true),
       onDisconnect: () => {
         setChatRealtimeConnected(false);
-        void fetchMessages();
       },
     });
     chatSocketRef.current = socket;
@@ -384,26 +438,12 @@ export default function ChatScreen() {
       chatSocketRef.current = null;
       setChatRealtimeConnected(false);
     };
-  }, [user?.token, user?.role, leadThreadId, fetchMessages]);
-
-  /** Fallback: no interval while realtime connected; on disconnect fetch runs immediately in chatRealtime.onDisconnect */
-  const FALLBACK_POLL_MS = 120_000;
-  useEffect(() => {
-    if (fallbackPollRef.current) {
-      clearInterval(fallbackPollRef.current);
-      fallbackPollRef.current = null;
-    }
-    if (!user?.token || !patientId || loading || chatRealtimeConnected) return () => {};
-    fallbackPollRef.current = setInterval(() => void fetchMessages(), FALLBACK_POLL_MS);
-    return () => {
-      if (fallbackPollRef.current) clearInterval(fallbackPollRef.current);
-    };
-  }, [user?.token, patientId, loading, fetchMessages, chatRealtimeConnected]);
+  }, [user?.token, user?.role, loading, resolvedChatThreadId]);
 
   useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => {
-    scrollRef.current?.scrollToEnd({ animated: true });
+        scrollRef.current?.scrollToOffset({ offset: 0, animated: true });
       }, 100);
     }
   }, [messages.length]);
@@ -431,7 +471,9 @@ export default function ChatScreen() {
           createdAt: Date.now(),
           pending: true,
         },
-      ].sort((a, b) => a.createdAt - b.createdAt),
+      ]
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .slice(-50),
     );
     setText("");
 
@@ -511,9 +553,6 @@ export default function ChatScreen() {
       setTimeout(() => {
         inputRef.current?.focus();
       }, 100);
-
-      // Fetch messages after sending (flag will prevent sound); replaces optimistic row
-      await fetchMessages();
     } catch (error) {
       console.error("Error sending message:", error);
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
@@ -727,7 +766,6 @@ export default function ChatScreen() {
 
       const result = await uploadRes.json();
       Alert.alert(t("chat.success"), result.message || t("chat.photoUploaded"));
-      fetchMessages();
     } catch (error: any) {
       // Clean up timeout
       if (timeoutId) {
@@ -918,7 +956,6 @@ export default function ChatScreen() {
 
       const result = await uploadRes.json();
       Alert.alert(t("chat.success"), result.message || t("chat.photoUploaded"));
-      fetchMessages();
     } catch (error: any) {
       // Clean up timeout
       if (timeoutId) {
@@ -952,25 +989,26 @@ export default function ChatScreen() {
     }
   }
 
-  function formatFileSize(bytes: number): string {
+  const formatFileSize = useCallback((bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
+  }, []);
 
-  function getAttachmentIcon(att?: Attachment) {
+  const getAttachmentIcon = useCallback((att?: Attachment) => {
     const mime = (att?.mimeType || "").toLowerCase();
     const name = (att?.name || "").toLowerCase();
-    if (att?.fileType === "zip" || name.endsWith(".zip") || mime.includes("zip")) return "🗜️";
+    if (att?.fileType === "zip" || name.endsWith(".zip") || mime.includes("zip"))
+      return "🗜️";
     if (mime.includes("pdf") || name.endsWith(".pdf")) return "📄";
     if (mime.includes("word") || name.endsWith(".doc") || name.endsWith(".docx")) return "📝";
     if (mime.includes("excel") || name.endsWith(".xls") || name.endsWith(".xlsx")) return "📊";
     if (mime.includes("text") || name.endsWith(".txt")) return "📃";
     return "📎";
-  }
+  }, []);
 
-  // Helper function to download files (simplified - just download, don't try to open)
-  async function downloadAndOpenFile(url: string, filename: string, mimeType?: string) {
+  const downloadAndOpenFile = useCallback(
+    async (url: string, filename: string, mimeType?: string) => {
     console.log("[CHAT] ===== Starting file download =====");
     console.log("[CHAT] URL:", url);
     console.log("[CHAT] Filename:", filename);
@@ -1152,23 +1190,11 @@ export default function ChatScreen() {
         ]
       );
     }
-  }
+  }, [t]);
 
-  // Check if there's a CLINIC message and get the last one's index
-  const getLastClinicMessageIndex = useCallback(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].from === "CLINIC" || messages[i].from === "admin") {
-        return i;
-      }
-    }
-    return -1;
-  }, [messages]);
-
-  function renderMessage(message: ChatMessage, index: number) {
+  const renderChatMessageBubble = useCallback((message: ChatMessage) => {
     const isPatient = message.from === "PATIENT" || message.from === "patient";
-    const lastClinicIndex = getLastClinicMessageIndex();
-    const isLastClinicMessage = !isPatient && index === lastClinicIndex;
-    
+
     // Debug: Log message details
     if (message.attachment) {
       console.log("[CHAT RENDER] Message with attachment:", {
@@ -1180,10 +1206,9 @@ export default function ChatScreen() {
         url: message.attachment.url,
       });
     }
-    
+
     return (
       <View
-        key={message.id}
         style={[
           styles.bubble,
           isPatient ? styles.bubblePatient : styles.bubbleAdmin,
@@ -1362,13 +1387,24 @@ export default function ChatScreen() {
 
       </View>
     );
-  }
+  }, [downloadAndOpenFile, formatFileSize, getAttachmentIcon, t]);
+
+  const renderChatFlatListItem = useCallback(
+    ({ item }: ListRenderItemInfo<ChatMessage>) => renderChatMessageBubble(item),
+    [renderChatMessageBubble],
+  );
+
+  const chatMessageKeyExtractor = useCallback(
+    (item: ChatMessage) => item.id?.toString() ?? `fb-${item.createdAt}`,
+    [],
+  );
 
   if (loading) {
     return (
-      <KeyboardAvoidingView 
-        style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      <KeyboardAvoidingView
+        style={[styles.container, { flex: 1 }]}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       >
         <View style={styles.header}>
           <Text style={styles.headerTitle}>{t("chat.title")}</Text>
@@ -1384,25 +1420,35 @@ export default function ChatScreen() {
         <Text style={styles.headerTitle}>{t("chat.title")}</Text>
       </View>
 
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        behavior="padding"
         keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       >
-        <ScrollView
+        <FlatList
           ref={scrollRef}
-          style={styles.messages}
-          contentContainerStyle={{ padding: 12 }}
+          data={messages}
+          keyExtractor={chatMessageKeyExtractor}
+          renderItem={renderChatFlatListItem}
           keyboardShouldPersistTaps="handled"
-        >
-          {messages.length === 0 ? (
+          keyboardDismissMode="interactive"
+          inverted
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          removeClippedSubviews={true}
+          style={styles.messages}
+          contentContainerStyle={{ padding: 12, flexGrow: 1 }}
+          ListEmptyComponent={
             <View style={styles.emptyState}>
               <Text style={styles.emptyStateText}>{t("chat.noMessages")}</Text>
             </View>
-          ) : (
-            messages.map((msg, index) => renderMessage(msg, index))
-          )}
-        </ScrollView>
+          }
+          onContentSizeChange={() =>
+            scrollRef.current?.scrollToOffset({ offset: 0, animated: false })
+          }
+        />
 
         <View style={styles.inputBar}>
           {/* Action Buttons Row - Hierarchical Design */}
@@ -1466,7 +1512,7 @@ export default function ChatScreen() {
                 console.log("[CHAT] Input focused");
                 // Ensure input is visible when focused
                 setTimeout(() => {
-                  scrollRef.current?.scrollToEnd({ animated: true });
+                  scrollRef.current?.scrollToOffset({ offset: 0, animated: true });
                 }, 100);
               }}
               onBlur={() => {
