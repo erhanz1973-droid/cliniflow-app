@@ -499,7 +499,7 @@ export default function PatientDashboard() {
         />
         <View style={styles.ctaSecondaryRow}>
           <SecondaryCard
-            title={t("home.ctaFindClinic")}
+            title={t("find_clinic")}
             icon="search"
             accentColor="#2563EB"
             onPress={goToClinicSearch}

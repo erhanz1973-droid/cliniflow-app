@@ -246,7 +246,7 @@ export default function DoctorDiagnosisScreen() {
                 setSelectedCode(item.code);
                 setSelectedDescription(item.description);
               }}
-              placeholder={t('diagnosis.icd10Placeholder')}
+              label={t('diagnosis.icd10Placeholder')}
             />
           )}
         </View>

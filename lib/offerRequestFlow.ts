@@ -1,5 +1,5 @@
 import type { Router } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { safeGetItem, safeRemoveItem, safeSetItem } from "./asyncStorageSafe";
 import { API_BASE } from "./api";
 
 export const PENDING_AI_OFFER_KEY = "@cliniflow:pending_ai_offer_v1";
@@ -10,11 +10,11 @@ export type PendingAiOfferPayload = {
 };
 
 export async function persistPendingAiOfferForClinicSelect(payload: PendingAiOfferPayload) {
-  await AsyncStorage.setItem(PENDING_AI_OFFER_KEY, JSON.stringify(payload));
+  await safeSetItem(PENDING_AI_OFFER_KEY, JSON.stringify(payload));
 }
 
 export async function loadPendingAiOfferForClinicSelect(): Promise<PendingAiOfferPayload | null> {
-  const raw = await AsyncStorage.getItem(PENDING_AI_OFFER_KEY);
+  const raw = await safeGetItem(PENDING_AI_OFFER_KEY);
   if (!raw) return null;
   try {
     return JSON.parse(raw) as PendingAiOfferPayload;
@@ -24,15 +24,16 @@ export async function loadPendingAiOfferForClinicSelect(): Promise<PendingAiOffe
 }
 
 export async function clearPendingAiOfferForClinicSelect() {
-  await AsyncStorage.removeItem(PENDING_AI_OFFER_KEY);
+  await safeRemoveItem(PENDING_AI_OFFER_KEY);
 }
 
 /**
  * AI analiz sonrası: büyük payload’ı AsyncStorage’a yazar, klinik seçim ekranına gider.
+ * Storage başarısız olsa bile navigasyon devam eder (ekran backend / kullanıcı girdisiyle toparlar).
  */
 export async function goToClinicSelect(
   router: Pick<Router, "push">,
-  opts: { image: string; analysis: Record<string, unknown> }
+  opts: { image: string; analysis: Record<string, unknown> },
 ) {
   await persistPendingAiOfferForClinicSelect({
     image: String(opts.image || "").trim(),
@@ -54,7 +55,7 @@ export type SendOfferRequestResult =
   | { ok: false; error: string; message?: string };
 
 export async function sendOfferRequest(
-  params: SendOfferRequestParams
+  params: SendOfferRequestParams,
 ): Promise<SendOfferRequestResult> {
   const { token, clinicIds, image, analysis, message } = params;
   const imageUrl = String(image || "").trim();

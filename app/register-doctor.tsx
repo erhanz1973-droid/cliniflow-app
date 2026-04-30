@@ -127,57 +127,71 @@ export default function RegisterDoctorScreen() {
     <View style={styles.container}>
       <Text style={styles.title}>{t('register.doctorTitle')}</Text>
 
-      <TextInput
-        placeholder={t('register.fullName')}
-        value={formData.fullName}
-        onChangeText={(text) => setFormData({ ...formData, fullName: text })}
-        style={styles.input}
-      />
-
-      <TextInput
-        placeholder={t('register.phone')}
-        value={formData.phone}
-        onChangeText={(text) => setFormData({ ...formData, phone: text })}
-        keyboardType="phone-pad"
-        style={styles.input}
-      />
-
-      <TextInput
-        placeholder={t('register.emailRequired')}
-        value={formData.email}
-        onChangeText={(text) => setFormData({ ...formData, email: text })}
-        keyboardType="email-address"
-        style={styles.input}
-      />
-
-      <View style={styles.passwordWrapper}>
+      <View style={styles.field}>
+        <Text style={styles.label}>{t('auth.full_name')}</Text>
         <TextInput
-          placeholder={t('register.password') || "Şifre (en az 6 karakter)"}
-          value={formData.password}
-          onChangeText={(text) => setFormData({ ...formData, password: text })}
-          secureTextEntry={!showPassword}
-          autoCapitalize="none"
-          style={styles.passwordInput}
+          value={formData.fullName}
+          onChangeText={(text) => setFormData({ ...formData, fullName: text })}
+          style={styles.input}
         />
-        <Pressable onPress={() => setShowPassword(p => !p)} style={styles.eyeBtn}>
-          <Text style={styles.eyeText}>{showPassword ? "🙈" : "👁"}</Text>
-        </Pressable>
       </View>
 
-      <TextInput
-        placeholder={t('register.clinicCodeRequired')}
-        value={formData.clinicCode}
-        onChangeText={(text) => setFormData({ ...formData, clinicCode: text.toUpperCase() })}
-        autoCapitalize="characters"
-        style={styles.input}
-      />
+      <View style={styles.field}>
+        <Text style={styles.label}>{t('auth.phone')}</Text>
+        <TextInput
+          value={formData.phone}
+          onChangeText={(text) => setFormData({ ...formData, phone: text })}
+          keyboardType="phone-pad"
+          style={styles.input}
+        />
+      </View>
 
-      <TextInput
-        placeholder={t('register.licenseRequired')}
-        value={formData.licenseNumber}
-        onChangeText={(text) => setFormData({ ...formData, licenseNumber: text })}
-        style={styles.input}
-      />
+      <View style={styles.field}>
+        <Text style={styles.label}>{t('register.emailRequired')}</Text>
+        <TextInput
+          value={formData.email}
+          onChangeText={(text) => setFormData({ ...formData, email: text })}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={styles.input}
+        />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={styles.label}>{t('auth.password_create')}</Text>
+        <View style={styles.passwordWrapper}>
+          <TextInput
+            value={formData.password}
+            onChangeText={(text) => setFormData({ ...formData, password: text })}
+            secureTextEntry={!showPassword}
+            autoCapitalize="none"
+            style={styles.passwordInput}
+          />
+          <Pressable onPress={() => setShowPassword(p => !p)} style={styles.eyeBtn}>
+            <Text style={styles.eyeText}>{showPassword ? "🙈" : "👁"}</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <View style={styles.field}>
+        <Text style={styles.label}>{t('auth.clinic_code')}</Text>
+        <TextInput
+          value={formData.clinicCode}
+          onChangeText={(text) => setFormData({ ...formData, clinicCode: text.toUpperCase() })}
+          autoCapitalize="characters"
+          style={styles.input}
+        />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={styles.label}>{t('auth.license_number')}</Text>
+        <TextInput
+          value={formData.licenseNumber}
+          onChangeText={(text) => setFormData({ ...formData, licenseNumber: text })}
+          style={styles.input}
+        />
+      </View>
 
       <TouchableOpacity
         onPress={handleRegister}
@@ -219,13 +233,23 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: "#111827",
   },
+  field: {
+    marginBottom: 16,
+    width: "100%",
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 6,
+  },
   input: {
     borderWidth: 1,
     borderColor: "#ddd",
     padding: 15,
     borderRadius: 8,
-    marginBottom: 15,
     width: "100%",
+    backgroundColor: "#fff",
   },
   registerButton: {
     backgroundColor: "#2563eb",
@@ -251,7 +275,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ddd",
     borderRadius: 8,
-    marginBottom: 15,
     backgroundColor: "#fff",
   },
   passwordInput: {

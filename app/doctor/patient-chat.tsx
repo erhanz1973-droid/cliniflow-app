@@ -1,5 +1,6 @@
 // app/doctor/patient-chat.tsx — Doctor ↔ Patient messaging (no tab bar)
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import type { Socket } from 'socket.io-client';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView,
@@ -8,6 +9,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { API_BASE } from '../../lib/api';
+import { subscribePrimaryChatRealtime, THREAD_ID_UUID_RE, waitOnceSocketConnected } from '../../lib/chatRealtime';
 
 interface Message {
   id: string;
@@ -15,9 +17,10 @@ interface Message {
   from: 'PATIENT' | 'CLINIC' | 'DOCTOR' | string;
   createdAt: number;
   senderName?: string;
+  pending?: boolean;
 }
 
-const POLL_MS = 6000;
+const POLL_FALLBACK_MS = 120_000;
 
 export default function DoctorPatientChatScreen() {
   const router = useRouter();
@@ -32,10 +35,13 @@ export default function DoctorPatientChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText]         = useState('');
   const [loading, setLoading]   = useState(true);
-  const [sending, setSending]   = useState(false);
+  const [sending, setSending] = useState(false);
+  const [chatRealtimeConnected, setChatRealtimeConnected] = useState(false);
+  const [leadThreadId, setLeadThreadId] = useState<string | null>(null);
 
-  const flatRef   = useRef<FlatList>(null);
-  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const flatRef = useRef<FlatList>(null);
+  const fallbackPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const chatSocketRef = useRef<Socket | null>(null);
 
   // ── Fetch messages ────────────────────────────────────────────
   const fetchMessages = useCallback(async (silent = false) => {
@@ -47,6 +53,18 @@ export default function DoctorPatientChatScreen() {
         { headers: { Authorization: `Bearer ${user.token}` } },
       );
       const json = await res.json().catch(() => ({}));
+      const laRaw = json.leadAssignment;
+      const tid =
+        laRaw && typeof laRaw === "object" && (laRaw as { threadId?: string }).threadId != null
+          ? String((laRaw as { threadId?: string }).threadId).trim()
+          : "";
+      setLeadThreadId(tid || null);
+      if (__DEV__) {
+        console.log(
+          "[DR-CHAT] leadAssignment.threadId (must match patient's thread — same UUID for SOCKET room chat:{tid})",
+          tid || "(none)",
+        );
+      }
       if (json.ok && Array.isArray(json.messages)) {
         setMessages(json.messages.map((m: any) => ({
           id:         m.id || String(m.createdAt || Math.random()),
@@ -65,12 +83,77 @@ export default function DoctorPatientChatScreen() {
     }
   }, [user?.token, patientId]);
 
-  // Initial load + polling
   useEffect(() => {
-    fetchMessages();
-    pollTimer.current = setInterval(() => fetchMessages(true), POLL_MS);
-    return () => { if (pollTimer.current) clearInterval(pollTimer.current); };
+    void fetchMessages(false);
   }, [fetchMessages]);
+
+  useEffect(() => {
+    setLeadThreadId(null);
+  }, [patientId]);
+
+  useEffect(() => {
+    const tid = String(leadThreadId ?? '').trim();
+    if (!user?.token || !THREAD_ID_UUID_RE.test(tid)) {
+      setChatRealtimeConnected(false);
+      return;
+    }
+    if (__DEV__) {
+      console.log(
+        '[DR-CHAT] Socket.IO join_chat will use threadId=',
+        tid,
+        '(after connect; ROOM_SIZE≥2 when patient connected same thread)',
+      );
+    }
+    const { unsubscribe, socket } = subscribePrimaryChatRealtime({
+      token: user.token,
+      threadId: tid,
+      onNewMessage: (legacy) => {
+        const id = String(legacy.id || "").trim();
+        if (!id) return;
+        setMessages((prev) => {
+          if (prev.some((x) => x.id === id)) return prev;
+          const text = String(legacy.text || '');
+          const withoutPending = prev.filter(
+            (m) =>
+              !(m.pending && String(m.from).toUpperCase() === 'CLINIC' && m.text === text),
+          );
+          const fromRaw = String(legacy.from || "").toUpperCase();
+          const from = fromRaw === 'PATIENT' ? 'PATIENT' : 'CLINIC';
+          const row: Message = {
+            id,
+            text,
+            from,
+            createdAt: typeof legacy.createdAt === 'number' ? legacy.createdAt : Date.now(),
+            senderName: undefined,
+          };
+          return [...withoutPending, row].sort((a, b) => a.createdAt - b.createdAt);
+        });
+      },
+      onConnect: () => setChatRealtimeConnected(true),
+      onDisconnect: () => {
+        setChatRealtimeConnected(false);
+        void fetchMessages(true);
+      },
+    });
+    chatSocketRef.current = socket;
+    return () => {
+      unsubscribe();
+      chatSocketRef.current = null;
+      setChatRealtimeConnected(false);
+    };
+  }, [user?.token, leadThreadId, fetchMessages]);
+
+  useEffect(() => {
+    if (fallbackPollRef.current) {
+      clearInterval(fallbackPollRef.current);
+      fallbackPollRef.current = null;
+    }
+    if (!user?.token || !patientId || chatRealtimeConnected) return () => {};
+    fallbackPollRef.current = setInterval(() => void fetchMessages(true), POLL_FALLBACK_MS);
+    return () => {
+      if (fallbackPollRef.current) clearInterval(fallbackPollRef.current);
+    };
+  }, [fetchMessages, user?.token, patientId, chatRealtimeConnected]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -83,10 +166,29 @@ export default function DoctorPatientChatScreen() {
   const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed || sending || !user?.token || !patientId) return;
-    setSending(true);
+
+    const optimisticId = `tmp-${Date.now()}`;
+    setMessages((prev) =>
+      [
+        ...prev,
+        {
+          id: optimisticId,
+          text: trimmed,
+          from: 'CLINIC' as const,
+          createdAt: Date.now(),
+          pending: true,
+        },
+      ].sort((a, b) => a.createdAt - b.createdAt),
+    );
     setText('');
+    setSending(true);
 
     try {
+      const s = chatSocketRef.current;
+      if (s && !s.connected) {
+        await waitOnceSocketConnected(s);
+      }
+
       const res = await fetch(
         `${API_BASE}/api/messages/${encodeURIComponent(patientId)}/reply`,
         {
@@ -99,10 +201,12 @@ export default function DoctorPatientChatScreen() {
       if (json.ok) {
         fetchMessages(true);
       } else {
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
         Alert.alert('Hata', json.error || 'Mesaj gönderilemedi.');
         setText(trimmed);
       }
     } catch (err: any) {
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       Alert.alert('Hata', 'Ağ hatası. Lütfen tekrar deneyin.');
       setText(trimmed);
       console.error('[DR CHAT send]', err.message);

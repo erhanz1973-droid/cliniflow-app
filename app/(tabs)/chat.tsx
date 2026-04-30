@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import type { Socket } from "socket.io-client";
 import {
   View,
   Text,
@@ -14,21 +15,25 @@ import {
   Platform,
 } from "react-native";
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { safeSetItem } from "../../lib/asyncStorageSafe";
 import * as Haptics from "expo-haptics";
-
-// Import expo-av for audio playback
-import { Audio } from "expo-av";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as IntentLauncher from "expo-intent-launcher";
 import { useAuth } from "../../lib/auth";
-import { API_BASE } from '../../lib/api';
-import { useRoleBasedAPI } from '../../lib/role-based-api';
+import { API_BASE } from "../../lib/api";
+import { playInAppNewMessageSoundDebouncedForThread } from "../../lib/playInAppMessageSound";
+import { getMessageSoundPreference } from "../../lib/messageSoundPreference";
+import { useRoleBasedAPI } from "../../lib/role-based-api";
 import { useLanguage } from "../../lib/language-context";
 import { useSelectedChatClinic } from "../../lib/useSelectedChatClinic";
+import {
+  subscribePrimaryChatRealtime,
+  THREAD_ID_UUID_RE,
+  waitOnceSocketConnected,
+} from "../../lib/chatRealtime";
 
 type Attachment = {
   name: string;
@@ -45,9 +50,50 @@ type ChatMessage = {
   type: "text" | "image" | "pdf";
   attachment?: Attachment;
   createdAt: number;
+  pending?: boolean;
 };
 
+/** Socket.IO payload → doctor chat row (aligned with GET) */
+function socketLegacyToDoctorChatMessage(raw: Record<string, unknown>): ChatMessage | null {
+  const id = String(raw.id || "").trim();
+  if (!id) return null;
+  const fromUp = String(raw.from || "").toUpperCase();
+  const from: ChatMessage["from"] =
+    fromUp === "CLINIC" || fromUp === "ADMIN" ? "CLINIC" : "PATIENT";
+  let createdAt = Date.now();
+  if (typeof raw.createdAt === "number") createdAt = raw.createdAt as number;
+  const attRaw = raw.attachment;
+  let attachment: ChatMessage["attachment"];
+  if (attRaw && typeof attRaw === "object") {
+    const a = attRaw as Record<string, unknown>;
+    attachment = {
+      name: String(a.name || ""),
+      size: typeof a.size === "number" ? a.size : Number(a.size) || 0,
+      url: String(a.url || ""),
+      mimeType: typeof a.mimeType === "string" ? a.mimeType : String(a.mime || ""),
+      fileType:
+        typeof a.fileType === "string"
+          ? a.fileType
+          : String(a.mimeType || "").startsWith("image/")
+            ? "image"
+            : "pdf",
+    };
+  }
+  return {
+    id,
+    from,
+    text: String(raw.text ?? ""),
+    type:
+      raw.type === "image" || raw.type === "pdf" || raw.type === "text"
+        ? raw.type
+        : "text",
+    attachment,
+    createdAt,
+  };
+}
+
 export default function ChatScreen() {
+  const router = useRouter();
   const { user, isAuthReady } = useAuth();
   const { fetchWithRole } = useRoleBasedAPI();
   const { t } = useLanguage();
@@ -74,79 +120,24 @@ export default function ChatScreen() {
   const [uploading, setUploading] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const isRedirectingRef = useRef(false);
-  const previousMessagesCountRef = useRef<number>(0);
   const isSendingMessageRef = useRef(false);
-  
-  // Play notification sound and haptic feedback when new message arrives
-  const playNotificationSound = useCallback(async () => {
+  const seenServerMessageIdsRef = useRef<Set<string>>(new Set());
+  const chatInboundIdsPrimedRef = useRef(false);
+  const fallbackPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const chatSocketRef = useRef<Socket | null>(null);
+  const [chatRealtimeConnected, setChatRealtimeConnected] = useState(false);
+  /** Backend GET .../messages → leadAssignment.threadId (patient_chat_threads row) */
+  const [leadThreadId, setLeadThreadId] = useState<string | null>(null);
+
+  const playInboundPatientAlert = useCallback(async () => {
     try {
-      console.log("[CHAT] Playing notification sound...");
-      
-      // Configure audio mode for playback
-      try {
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true, // Play even when phone is in silent mode (iOS)
-          staysActiveInBackground: true, // Keep audio active in background (for when screen is off)
-          shouldDuckAndroid: true, // Duck other audio on Android
-        });
-        console.log("[CHAT] Audio mode configured");
-      } catch (audioModeError) {
-        console.warn("[CHAT] Could not set audio mode:", audioModeError);
-      }
-      
-      // Haptic feedback (vibration on mobile)
-      try {
-        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        console.log("[CHAT] Haptic feedback played");
-      } catch (hapticError) {
-        console.warn("[CHAT] Haptic feedback failed:", hapticError);
-      }
-      
-      // Play notification sound file
-      try {
-        console.log("[CHAT] Loading sound file from assets/audio/notification.mp3...");
-        
-        // Try to require the sound file
-        let soundSource;
-        try {
-          soundSource = require('../assets/audio/notification.mp3');
-        } catch (requireError) {
-          // Sound file not found - continue with haptic feedback only
-          console.log("[CHAT] Sound file not available, using haptic feedback only");
-          return; // Exit early if sound file is not available
-        }
-        
-        const { sound } = await Audio.Sound.createAsync(
-          soundSource,
-          { 
-            shouldPlay: true, 
-            volume: 0.8,
-            isLooping: false
-          }
-        );
-        console.log("[CHAT] Sound loaded, playing...");
-        
-        // Wait for sound to finish playing
-        sound.setOnPlaybackStatusUpdate((status: any) => {
-          if (status.didJustFinish) {
-            sound.unloadAsync().catch(() => {});
-            console.log("[CHAT] Sound finished and unloaded");
-          }
-        });
-        
-        await sound.playAsync();
-        console.log("[CHAT] Notification sound played successfully");
-      } catch (soundError) {
-        console.log("[CHAT] Sound playback skipped (file may be missing)");
-        // Don't throw - continue without sound if file is missing
-      }
-      
-      console.log("[CHAT] Notification played (haptic + sound)");
-    } catch (error) {
-      console.error("[CHAT] Could not play notification:", error);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      /* ignore */
     }
-  }, []);
+    const cid = String(selectedClinic?.id || "").trim();
+    playInAppNewMessageSoundDebouncedForThread(`doc_chat:${patientId}:${cid}`, 3000);
+  }, [patientId, selectedClinic?.id]);
   
   // Auto-focus input when component mounts or when messages load
   useEffect(() => {
@@ -163,17 +154,20 @@ export default function ChatScreen() {
       setPatientId(userPatientId);
     }
   }, [userPatientId]);
-  
-  // Fetch patientId from API if not available
+
+  useEffect(() => {
+    seenServerMessageIdsRef.current.clear();
+    chatInboundIdsPrimedRef.current = false;
+    setLeadThreadId(null);
+  }, [patientId]);
+
   useEffect(() => {
     if (!isAuthReady || !user?.token) return;
-    
+
     const loadPatientId = async () => {
-      if (patientId) return; // Already have patientId
-      
+      if (patientId) return;
       try {
-        const res = await fetchWithRole('/me');
-        
+        const res = await fetchWithRole("/me");
         if (res.ok) {
           const data = await res.json();
           if (data?.patientId) {
@@ -184,24 +178,40 @@ export default function ChatScreen() {
         console.error("[CHAT] Error loading patientId:", error);
       }
     };
-    
-    loadPatientId();
-  }, [isAuthReady, user?.token, patientId]);
 
-  // Status check removed - backend handles status checking in messages endpoint
-  // If status is not APPROVED, backend returns 403 with CHAT_LOCKED error
+    loadPatientId();
+  }, [isAuthReady, user?.token, patientId, fetchWithRole]);
 
   const fetchMessages = useCallback(async () => {
     if (!user?.token || !patientId) return;
-    
+
     try {
-      const res = await fetchWithRole(`/${encodeURIComponent(patientId)}/messages`, {
+      const cidForLead = String(selectedClinic?.id ?? "").trim();
+      const qp = new URLSearchParams();
+      if (THREAD_ID_UUID_RE.test(cidForLead)) {
+        qp.set("clinic_id", cidForLead);
+        qp.set("clinicId", cidForLead);
+      }
+      const qs = qp.toString() ? `?${qp.toString()}` : "";
+
+      const messagesRel =
+        user?.role === "DOCTOR"
+          ? `/patient/${encodeURIComponent(patientId)}/messages${qs}`
+          : `/${encodeURIComponent(patientId)}/messages${qs}`;
+
+      if (__DEV__ && user?.role === "DOCTOR") {
+        console.log("[CHAT doctor] GET (must be /api/doctor/patient/…/messages for leadAssignment.threadId)", {
+          messagesRel,
+          clinic_id: THREAD_ID_UUID_RE.test(cidForLead) ? cidForLead : "(from JWT/db)",
+        });
+      }
+
+      const res = await fetchWithRole(messagesRel, {
         headers: { Authorization: `Bearer ${user.token}` },
         cache: "no-store",
       });
 
       if (res.status === 403 || res.status === 401) {
-        // Not approved or unauthorized - but don't redirect, just show empty messages
         setMessages([]);
         setLoading(false);
         return;
@@ -214,50 +224,89 @@ export default function ChatScreen() {
       }
 
       const json = await res.json();
-        const formattedMessages: ChatMessage[] = (json.messages || []).map((msg: any) => ({
-          id: msg.id,
-          from: msg.from === "CLINIC" || msg.from === "admin" ? "CLINIC" : "PATIENT",
-          text: msg.text || "",
-          type: msg.type || "text",
-          attachment: msg.attachment ? {
-            name: msg.attachment.name || t("chat.file"),
-            size: msg.attachment.size || 0,
-            url: msg.attachment.url,
-            mimeType: msg.attachment.mimeType || msg.attachment.mime,
-            fileType: msg.attachment.fileType || (msg.attachment.mimeType?.startsWith("image/") ? "image" : "pdf"),
-          } : undefined,
-          createdAt: msg.createdAt || Date.now(),
-        }));
+      const laRaw = json.leadAssignment;
+      const tid =
+        laRaw && typeof laRaw === "object" && laRaw.threadId != null
+          ? String((laRaw as { threadId?: string }).threadId).trim()
+          : "";
+      setLeadThreadId(tid || null);
 
-        // Check if new CLINIC messages arrived during refresh
-        const currentCount = formattedMessages.length;
-        const previousCount = previousMessagesCountRef.current;
-        
-        // Only play sound if not sending a message (user sent message should not trigger sound)
-        if (currentCount > previousCount && previousCount > 0 && !isSendingMessageRef.current) {
-          const previousMessageIds = new Set(messages.map((m: ChatMessage) => m.id));
-          const newClinicMessages = formattedMessages.filter((msg: ChatMessage) => {
-            return msg.from === "CLINIC" && !previousMessageIds.has(msg.id);
-          });
-          
-          if (newClinicMessages.length > 0) {
-            playNotificationSound();
+      if (__DEV__ && user?.role === "DOCTOR") {
+        console.log(
+          "[CHAT doctor] leadAssignment.threadId (patient app must subscribe to SAME uuid for realtime)",
+          tid || "(missing — polling only / wrong GET path)",
+        );
+      }
+
+      const formattedMessages: ChatMessage[] = (json.messages || []).map((msg: any) => ({
+        id: msg.id,
+        from: msg.from === "CLINIC" || msg.from === "admin" ? "CLINIC" : "PATIENT",
+        text: msg.text || "",
+        type: msg.type || "text",
+        attachment: msg.attachment
+          ? {
+              name: msg.attachment.name || t("chat.file"),
+              size: msg.attachment.size || 0,
+              url: msg.attachment.url,
+              mimeType: msg.attachment.mimeType || msg.attachment.mime,
+              fileType:
+                msg.attachment.fileType ||
+                (msg.attachment.mimeType?.startsWith("image/") ? "image" : "pdf"),
+            }
+          : undefined,
+        createdAt: msg.createdAt || Date.now(),
+      }));
+
+      const soundPref = await getMessageSoundPreference();
+      const inboundPatient = (m: ChatMessage) =>
+        String(m.from).toUpperCase() === "PATIENT" || String(m.from).toLowerCase() === "patient";
+
+      if (!chatInboundIdsPrimedRef.current) {
+        for (const m of formattedMessages) {
+          const mid = String(m.id || "").trim();
+          if (mid) seenServerMessageIdsRef.current.add(mid);
+        }
+        chatInboundIdsPrimedRef.current = true;
+      } else if (soundPref && !isSendingMessageRef.current) {
+        let hasNewInbound = false;
+        for (const m of formattedMessages) {
+          const mid = String(m.id || "").trim();
+          if (!mid) continue;
+          const wasSeen = seenServerMessageIdsRef.current.has(mid);
+          if (!wasSeen && inboundPatient(m)) {
+            hasNewInbound = true;
           }
+          seenServerMessageIdsRef.current.add(mid);
         }
-        
-        // Reset sending flag after checking
-        if (isSendingMessageRef.current) {
-          isSendingMessageRef.current = false;
+        if (hasNewInbound) {
+          void playInboundPatientAlert();
         }
-        
-        previousMessagesCountRef.current = currentCount;
-        setMessages(formattedMessages);
-        setLoading(false);
+      } else {
+        for (const m of formattedMessages) {
+          const mid = String(m.id || "").trim();
+          if (mid) seenServerMessageIdsRef.current.add(mid);
+        }
+      }
+
+      if (isSendingMessageRef.current) {
+        isSendingMessageRef.current = false;
+      }
+
+      setMessages(formattedMessages);
+      setLoading(false);
     } catch (error) {
       console.error("Error fetching messages:", error);
       setLoading(false);
     }
-  }, [user?.token, patientId, playNotificationSound]);
+  }, [
+    user?.token,
+    user?.role,
+    patientId,
+    selectedClinic?.id,
+    fetchWithRole,
+    t,
+    playInboundPatientAlert,
+  ]);
 
   // Check patient status on mount only - status check removed to prevent redirects
   // Status is checked in fetchMessages instead
@@ -274,103 +323,82 @@ export default function ChatScreen() {
 
     // Load messages directly - backend handles status checking, 403/401 won't redirect
     fetchMessages();
-  }, [isAuthReady, user?.token, patientId]);
+  }, [isAuthReady, user?.token, patientId, fetchMessages]);
 
-  // Reset chat badge when chat screen is focused (opened)
   useFocusEffect(
     useCallback(() => {
       if (!patientId) return;
+      void resetAppIconBadgeCount();
+      void postDoctorChatAckOpen(user?.token);
       
-      // Update last seen timestamp to current time to reset badge
       const updateLastSeen = async () => {
-        try {
-          const currentTime = Date.now();
-          await AsyncStorage.setItem(`chat_last_seen_${patientId}`, String(currentTime));
-          console.log("[CHAT] Last seen timestamp updated:", currentTime);
-        } catch (error) {
-          console.error("[CHAT] Failed to update last seen timestamp:", error);
-        }
+        await safeSetItem(`chat_last_seen_${patientId}`, String(Date.now()));
       };
       
-      updateLastSeen();
-    }, [patientId])
+      void updateLastSeen();
+    }, [patientId, user?.token])
   );
 
-  // Auto-refresh messages every 2.5 seconds
+  /** Realtime — single room `chat:{threadId}` */
   useEffect(() => {
-    if (!user?.token || !patientId || loading) return;
-    
-    const refreshMessages = async () => {
-      if (!user?.token || !patientId) return;
-      
-      try {
-        const res = await fetchWithRole(`/${encodeURIComponent(patientId)}/messages`, {
-          cache: "no-store",
+    const tid = String(leadThreadId || "").trim();
+    if (!user?.token?.trim() || !THREAD_ID_UUID_RE.test(tid)) {
+      setChatRealtimeConnected(false);
+      return;
+    }
+    if (__DEV__ && user?.role === "DOCTOR") {
+      console.log(
+        "[CHAT doctor] realtime: join_chat(threadId)=",
+        tid,
+        "fires from socket.io connect handler (ROOM_SIZE≥2 once patient also joined same thread)",
+      );
+    }
+    const { unsubscribe, socket } = subscribePrimaryChatRealtime({
+      token: user.token,
+      threadId: tid,
+      onNewMessage: (legacy) => {
+        const mapped = socketLegacyToDoctorChatMessage(legacy);
+        if (!mapped) return;
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === mapped.id)) return prev;
+          const withoutPendingDup = prev.filter(
+            (m) =>
+              !(
+                m.pending &&
+                String(m.from).toUpperCase() === "CLINIC" &&
+                m.text === mapped.text
+              ),
+          );
+          return [...withoutPendingDup, mapped].sort((a, b) => a.createdAt - b.createdAt);
         });
-
-        if (res.status === 403 || res.status === 401) {
-          return; // Don't redirect on auto-refresh
-        }
-
-        if (!res.ok) {
-          return;
-        }
-
-        const json = await res.json();
-        const formattedMessages: ChatMessage[] = (json.messages || []).map((msg: any) => ({
-          id: msg.id,
-          from: msg.from === "CLINIC" || msg.from === "admin" ? "CLINIC" : "PATIENT",
-          text: msg.text || "",
-          type: msg.type || "text",
-          attachment: msg.attachment ? {
-            name: msg.attachment.name || t("chat.file"),
-            size: msg.attachment.size || 0,
-            url: msg.attachment.url,
-            mimeType: msg.attachment.mimeType || msg.attachment.mime,
-            fileType: msg.attachment.fileType || (msg.attachment.mimeType?.startsWith("image/") ? "image" : "pdf"),
-          } : undefined,
-          createdAt: msg.createdAt || Date.now(),
-        }));
-
-        // Check if new CLINIC messages arrived (use ref to track previous state)
-        const currentCount = formattedMessages.length;
-        const previousCount = previousMessagesCountRef.current;
-        
-        // If messages increased and we had messages before, check for new CLINIC messages
-        if (currentCount > previousCount && previousCount > 0) {
-          // Use a closure to access current messages state
-          setMessages((prevMessages) => {
-            const previousMessageIds = new Set(prevMessages.map((m: ChatMessage) => m.id));
-            const newClinicMessages = formattedMessages.filter((msg: ChatMessage) => {
-              return msg.from === "CLINIC" && !previousMessageIds.has(msg.id);
-            });
-            
-            // Only play sound if not sending a message (user sent message should not trigger sound)
-            if (newClinicMessages.length > 0 && !isSendingMessageRef.current) {
-              playNotificationSound();
-            }
-            
-            // Reset sending flag after checking
-            if (isSendingMessageRef.current) {
-              isSendingMessageRef.current = false;
-            }
-            
-            return formattedMessages;
-          });
-        } else {
-          setMessages(formattedMessages);
-        }
-        
-        previousMessagesCountRef.current = currentCount;
-      } catch (error) {
-        console.error("Error refreshing messages:", error);
-      }
+      },
+      onConnect: () => setChatRealtimeConnected(true),
+      onDisconnect: () => {
+        setChatRealtimeConnected(false);
+        void fetchMessages();
+      },
+    });
+    chatSocketRef.current = socket;
+    return () => {
+      unsubscribe();
+      chatSocketRef.current = null;
+      setChatRealtimeConnected(false);
     };
-    
-    refreshMessages();
-    const interval = setInterval(refreshMessages, 2500);
-    return () => clearInterval(interval);
-  }, [user?.token, patientId, loading, playNotificationSound]);
+  }, [user?.token, user?.role, leadThreadId, fetchMessages]);
+
+  /** Fallback: no interval while realtime connected; on disconnect fetch runs immediately in chatRealtime.onDisconnect */
+  const FALLBACK_POLL_MS = 120_000;
+  useEffect(() => {
+    if (fallbackPollRef.current) {
+      clearInterval(fallbackPollRef.current);
+      fallbackPollRef.current = null;
+    }
+    if (!user?.token || !patientId || loading || chatRealtimeConnected) return () => {};
+    fallbackPollRef.current = setInterval(() => void fetchMessages(), FALLBACK_POLL_MS);
+    return () => {
+      if (fallbackPollRef.current) clearInterval(fallbackPollRef.current);
+    };
+  }, [user?.token, patientId, loading, fetchMessages, chatRealtimeConnected]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -390,13 +418,34 @@ export default function ChatScreen() {
     // Set flag to prevent notification sound when user sends a message
     isSendingMessageRef.current = true;
 
+    const trimmed = text.trim();
+    const optimisticId = `tmp-${Date.now()}`;
+    setMessages((prev) =>
+      [
+        ...prev,
+        {
+          id: optimisticId,
+          from: "CLINIC",
+          text: trimmed,
+          type: "text" as const,
+          createdAt: Date.now(),
+          pending: true,
+        },
+      ].sort((a, b) => a.createdAt - b.createdAt),
+    );
+    setText("");
+
     try {
       if (!selectedClinicReady) {
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
         isSendingMessageRef.current = false;
+        setText(trimmed);
         return;
       }
       if (!selectedClinic?.id?.trim()) {
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
         isSendingMessageRef.current = false;
+        setText(trimmed);
         Alert.alert(
           t("common.error") || "Error",
           "Please select a clinic first"
@@ -407,7 +456,7 @@ export default function ChatScreen() {
       const cid = String(selectedClinic.id).trim();
       const ccode = selectedClinic.clinic_code?.trim() || "";
       const payload: Record<string, string> = {
-        text: text.trim(),
+        text: trimmed,
         type: "text",
       };
       payload.clinic_id = cid;
@@ -421,31 +470,55 @@ export default function ChatScreen() {
         clinic_id: selectedClinic?.id ?? null,
         userClinic: u?.clinicId ?? null,
       });
-      const res = await fetchWithRole(`/${encodeURIComponent(patientId)}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        console.error("[CHAT] send failed:", res.status, text.slice(0, 300));
-        isSendingMessageRef.current = false; // Reset flag on error
-        throw new Error(`HTTP ${res.status}`);
+      const sock = chatSocketRef.current;
+      if (sock && !sock.connected) {
+        await waitOnceSocketConnected(sock);
       }
 
-      setText("");
-      
+      let res: Response;
+      if (user.role === "DOCTOR") {
+        const replyUrl = `${API_BASE.replace(/\/+$/, "")}/api/messages/${encodeURIComponent(patientId)}/reply`;
+        if (__DEV__) {
+          console.log("[CHAT doctor] POST clinic reply →", replyUrl);
+        }
+        res = await fetch(replyUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${user.token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ text: trimmed }),
+        });
+      } else {
+        res = await fetchWithRole(`/${encodeURIComponent(patientId)}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+
+      if (!res.ok) {
+        const txt = await res.text();
+        console.error("[CHAT] send failed:", res.status, txt.slice(0, 300));
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+        isSendingMessageRef.current = false;
+        setText(trimmed);
+        Alert.alert(t("common.error"), t("chat.sendError"));
+        return;
+      }
+
       // Focus back to input after sending message
       setTimeout(() => {
         inputRef.current?.focus();
       }, 100);
-      
-      // Fetch messages after sending (flag will prevent sound)
+
+      // Fetch messages after sending (flag will prevent sound); replaces optimistic row
       await fetchMessages();
     } catch (error) {
       console.error("Error sending message:", error);
-      isSendingMessageRef.current = false; // Reset flag on error
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+      isSendingMessageRef.current = false;
+      setText(trimmed);
       Alert.alert(t("common.error"), t("chat.sendError"));
     }
   }

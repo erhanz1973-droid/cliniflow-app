@@ -155,35 +155,41 @@ export default function PatientLogin() {
       <Text style={styles.title}>{t('login.patientTitle')}</Text>
 
       <View style={styles.form}>
-        <TextInput
-          style={styles.input}
-          placeholder={t('login.phoneOrEmailPlaceholder') || 'Telefon veya E-posta'}
-          value={phoneOrEmail}
-          onChangeText={v => { setPhoneOrEmail(v); setErrorMsg(''); }}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoCorrect={false}
-          editable={!loading}
-        />
+        <View style={styles.field}>
+          <Text style={styles.label}>{t('auth.phone_or_email')}</Text>
+          <TextInput
+            style={styles.input}
+            value={phoneOrEmail}
+            onChangeText={v => { setPhoneOrEmail(v); setErrorMsg(''); }}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!loading}
+          />
+        </View>
 
-        <TextInput
-          style={styles.input}
-          placeholder={t('login.passwordPlaceholder') ?? 'Şifre (opsiyonel)'}
-          value={password}
-          onChangeText={v => { setPassword(v); setErrorMsg(''); }}
-          secureTextEntry
-          autoCapitalize="none"
-          editable={!loading}
-        />
+        <View style={styles.field}>
+          <Text style={styles.label}>{t('auth.password_optional')}</Text>
+          <TextInput
+            style={styles.input}
+            value={password}
+            onChangeText={v => { setPassword(v); setErrorMsg(''); }}
+            secureTextEntry
+            autoCapitalize="none"
+            editable={!loading}
+          />
+        </View>
 
-        <TextInput
-          style={styles.input}
-          placeholder={t('login.clinicCodePlaceholder')}
-          value={clinicCode}
-          onChangeText={v => { setClinicCode(v.toUpperCase()); setErrorMsg(''); }}
-          autoCapitalize="characters"
-          editable={!loading}
-        />
+        <View style={styles.field}>
+          <Text style={styles.label}>{t('auth.clinic_code')}</Text>
+          <TextInput
+            style={styles.input}
+            value={clinicCode}
+            onChangeText={v => { setClinicCode(v.toUpperCase()); setErrorMsg(''); }}
+            autoCapitalize="characters"
+            editable={!loading}
+          />
+        </View>
 
         {/* Inline error with retry */}
         {!!errorMsg && (
@@ -295,6 +301,15 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     alignSelf: "center",
   },
+  field: {
+    marginBottom: 14,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 6,
+  },
   button: {
     backgroundColor: "#2563EB",
     borderRadius: 10,
@@ -317,7 +332,6 @@ const styles = StyleSheet.create({
     padding: 14,
     fontSize: 16,
     backgroundColor: "#fff",
-    marginBottom: 12,
   },
   backButton: {
     alignItems: "center",

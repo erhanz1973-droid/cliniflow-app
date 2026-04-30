@@ -1,40 +1,58 @@
-// Reusable SearchBar Component - Production Ready UI
-// Clean, minimal design with clear functionality
+// Reusable SearchBar — visible label above the field (no placeholder).
 
 import React from "react";
-import { View, TextInput, TouchableOpacity, Text, StyleSheet } from "react-native";
-import { SearchBarProps } from "../../types/doctor";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
 
-export const SearchBar: React.FC<SearchBarProps> = ({ 
-  value, 
-  onChangeText, 
-  placeholder = "Search...", 
-  onClear 
+export type SearchBarProps = {
+  label: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  onClear?: () => void;
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  autoCorrect?: boolean;
+};
+
+export const SearchBar: React.FC<SearchBarProps> = ({
+  label,
+  value,
+  onChangeText,
+  onClear,
+  autoCapitalize = "none",
+  autoCorrect = false,
 }) => {
   const hasValue = value.trim().length > 0;
 
   return (
-    <View style={styles.container}>
-      <TextInput
-        style={styles.input}
-        placeholder={placeholder}
-        value={value}
-        onChangeText={onChangeText}
-        placeholderTextColor="#9ca3af"
-        autoCapitalize="none"
-        autoCorrect={false}
-        clearButtonMode={onClear ? "never" : "while-editing"}
-      />
-      {hasValue && onClear && (
-        <TouchableOpacity style={styles.clearButton} onPress={onClear}>
-          <Text style={styles.clearText}>✕</Text>
-        </TouchableOpacity>
-      )}
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      <View style={styles.container}>
+        <TextInput
+          style={styles.input}
+          value={value}
+          onChangeText={onChangeText}
+          autoCapitalize={autoCapitalize}
+          autoCorrect={autoCorrect}
+          clearButtonMode={onClear ? "never" : "while-editing"}
+        />
+        {hasValue && onClear && (
+          <TouchableOpacity style={styles.clearButton} onPress={onClear}>
+            <Text style={styles.clearText}>✕</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  field: {
+    gap: 6,
+    marginBottom: 14,
+  },
+  label: {
+    fontSize: 13,
+    color: "#94a3b8",
+  },
   container: {
     flexDirection: "row",
     alignItems: "center",

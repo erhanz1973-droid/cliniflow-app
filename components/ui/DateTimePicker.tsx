@@ -32,8 +32,10 @@ type Props = {
   onChange: (date: Date) => void;
   onClear?: () => void;
   mode?: Mode;
-  placeholder?: string;
+  /** Label for the outer field (recommended). */
   label?: string;
+  /** Shown in the trigger when `value` is null (non-input hint; avoids placeholder prop). */
+  emptyPrompt?: string;
   locale?: string;
 };
 
@@ -42,7 +44,7 @@ export default function DateTimePicker({
   onChange,
   onClear,
   mode = "datetime",
-  placeholder,
+  emptyPrompt,
   label,
   locale = "tr-TR",
 }: Props) {
@@ -88,7 +90,7 @@ export default function DateTimePicker({
 
   /* ─── display label ─── */
   function formatDisplay() {
-    if (!value) return placeholder ?? (mode === "time" ? "Saat seç" : "Tarih seç");
+    if (!value) return emptyPrompt ?? (mode === "time" ? "Select time" : "Select date");
     if (mode === "time") {
       return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
     }

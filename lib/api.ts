@@ -1,10 +1,68 @@
 // cliniflow-app/lib/api.ts
 
+import Constants from "expo-constants";
+
 /**
- * Production API only (cliniflow-backend-clean on Railway).
- * Env-based overrides removed temporarily for stable, unambiguous behavior.
+ * Fallback when `.env` / EAS secrets omit `EXPO_PUBLIC_API_URL` — Railway production API.
  */
-const API_BASE = "https://cliniflow-backend-clean-production.up.railway.app";
+const DEFAULT_PUBLIC_API_URL = "https://cliniflow-backend-clean-production.up.railway.app";
+
+function normalizeBaseUrl(raw: string | undefined | null): string | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  if (!/^https?:\/\//i.test(s)) return null;
+  return s.replace(/\/+$/, "");
+}
+
+/** Resolve public API origin: env (build-time) → `app.config` extra → default Railway URL. */
+function resolvePublicApiUrl(): string {
+  const envUrl =
+    (typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_URL?.trim()) ||
+    (typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_BASE?.trim()) ||
+    "";
+
+  const extra = Constants.expoConfig?.extra as
+    | { API_URL?: string; api_url?: string }
+    | undefined;
+  const fromExtra =
+    typeof extra?.API_URL === "string"
+      ? extra.API_URL.trim()
+      : typeof extra?.api_url === "string"
+        ? extra.api_url.trim()
+        : "";
+
+  return (
+    normalizeBaseUrl(envUrl) ||
+    normalizeBaseUrl(fromExtra || null) ||
+    DEFAULT_PUBLIC_API_URL
+  );
+}
+
+/** Resolved HTTPS origin (no trailing slash). Logged once at startup to verify prod builds. */
+const API_URL = resolvePublicApiUrl();
+console.log("API_BASE:", API_URL);
+
+if (typeof __DEV__ !== "undefined" && __DEV__) {
+  const invalid =
+    API_URL.includes("172.") ||
+    API_URL.includes("localhost") ||
+    API_URL.includes(":8081") ||
+    API_URL.includes(":19000");
+
+  if (invalid) {
+    throw new Error(
+      "[CONFIG ERROR] API_BASE is pointing to Metro/dev server. Fix your .env",
+    );
+  }
+}
+
+export const API_BASE = API_URL;
+
+if (typeof __DEV__ !== "undefined" && !__DEV__) {
+  if (!API_BASE.startsWith("https://")) {
+    console.error("[CONFIG ERROR] Invalid API_BASE in production:", API_BASE);
+  }
+}
 
 /** POST /analyze-teeth on the same backend as API_BASE */
 export const ANALYZE_TEETH_URL = `${API_BASE.replace(/\/+$/, "")}/analyze-teeth`;
@@ -29,7 +87,6 @@ export function classifyApiError(err: unknown): ApiErrorKind {
   return 'generic';
 }
 
-export { API_BASE };
 export const AUTH_API_BASE = API_BASE;
 export const ADMIN_API_BASE = API_BASE;
 

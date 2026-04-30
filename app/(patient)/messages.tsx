@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter, useLocalSearchParams, useNavigation } from "expo-router";
+import type { Socket } from "socket.io-client";
+import { useRouter, useLocalSearchParams, useNavigation, useFocusEffect } from "expo-router";
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
   ActivityIndicator, KeyboardAvoidingView, Platform, Alert, Image,
@@ -8,7 +9,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as DocumentPicker from "expo-document-picker";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { safeGetItem, safeRemoveItem, safeSetItem } from "../../lib/asyncStorageSafe";
 import { useAuth } from "../../lib/auth";
 import { API_BASE } from "../../lib/api";
 import { onIntraoralPhotoReady } from "../../lib/photoCallbacks";
@@ -24,6 +25,13 @@ import { goToAnalysis } from "../../lib/dentalPhotoNavigation";
 import { goToChat, openFilePicker } from "../../lib/chatFlow";
 import { saveToFiles } from "../../lib/saveToFiles";
 import { sendMessage } from "../../lib/sendMessage";
+import { playInAppNewMessageSoundDebouncedForThread } from "../../lib/playInAppMessageSound";
+import { getMessageSoundPreference } from "../../lib/messageSoundPreference";
+import {
+  subscribePrimaryChatRealtime,
+  THREAD_ID_UUID_RE,
+  waitOnceSocketConnected,
+} from "../../lib/chatRealtime";
 import ToothColorSelector, {
   type ToothColorPreset,
 } from "../../components/ToothColorSelector";
@@ -103,6 +111,8 @@ type Message = {
   createdAt: number;
   /** true for locally-generated loading bubbles (not persisted) */
   _local?: boolean;
+  /** optimistic send — cleared when server row arrives via fetch/socket */
+  pending?: boolean;
 };
 
 type PendingAttachment = {
@@ -145,6 +155,47 @@ function fmtTime(ts: number, locale: string) {
 }
 function fmtDay(ts: number, locale: string) {
   return new Date(ts).toLocaleDateString(locale, { day: "numeric", month: "long", year: "numeric" });
+}
+
+/** Backend GET /api/patient/me/messages → leadAssignment (patient_chat_threads + doctor name) */
+type LeadAssignmentInfo = {
+  clinicId?: string | null;
+  /** patient_chat_threads.id — realtime room chat:{threadId} */
+  threadId?: string | null;
+  assignedDoctorId?: string | null;
+  doctorName?: string | null;
+  assignedDoctor?: { id?: string; name?: string | null } | null;
+  assignedAt?: string | null;
+};
+
+function leadAssignmentDoctorDisplayName(la: LeadAssignmentInfo | null): string {
+  const raw =
+    la?.assignedDoctor && typeof la.assignedDoctor.name === "string"
+      ? la.assignedDoctor.name
+      : la?.doctorName;
+  if (raw == null) return "";
+  return String(raw)
+    .trim()
+    .replace(/^dr\.?\s*/i, "")
+    .trim();
+}
+
+/** Socket.IO `new_message` — legacy row shape aligned with GET /messages */
+function socketLegacyToPatientMessage(raw: Record<string, unknown>): Message | null {
+  const id = String(raw.id || "").trim();
+  if (!id) return null;
+  const fr = String(raw.from || "").toUpperCase();
+  const from: Message["from"] = fr === "PATIENT" ? "PATIENT" : "CLINIC";
+  let createdAt = Date.now();
+  if (typeof raw.createdAt === "number") createdAt = raw.createdAt as number;
+  return {
+    id,
+    from,
+    text: String(raw.text ?? ""),
+    type: String(raw.type || "text"),
+    attachment: raw.attachment as Message["attachment"],
+    createdAt,
+  };
 }
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
@@ -190,9 +241,21 @@ export default function MessagesScreen() {
 
   const flatRef           = useRef<FlatList>(null);
   const pollRef           = useRef<ReturnType<typeof setInterval> | null>(null);
+  const chatSocketRef     = useRef<Socket | null>(null);
   const lastCountRef      = useRef(0);
+  /** In-app ding when foreground + new inbound clinic/staff rows (poll). */
+  const seenServerMessageIdsRef = useRef<Set<string>>(new Set());
+  const chatInboundIdsPrimedRef = useRef(false);
+  const sendingRef = useRef(false);
+  /** Tracks last seen assigned doctor id so assignment changes can show a new one-time banner. */
+  const prevAidForBannerRef = useRef<string | null>(null);
+  /** After first eligible banner show in this screen session, skip re-evaluating visibility (avoids hiding after AsyncStorage is set). */
+  const assignBannerEverShownRef = useRef(false);
+  const [leadAssignment, setLeadAssignment] = useState<LeadAssignmentInfo | null>(null);
+  const [showDoctorBanner, setShowDoctorBanner] = useState(false);
+  const [chatRealtimeConnected, setChatRealtimeConnected] = useState(false);
 
-  const patientId  = String(user?.patientId || "").trim();
+  const patientId = String(user?.patientId || "").trim();
   const token      = user?.token;
   const hasClinic  = !!user?.clinicId;
   const { markRead } = useUnreadMessages(patientId || undefined, token || undefined);
@@ -307,29 +370,198 @@ export default function MessagesScreen() {
   const fetchMessages = useCallback(async (silent = false) => {
     if (!token) { if (!silent) setLoading(false); return; }
     try {
+      const q =
+        chatClinicId && String(chatClinicId).trim()
+          ? `?clinic_id=${encodeURIComponent(String(chatClinicId).trim())}`
+          : "";
       const res = await fetch(
-        `${API_BASE}/api/patient/me/messages`,
+        `${API_BASE}/api/patient/me/messages${q}`,
         { headers: authHeaders() }
       );
       const json = await res.json().catch(() => ({}));
       const msgs: Message[] = Array.isArray(json.messages)
         ? json.messages.sort((a: Message, b: Message) => a.createdAt - b.createdAt)
         : [];
+
+      const laRaw = json.leadAssignment;
+      const la: LeadAssignmentInfo | null =
+        laRaw && typeof laRaw === "object" ? (laRaw as LeadAssignmentInfo) : null;
+      setLeadAssignment(la);
+
+      const nextAid = la?.assignedDoctorId != null ? String(la.assignedDoctorId).trim() : null;
+
+      if (prevAidForBannerRef.current !== nextAid) {
+        prevAidForBannerRef.current = nextAid;
+        assignBannerEverShownRef.current = false;
+      }
+
+      const clinicKey =
+        (chatClinicId && String(chatClinicId).trim()) ||
+        (la?.clinicId != null ? String(la.clinicId).trim() : "");
+      const bannerKey =
+        patientId && clinicKey && nextAid
+          ? `@cliniflow:doctor_assign_intro_v2:${patientId}:${clinicKey}:${nextAid}`
+          : null;
+
+      let skipHint = false;
+      if (bannerKey) {
+        try {
+          skipHint = (await safeGetItem(bannerKey)) === "1";
+        } catch {
+          skipHint = false;
+        }
+      }
+
+      const doctorLabel = leadAssignmentDoctorDisplayName(la);
+      const eligibleForBanner = !!nextAid && !!doctorLabel && !skipHint;
+
       setMessages(msgs);
+
+      try {
+        const soundOn = await getMessageSoundPreference();
+        const fromField = (m: Message): string =>
+          String((m as { from?: string }).from || "").toUpperCase();
+        const isInboundClinic = (m: Message): boolean =>
+          fromField(m) === "CLINIC" || fromField(m) === "ADMIN";
+
+        if (!chatInboundIdsPrimedRef.current) {
+          for (const m of msgs) {
+            const mid = String((m as { id?: string }).id || "").trim();
+            if (mid) seenServerMessageIdsRef.current.add(mid);
+          }
+          chatInboundIdsPrimedRef.current = true;
+        } else if (soundOn && !sendingRef.current) {
+          let hasFreshInbound = false;
+          for (const m of msgs) {
+            const mid = String((m as { id?: string }).id || "").trim();
+            if (!mid) continue;
+            const seen = seenServerMessageIdsRef.current.has(mid);
+            if (!seen && isInboundClinic(m)) {
+              hasFreshInbound = true;
+            }
+            seenServerMessageIdsRef.current.add(mid);
+          }
+          if (hasFreshInbound) {
+            const soundThreadKey = `${String(patientId || "").trim()}:${clinicKey || "default"}`;
+            playInAppNewMessageSoundDebouncedForThread(soundThreadKey, 3000);
+          }
+        } else {
+          for (const m of msgs) {
+            const mid = String((m as { id?: string }).id || "").trim();
+            if (mid) seenServerMessageIdsRef.current.add(mid);
+          }
+        }
+      } catch {
+        /* ignore sound faults */
+      }
+
+      if (!nextAid || !doctorLabel) {
+        assignBannerEverShownRef.current = false;
+        setShowDoctorBanner(false);
+      } else if (!assignBannerEverShownRef.current) {
+        if (eligibleForBanner) {
+          assignBannerEverShownRef.current = true;
+          setShowDoctorBanner(true);
+          if (bannerKey) {
+            await safeSetItem(bannerKey, "1");
+          }
+        } else {
+          setShowDoctorBanner(false);
+        }
+      }
+
       if (msgs.length > lastCountRef.current) {
         lastCountRef.current = msgs.length;
         setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
       }
     } catch {}
     finally { if (!silent) setLoading(false); }
-  }, [token, authHeaders]);
+  }, [token, authHeaders, chatClinicId, patientId]);
 
+  /** Initial / reaction fetch — API is source of truth */
   useEffect(() => {
-    markRead();
-    fetchMessages();
-    pollRef.current = setInterval(() => fetchMessages(true), 12_000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [fetchMessages, markRead]);
+    void fetchMessages();
+  }, [fetchMessages]);
+
+  /** Socket.IO — room is always `chat:{threadId}` (patient_chat_threads.id) */
+  useEffect(() => {
+    const tid =
+      leadAssignment?.threadId != null ? String(leadAssignment.threadId).trim() : "";
+    if (!token?.trim() || !THREAD_ID_UUID_RE.test(tid)) {
+      setChatRealtimeConnected(false);
+      return;
+    }
+    const { unsubscribe, socket } = subscribePrimaryChatRealtime({
+      token,
+      threadId: tid,
+      onNewMessage: (legacy) => {
+        const mapped = socketLegacyToPatientMessage(legacy);
+        if (!mapped) return;
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === mapped.id)) return prev;
+          let base = prev;
+          if (mapped.from === "PATIENT") {
+            base = prev.filter(
+              (m) =>
+                !(
+                  (m.pending || m._local) &&
+                  m.from === "PATIENT" &&
+                  String(m.text || "") === String(mapped.text || "")
+                ),
+            );
+          }
+          return [...base, mapped].sort((a, b) => a.createdAt - b.createdAt);
+        });
+      },
+      onConnect: () => setChatRealtimeConnected(true),
+      onDisconnect: () => {
+        setChatRealtimeConnected(false);
+        void fetchMessages(true);
+      },
+    });
+    chatSocketRef.current = socket;
+    return () => {
+      unsubscribe();
+      chatSocketRef.current = null;
+      setChatRealtimeConnected(false);
+    };
+  }, [token, fetchMessages, leadAssignment?.threadId]);
+
+  /** Fallback when socket disconnected only — slower interval so HTTP does not hide realtime latency */
+  const FALLBACK_POLL_MS = 120_000;
+  useEffect(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    if (chatRealtimeConnected) return () => {};
+    pollRef.current = setInterval(() => void fetchMessages(true), FALLBACK_POLL_MS);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [fetchMessages, chatRealtimeConnected]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return;
+      void resetAppIconBadgeCount();
+      void postPatientChatAckOpen(token);
+      markRead();
+    }, [token, markRead]),
+  );
+
+  const patientClinicThreadKeyRef = useRef<string>("");
+  useEffect(() => {
+    const k = `${patientId}|${chatClinicId}`;
+    if (patientClinicThreadKeyRef.current === k) return;
+    patientClinicThreadKeyRef.current = k;
+    prevAidForBannerRef.current = null;
+    assignBannerEverShownRef.current = false;
+    seenServerMessageIdsRef.current.clear();
+    chatInboundIdsPrimedRef.current = false;
+    setShowDoctorBanner(false);
+    setLeadAssignment(null);
+  }, [patientId, chatClinicId]);
 
   // ── Send text ──────────────────────────────────────────────────────────────
 
@@ -342,12 +574,28 @@ export default function MessagesScreen() {
       Alert.alert(t("common.error"), t("messages.chatRequiresClinic"));
       return;
     }
+    sendingRef.current = true;
     setSending(true);
     const msgSnapshot = msg;
     const attSnapshot = [...pendingAttachments];
+    const tempId = `tmp-${Date.now()}`;
+    const optimisticRow: Message = {
+      id: tempId,
+      from: "PATIENT",
+      text: msgSnapshot || (hasAtt ? "." : ""),
+      type: "text",
+      createdAt: Date.now(),
+      _local: true,
+      pending: true,
+    };
+    setMessages((prev) => [...prev, optimisticRow].sort((a, b) => a.createdAt - b.createdAt));
     setText("");
     setPendingAttachments([]);
     try {
+      const s = chatSocketRef.current;
+      if (s && !s.connected) {
+        await waitOnceSocketConnected(s);
+      }
       const fileIds = attSnapshot
         .map((a) => a.fileId)
         .filter((id): id is string => Boolean(id && String(id).trim()));
@@ -379,6 +627,7 @@ export default function MessagesScreen() {
       setPendingAttachments(attSnapshot);
       Alert.alert(t("common.error"), t("messages.connectionError"));
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   };
@@ -387,7 +636,7 @@ export default function MessagesScreen() {
 
   const checkUploadConsent = (): Promise<boolean> =>
     new Promise(async (resolve) => {
-      const accepted = await AsyncStorage.getItem(UPLOAD_CONSENT_KEY).catch(() => null);
+      const accepted = await safeGetItem(UPLOAD_CONSENT_KEY);
       if (accepted === "1") { resolve(true); return; }
       Alert.alert(
         t("upload.consentTitle"),
@@ -397,7 +646,7 @@ export default function MessagesScreen() {
           {
             text: t("upload.consentConfirm"),
             onPress: async () => {
-              await AsyncStorage.setItem(UPLOAD_CONSENT_KEY, "1").catch(() => {});
+              await safeSetItem(UPLOAD_CONSENT_KEY, "1");
               resolve(true);
             },
           },
@@ -850,6 +1099,18 @@ export default function MessagesScreen() {
           keyExtractor={(m, i) => m.id || String(i)}
           contentContainerStyle={{ padding: 12, paddingBottom: 8 }}
           showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            showDoctorBanner && leadAssignmentDoctorDisplayName(leadAssignment) ? (
+              <View style={s.doctorAssignBanner} accessibilityRole="text">
+                <Text style={s.doctorAssignBannerText}>
+                  {t("messages.doctorAssignedBanner").replace(
+                    "{doctorName}",
+                    leadAssignmentDoctorDisplayName(leadAssignment)
+                  )}
+                </Text>
+              </View>
+            ) : null
+          }
           renderItem={renderChatItem}
           initialNumToRender={10}
           maxToRenderPerBatch={5}
@@ -870,28 +1131,24 @@ export default function MessagesScreen() {
         {!hasClinic && allMessages.length === 0 && (
           <View style={s.noClinicState}>
             <Text style={s.noClinicIcon}>🦷</Text>
-            <Text style={s.noClinicTitle}>Henüz bir kliniğiniz yok</Text>
-            <Text style={s.noClinicSub}>
-              Diş fotoğrafınızı yükleyin, analiz edelim ve size uygun klinikleri önerelim
-            </Text>
+            <Text style={s.noClinicTitle}>{t("messages.noClinicTitle")}</Text>
+            <Text style={s.noClinicSub}>{t("messages.noClinicSub")}</Text>
             <TouchableOpacity
               style={s.noClinicPrimary}
               activeOpacity={0.85}
               onPress={capturePhotoForAI}
             >
-              <Text style={s.noClinicPrimaryTxt}>🦷 Diş Fotoğrafı Çek</Text>
+              <Text style={s.noClinicPrimaryTxt}>{`🦷 ${t("home.ctaDentalPhoto")}`}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={s.noClinicSecondary}
               activeOpacity={0.85}
               onPress={async () => {
-                try {
-                  await AsyncStorage.removeItem(QUOTE_REQUEST_PREFILL_IMAGE_KEY);
-                } catch {}
+                await safeRemoveItem(QUOTE_REQUEST_PREFILL_IMAGE_KEY);
                 router.push("/clinic-onboarding" as any);
               }}
             >
-              <Text style={s.noClinicSecondaryTxt}>🏥 Klinik Bul</Text>
+              <Text style={s.noClinicSecondaryTxt}>🏥 {t("find_clinic")}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -1277,10 +1534,8 @@ function AiResultBubble({ msg }: { msg: Message }) {
   /** Teklif / klinik akışına giderken analiz veya simülasyon görselini quote-request için sakla. */
   const goToClinicOnboardingForQuote = useCallback(async () => {
     const url = (simulatedSmileUrl || result?.originalImageUrl || "").trim();
-    try {
-      if (url) await AsyncStorage.setItem(QUOTE_REQUEST_PREFILL_IMAGE_KEY, url);
-      else await AsyncStorage.removeItem(QUOTE_REQUEST_PREFILL_IMAGE_KEY);
-    } catch {}
+    if (url) await safeSetItem(QUOTE_REQUEST_PREFILL_IMAGE_KEY, url);
+    else await safeRemoveItem(QUOTE_REQUEST_PREFILL_IMAGE_KEY);
     router.push("/clinic-onboarding" as any);
   }, [simulatedSmileUrl, result?.originalImageUrl, router]);
 
@@ -1803,6 +2058,21 @@ const s = StyleSheet.create({
     borderTopColor: "#fde68a",
   },
   chatHintText: { fontSize: 12, color: "#92400e", lineHeight: 17, textAlign: "center" },
+  doctorAssignBanner: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    backgroundColor: "#f0f9ff",
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#bae6fd",
+  },
+  doctorAssignBannerText: {
+    fontSize: 13,
+    color: "#0c4a6e",
+    lineHeight: 18,
+    textAlign: "center",
+  },
   previewScroll: { maxHeight: 92, marginBottom: 4 },
   previewScrollContent: {
     paddingHorizontal: 10,

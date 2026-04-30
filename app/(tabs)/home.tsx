@@ -19,7 +19,7 @@ import { router, useFocusEffect } from "expo-router";
 import { useAuth } from "../../lib/auth";
 import { API_BASE } from "../../lib/api";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { safeGetItem, safeSetItem } from "../../lib/asyncStorageSafe";
 import * as Haptics from "expo-haptics";
 
 // Import expo-av for audio playback
@@ -597,7 +597,7 @@ export default function Home() {
 
         // Badge: show only if travel updated after last time user opened Travel screen
         try {
-          const lastSeenRaw = await AsyncStorage.getItem(`travel_last_seen_${patientId}`);
+          const lastSeenRaw = await safeGetItem(`travel_last_seen_${patientId}`);
           const lastSeen = Number(lastSeenRaw || "0");
           const isNew = !!updatedAt && updatedAt > (Number.isFinite(lastSeen) ? lastSeen : 0);
           setTravelHasNew(isNew);
@@ -646,7 +646,7 @@ export default function Home() {
         // Get last seen timestamp from storage
         let lastSeenTimestamp = 0;
         try {
-          const lastSeen = await AsyncStorage.getItem(`chat_last_seen_${patientId}`);
+          const lastSeen = await safeGetItem(`chat_last_seen_${patientId}`);
           if (lastSeen) {
             lastSeenTimestamp = parseInt(lastSeen, 10) || 0;
           }
@@ -757,7 +757,7 @@ export default function Home() {
 
       let chosen: HomeOffer | undefined;
       try {
-        const raw = await AsyncStorage.getItem(offerChatLastStorageKey(pid));
+        const raw = await safeGetItem(offerChatLastStorageKey(pid));
         const last = raw ? String(raw).trim() : "";
         if (last && byId.has(last)) {
           chosen = byId.get(last);
@@ -1188,7 +1188,7 @@ export default function Home() {
         />
         <View style={styles.secondaryRow}>
           <SecondaryCard
-            title={t("home.ctaFindClinic")}
+            title={t("find_clinic")}
             icon="search"
             accentColor={primaryColor}
             onPress={() => {
@@ -1409,8 +1409,10 @@ export default function Home() {
           onPress={async () => {
             try {
               const ts = travelSummary.updatedAt || Date.now();
-              await AsyncStorage.setItem(`travel_last_seen_${patientInfo.patientId}`, String(ts));
-            } catch {}
+              await safeSetItem(`travel_last_seen_${patientInfo.patientId}`, String(ts));
+            } catch {
+              /* logged in safeSetItem */
+            }
             setTravelHasNew(false);
             router.push(`/travel?patientId=${patientInfo.patientId}`);
           }}

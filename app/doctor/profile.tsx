@@ -9,7 +9,14 @@ import { useAuth } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
 import { apiGet, apiPut, API_BASE } from '../../lib/api';
 import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES, Language } from '../../lib/i18n';
-
+import {
+  registerExpoPushForSession,
+  syncNotificationSoundToServer,
+} from '../../lib/registerExpoPush';
+import {
+  getMessageSoundPreference,
+  setMessageSoundPreference,
+} from '../../lib/messageSoundPreference';
 interface DoctorProfile {
   doctorId: string;
   name: string;
@@ -72,6 +79,11 @@ export default function DoctorProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [messageSoundOn, setMessageSoundOn] = useState(true);
+
+  useEffect(() => {
+    void getMessageSoundPreference().then(setMessageSoundOn);
+  }, []);
 
   const [form, setForm] = useState({
     name: '', phone: '', title: '', bio: '', department: '',
@@ -404,7 +416,31 @@ export default function DoctorProfileScreen() {
           </View>
         </SectionCard>
 
-        {/* App Language */}
+        {/* Chat message sounds */}
+        <SectionCard title={t('doctor.profile.messageSoundTitle')}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <Text style={{ flex: 1, fontSize: 13, color: '#6B7280', lineHeight: 18 }}>
+              {t('doctor.profile.messageSoundSub')}
+            </Text>
+            <Switch
+              value={messageSoundOn}
+              onValueChange={async (v) => {
+                setMessageSoundOn(v);
+                await setMessageSoundPreference(v);
+                if (!user?.token) return;
+                await syncNotificationSoundToServer({
+                  role: 'doctor',
+                  authToken: user.token,
+                  messageSound: v,
+                });
+                await registerExpoPushForSession({ role: 'doctor', authToken: user.token });
+              }}
+              trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
+              thumbColor={messageSoundOn ? '#2563EB' : '#F3F4F6'}
+            />
+          </View>
+        </SectionCard>
+
         <SectionCard title={t('doctor.profile.appLanguage')}>
           <View style={s.langRow}>
             {SUPPORTED_LANGUAGES.map((lang) => (

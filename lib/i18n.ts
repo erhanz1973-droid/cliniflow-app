@@ -1,5 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
 export type Language = "tr" | "en" | "ka" | "ru";
 
 export const SUPPORTED_LANGUAGES: Language[] = ["tr", "en", "ru", "ka"];
@@ -13,8 +11,17 @@ export const LANGUAGE_NAMES: Record<Language, string> = {
 
 export const STORAGE_KEY = "@cliniflow:language";
 
+/** Bump when persisted language semantics change (migration in LanguageProvider). v3: one-time clear of legacy `tr` from v2. */
+export const APP_LANG_VERSION = "v3";
+export const LANGUAGE_VERSION_KEY = "@cliniflow:language_version";
+
 /** Backwards-compatible key; read/write in sync with {@link STORAGE_KEY} */
 export const LEGACY_STORAGE_KEY = "lang";
+
+/** Runtime mirror of active UI language — updated by LanguageProvider. Debug: `ACTIVE LANG` */
+export const i18n = { locale: "en" as Language };
+
+export const DEFAULT_APP_LANGUAGE: Language = "en";
 
 // Export translations for context usage
 export const translations: Record<Language, Record<string, string>> = {
@@ -58,6 +65,17 @@ export const translations: Record<Language, Record<string, string>> = {
     "common.noDiagnosesSub": "Bu hasta için kaydedilmiş tanı bulunamadı.",
     "common.noPatients": "Hasta bulunamadı",
     "common.noPatientsSub": "Atanmış hastanız bulunmuyor.",
+
+    // Auth labels (native login — use with visible labels, not placeholders)
+    "auth.phone": "Telefon",
+    "auth.phone_or_email": "Telefon veya e-posta",
+    "auth.email": "E-posta",
+    "auth.password": "Şifre",
+    "auth.password_optional": "Şifre (isteğe bağlı)",
+    "auth.clinic_code": "Klinik kodu",
+    "auth.full_name": "Ad Soyad",
+    "auth.license_number": "Lisans numarası",
+    "auth.password_create": "Şifre (en az 6 karakter)",
 
     // Colors
     "colors.black": "Siyah",
@@ -110,6 +128,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "profile.patientId": "Hasta ID",
     "profile.notRegistered": "Kayıtlı değil",
     "profile.language": "Dil",
+    "profile.messageSoundTitle": "Mesaj sesleri",
+    "profile.messageSoundSub": "Yeni sohbet mesajlarında bildirim sesi (uygulama açıkken ve itme bildiriminde)",
     "profile.health": "Sağlık",
     "profile.healthForm": "Sağlık Formu",
     "profile.approvedPatient": "Onaylı Hasta",
@@ -156,6 +176,21 @@ export const translations: Record<Language, Record<string, string>> = {
     "home.ctaDentalPhoto": "Diş Fotoğrafı Çek",
     "home.ctaDentalPhotoSub": "2 dakika içinde teklif al",
     "home.ctaFindClinic": "Klinik Bul",
+    "find_clinic": "Klinik Bul",
+    "nearby": "Yakınımdaki",
+    "all_clinics": "Tüm klinikler",
+    "search_clinic": "İsim, ülke, şehir veya klinik kodu",
+    "get_offer": "Teklif Al",
+    "sign_up": "Kaydol",
+    "city.tbilisi": "Tiflis",
+    "clinic_list.footer_hint": "{count} klinik. {get_offer} veya {sign_up} ile devam edin.",
+    "clinic_list.header_nearby_intro": "Yakın arama (10 km). ",
+    "clinic_list.header_all_intro": "Tüm liste. ",
+    "clinic_list.filter_result_hint": "{filtered} / {total} sonuç (filtreli).",
+    "clinic_list.quote_need_patient": "Teklif almak için hasta hesabıyla giriş yapın.",
+    "clinic_list.no_match_search": "Aramanızla eşleşen klinik yok.",
+    "clinic_list.msg_location_fallback": "Konum izni kapalı veya alınamadı — tüm klinikler gösteriliyor. Yakınınızdakiler için ayarlardan konumu açın veya «{nearby}» ile yeniden deneyin.",
+    "clinic_list.msg_empty_nearby": "10 km içinde klinik yok. {all_clinics} listesine geçebilirsiniz.",
     "home.ctaJoinWithCode": "Klinik Kodu ile Katıl",
     "home.clinic.connectedSubtitle": "Kliniğe bağlısın",
     "home.clinic.communicationHint": "Bu klinik üzerinden iletişim kuruyorsun.",
@@ -1167,6 +1202,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "doctor.profile.registrationDate": "Kayıt Tarihi",
     "doctor.profile.notSpecified": "Belirtilmedi",
     "doctor.profile.appLanguage": "Uygulama Dili",
+    "doctor.profile.messageSoundTitle": "Mesaj sesleri",
+    "doctor.profile.messageSoundSub": "Yeni hasta mesajlarında sesli uyarı",
     "doctor.profile.status.approved": "Onaylı",
     "doctor.profile.status.pending": "Beklemede",
     "doctor.profile.status.suspended": "Askıda",
@@ -1245,9 +1282,13 @@ export const translations: Record<Language, Record<string, string>> = {
     "treatmentPlan.cat.İmplant": "İmplant",
     "treatmentPlan.cat.Diğer": "Diğer",
     "messages.title": "Mesajlar",
+    "messages.doctorAssignedBanner": "Dr. {doctorName} sizinle iletişime geçecek",
     "messages.subtitle": "Kliniğinizle iletişim",
     "messages.clinic": "Klinik",
     "messages.uploading": "Dosya yükleniyor...",
+    "messages.noClinicTitle": "Henüz bir kliniğiniz yok",
+    "messages.noClinicSub":
+      "Diş fotoğrafınızı yükleyin, analiz edelim ve size uygun klinikleri önerelim",
     "messages.emptySub": "Klinikle iletişime geçmek için bir mesaj gönderin.",
     "messages.lockedTitle": "Mesajlaşma Kilitli",
     "messages.lockedMsg": "Klinik onayı bekleniyor. Onaylandıktan sonra mesaj gönderebilirsiniz.",
@@ -1393,6 +1434,17 @@ export const translations: Record<Language, Record<string, string>> = {
     "common.noPatients": "No patients found",
     "common.noPatientsSub": "You have no assigned patients.",
 
+    // Auth labels (native login — use with visible labels, not placeholders)
+    "auth.phone": "Phone",
+    "auth.phone_or_email": "Phone or email",
+    "auth.email": "Email",
+    "auth.password": "Password",
+    "auth.password_optional": "Password (optional)",
+    "auth.clinic_code": "Clinic code",
+    "auth.full_name": "Full name",
+    "auth.license_number": "License number",
+    "auth.password_create": "Password (min. 6 characters)",
+
     // Colors
     "colors.black": "Black",
     "colors.white": "White",
@@ -1444,6 +1496,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "profile.patientId": "Patient ID",
     "profile.notRegistered": "Not registered",
     "profile.language": "Language",
+    "profile.messageSoundTitle": "Message sounds",
+    "profile.messageSoundSub": "Play a sound for new chat messages (in-app and push, when enabled)",
     "profile.health": "Health",
     "profile.healthForm": "Health Form",
     "profile.approvedPatient": "Approved Patient",
@@ -1490,6 +1544,21 @@ export const translations: Record<Language, Record<string, string>> = {
     "home.ctaDentalPhoto": "Take a dental photo",
     "home.ctaDentalPhotoSub": "Get offers in about 2 minutes",
     "home.ctaFindClinic": "Find a clinic",
+    "find_clinic": "Find Clinic",
+    "nearby": "Nearby",
+    "all_clinics": "All Clinics",
+    "search_clinic": "Name, country, city or clinic code",
+    "get_offer": "Get Offer",
+    "sign_up": "Sign Up",
+    "city.tbilisi": "Tbilisi",
+    "clinic_list.footer_hint": "{count} clinics. Continue with {get_offer} or {sign_up}.",
+    "clinic_list.header_nearby_intro": "Nearby search (10 km). ",
+    "clinic_list.header_all_intro": "Full list. ",
+    "clinic_list.filter_result_hint": "{filtered} / {total} results (filtered).",
+    "clinic_list.quote_need_patient": "Sign in with a patient account to request an offer.",
+    "clinic_list.no_match_search": "No clinics match your search.",
+    "clinic_list.msg_location_fallback": "Location is off or unavailable — showing all clinics. Turn on location in Settings for nearby results, or try «{nearby}» again.",
+    "clinic_list.msg_empty_nearby": "No clinics within 10 km. You can switch to {all_clinics}.",
     "home.ctaJoinWithCode": "Join with clinic code",
     "home.clinic.connectedSubtitle": "You’re linked to this clinic",
     "home.clinic.communicationHint": "You communicate through this clinic.",
@@ -2512,6 +2581,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "doctor.profile.registrationDate": "Registration Date",
     "doctor.profile.notSpecified": "Not specified",
     "doctor.profile.appLanguage": "App Language",
+    "doctor.profile.messageSoundTitle": "Message sounds",
+    "doctor.profile.messageSoundSub": "Sound alert for new patient messages",
     "doctor.profile.status.approved": "Approved",
     "doctor.profile.status.pending": "Pending",
     "doctor.profile.status.suspended": "Suspended",
@@ -2590,9 +2661,13 @@ export const translations: Record<Language, Record<string, string>> = {
     "treatmentPlan.cat.İmplant": "Implant",
     "treatmentPlan.cat.Diğer": "Other",
     "messages.title": "Messages",
+    "messages.doctorAssignedBanner": "Dr. {doctorName} will contact you.",
     "messages.subtitle": "Communicate with your clinic",
     "messages.clinic": "Clinic",
     "messages.uploading": "Uploading file...",
+    "messages.noClinicTitle": "You don't have a clinic yet",
+    "messages.noClinicSub":
+      "Upload a dental photo — we'll analyse it and suggest suitable clinics.",
     "messages.emptySub": "Send a message to communicate with your clinic.",
     "messages.lockedTitle": "Messaging Locked",
     "messages.lockedMsg": "Waiting for clinic approval. You can send messages once approved.",
@@ -2742,6 +2817,17 @@ export const translations: Record<Language, Record<string, string>> = {
     "common.noPatients": "პაციენტები ვერ მოიძებნა",
     "common.noPatientsSub": "თქვენ არ გყავთ მინიჭებული პაციენტები.",
 
+    // Auth labels (native login)
+    "auth.phone": "ტელეფონი",
+    "auth.phone_or_email": "ტელეფონი ან ელფოსტა",
+    "auth.email": "ელფოსტა",
+    "auth.password": "პაროლი",
+    "auth.password_optional": "პაროლი (არასავალდებულო)",
+    "auth.clinic_code": "კლინიკის კოდი",
+    "auth.full_name": "სრული სახელი",
+    "auth.license_number": "ლიცენზიის ნომერი",
+    "auth.password_create": "პაროლი (მინ. 6 სიმბოლო)",
+
     // Colors
     "colors.black": "შავი",
     "colors.white": "თეთრი",
@@ -2792,6 +2878,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "profile.patientId": "პაციენტის ID",
     "profile.notRegistered": "დარეგისტრირებული არ არის",
     "profile.language": "ენა",
+    "profile.messageSoundTitle": "შეტყობინების ხმები",
+    "profile.messageSoundSub": "ახალი ჩეთის შეტყობინებების ხმა (აპლიკაციის გახსნისას და push-ში)",
     "profile.health": "ჯანმრთელობა",
     "profile.healthForm": "ჯანმრთელობის ფორმა",
     "profile.approvedPatient": "დადასტურებული პაციენტი",
@@ -2838,6 +2926,21 @@ export const translations: Record<Language, Record<string, string>> = {
     "home.ctaDentalPhoto": "კბილის ფოტოს გადაღება",
     "home.ctaDentalPhotoSub": "შეთავაზება დაახლოებით 2 წუთში",
     "home.ctaFindClinic": "კლინიკის ძებნა",
+    "find_clinic": "კლინიკის ძებნა",
+    "nearby": "ახლოს",
+    "all_clinics": "ყველა კლინიკა",
+    "search_clinic": "სახელი, ქვეყანა, ქალაქი ან კლინიკის კოდი",
+    "get_offer": "შემოთავაზების მიღება",
+    "sign_up": "რეგისტრაცია",
+    "city.tbilisi": "თბილისი",
+    "clinic_list.footer_hint": "{count} კლინიკა. გააგრძელეთ {get_offer} ან {sign_up}-ით.",
+    "clinic_list.header_nearby_intro": "ახლომდებარე ძიება (10 კმ). ",
+    "clinic_list.header_all_intro": "სრული სია. ",
+    "clinic_list.filter_result_hint": "{filtered} / {total} შედეგი (ფილტრი).",
+    "clinic_list.quote_need_patient": "შეთავაზების მისაღებად შედით პაციენტის ანგარიშით.",
+    "clinic_list.no_match_search": "თქვენს ძიებას არც ერთი კლინიკა არ შეესაბამება.",
+    "clinic_list.msg_location_fallback": "ლოკაციის ნებართვა გამორთულია ან ხელმიუწვდომელია — ნაჩვენება ყველა კლინიკა. ჩართეთ ლოკაცია პარამეტრებში ახლო სიისთვის, ან სცადეთ «{nearby}» ხელახლა.",
+    "clinic_list.msg_empty_nearby": "არ არის კლინიკა 10 კმ-ში. გადადით {all_clinics}-ზე.",
     "home.ctaJoinWithCode": "შეუერთდით კლინიკის კოდით",
     "home.clinic.connectedSubtitle": "კლინიკასთან ხართ დაკავშირებული",
     "home.clinic.communicationHint": "კომუნიკაცია ამ კლინიკის მეშვეობით.",
@@ -3849,6 +3952,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "doctor.profile.registrationDate": "რეგისტრაციის თარიღი",
     "doctor.profile.notSpecified": "მითითებული არ არის",
     "doctor.profile.appLanguage": "აპლიკაციის ენა",
+    "doctor.profile.messageSoundTitle": "შეტყობინების ხმები",
+    "doctor.profile.messageSoundSub": "პაციენტის ახალი შეტყობინების ხმოვანი სიგნალი",
     "doctor.profile.status.approved": "დამტკიცებული",
     "doctor.profile.status.pending": "მომლოდინე",
     "doctor.profile.status.suspended": "შეჩერებული",
@@ -3927,8 +4032,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "treatmentPlan.proc.XRAY": "რენტგენი",
     "treatmentPlan.proc.OTHER": "სხვა",
     "messages.title": "შეტყობინებები",
+    "messages.doctorAssignedBanner": "დოქტორი {doctorName} დაგიკავშირდებათ.",
     "messages.subtitle": "დაუკავშირდით თქვენს კლინიკას",
     "messages.uploading": "ფაილი იტვირთება...",
+    "messages.noClinicTitle": "ჯერ კლინიკა არ გაქვთ",
+    "messages.noClinicSub":
+      "ატვირთეთ კბილის ფოტო — გავაანალიზებთ და შემოგთავაზებთ შესაფერის კლინიკებს.",
     "messages.emptySub": "გაგზავნეთ შეტყობინება კლინიკასთან კომუნიკაციისთვის.",
     "messages.lockedTitle": "მესიჯინგი დაბლოკილია",
     "messages.lockedMsg": "კლინიკის დადასტურების მოლოდინში. დადასტურების შემდეგ შეძლებთ შეტყობინებების გაგზავნას.",
@@ -4067,6 +4176,17 @@ export const translations: Record<Language, Record<string, string>> = {
     "common.noPatients": "Пациенты не найдены",
     "common.noPatientsSub": "У вас нет назначенных пациентов.",
 
+    // Auth labels (native login)
+    "auth.phone": "Телефон",
+    "auth.phone_or_email": "Телефон или эл. почта",
+    "auth.email": "Эл. почта",
+    "auth.password": "Пароль",
+    "auth.password_optional": "Пароль (необязательно)",
+    "auth.clinic_code": "Код клиники",
+    "auth.full_name": "Полное имя",
+    "auth.license_number": "Номер лицензии",
+    "auth.password_create": "Пароль (мин. 6 символов)",
+
     // Navigation
     "nav.home": "Главная",
     "nav.health": "Здоровье",
@@ -4103,6 +4223,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "profile.patientId": "ID пациента",
     "profile.notRegistered": "Не зарегистрирован",
     "profile.language": "Язык",
+    "profile.messageSoundTitle": "Звук сообщений",
+    "profile.messageSoundSub": "Звук для новых сообщений чата (в приложении и в push)",
     "profile.health": "Здоровье",
     "profile.healthForm": "Анкета здоровья",
     "profile.approvedPatient": "Одобренный пациент",
@@ -4149,6 +4271,21 @@ export const translations: Record<Language, Record<string, string>> = {
     "home.ctaDentalPhoto": "Сделать фото зубов",
     "home.ctaDentalPhotoSub": "Предложения примерно за 2 минуты",
     "home.ctaFindClinic": "Найти клинику",
+    "find_clinic": "Найти клинику",
+    "nearby": "Рядом",
+    "all_clinics": "Все клиники",
+    "search_clinic": "Имя, страна, город или код клиники",
+    "get_offer": "Получить предложение",
+    "sign_up": "Регистрация",
+    "city.tbilisi": "Тбилиси",
+    "clinic_list.footer_hint": "{count} клиник. Продолжите: {get_offer} или {sign_up}.",
+    "clinic_list.header_nearby_intro": "Поиск рядом (10 км). ",
+    "clinic_list.header_all_intro": "Полный список. ",
+    "clinic_list.filter_result_hint": "{filtered} / {total} результатов (отфильтровано).",
+    "clinic_list.quote_need_patient": "Войдите как пациент, чтобы запросить предложение.",
+    "clinic_list.no_match_search": "Нет клиник по вашему запросу.",
+    "clinic_list.msg_location_fallback": "Геолокация недоступна — показаны все клиники. Включите геолокацию в настройках для списка рядом или снова откройте «{nearby}».",
+    "clinic_list.msg_empty_nearby": "Нет клиник в радиусе 10 км. Переключитесь на {all_clinics}.",
     "home.ctaJoinWithCode": "Войти по коду клиники",
     "home.clinic.connectedSubtitle": "Вы привязаны к клинике",
     "home.clinic.communicationHint": "Общение идёт через эту клинику.",
@@ -4738,6 +4875,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "doctor.profile.registrationDate": "Дата регистрации",
     "doctor.profile.notSpecified": "Не указано",
     "doctor.profile.appLanguage": "Язык приложения",
+    "doctor.profile.messageSoundTitle": "Звук сообщений",
+    "doctor.profile.messageSoundSub": "Звуковое оповещение о новых сообщениях от пациента",
     "doctor.profile.status.approved": "Одобрен",
     "doctor.profile.status.pending": "Ожидает",
     "doctor.profile.status.suspended": "Приостановлен",
@@ -4816,8 +4955,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "treatmentPlan.proc.XRAY": "Рентген",
     "treatmentPlan.proc.OTHER": "Другое",
     "messages.title": "Сообщения",
+    "messages.doctorAssignedBanner": "Др. {doctorName} свяжется с вами.",
     "messages.subtitle": "Общайтесь с вашей клиникой",
     "messages.uploading": "Файл загружается...",
+    "messages.noClinicTitle": "У вас ещё нет клиники",
+    "messages.noClinicSub":
+      "Загрузите фото зубов — мы проанализируем и предложим подходящие клиники.",
     "messages.emptySub": "Отправьте сообщение для общения с клиникой.",
     "messages.lockedTitle": "Обмен сообщениями заблокирован",
     "messages.lockedMsg": "Ожидание подтверждения клиники. После подтверждения вы сможете отправлять сообщения.",

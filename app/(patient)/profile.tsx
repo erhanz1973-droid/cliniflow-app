@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, Image, ActivityIndicator, Platform, Modal, Linking, TextInput,
+  Alert, Image, ActivityIndicator, Platform, Modal, Linking, TextInput, Switch,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../../lib/auth";
@@ -10,6 +10,14 @@ import { API_BASE } from "../../lib/api";
 import { useLanguage } from "../../lib/language-context";
 import { LANGUAGE_NAMES, SUPPORTED_LANGUAGES, Language } from "../../lib/i18n";
 import { saveSelectedChatClinic } from "../../lib/selectedChatClinic";
+import {
+  getMessageSoundPreference,
+  setMessageSoundPreference,
+} from "../../lib/messageSoundPreference";
+import {
+  registerExpoPushForSession,
+  syncNotificationSoundToServer,
+} from "../../lib/registerExpoPush";
 
 function Row({ label, value }: { label: string; value?: string | null }) {
   return (
@@ -49,6 +57,11 @@ export default function ProfileScreen() {
   const [joinClinicCode, setJoinClinicCode] = useState('');
   const [joinReferralCode, setJoinReferralCode] = useState('');
   const [joiningClinic, setJoiningClinic] = useState(false);
+  const [messageSoundOn, setMessageSoundOn] = useState(true);
+
+  useEffect(() => {
+    void getMessageSoundPreference().then(setMessageSoundOn);
+  }, []);
 
   const name = String(user?.name || t("profile.name")).trim();
   const phone = String(user?.phone || "").trim();
@@ -344,6 +357,30 @@ export default function ProfileScreen() {
         </View>
       ) : null}
 
+      {/* Message sound (chat) */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>{t("profile.messageSoundTitle")}</Text>
+        <View style={styles.soundRow}>
+          <Text style={styles.soundSub}>{t("profile.messageSoundSub")}</Text>
+          <Switch
+            value={messageSoundOn}
+            onValueChange={async (v) => {
+              setMessageSoundOn(v);
+              await setMessageSoundPreference(v);
+              if (!user?.token) return;
+              await syncNotificationSoundToServer({
+                role: "patient",
+                authToken: user.token,
+                messageSound: v,
+              });
+              await registerExpoPushForSession({ role: "patient", authToken: user.token });
+            }}
+            trackColor={{ false: "#D1D5DB", true: "#93C5FD" }}
+            thumbColor={messageSoundOn ? "#2563EB" : "#F3F4F6"}
+          />
+        </View>
+      </View>
+
       {/* LANGUAGE */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{t("profile.language")}</Text>
@@ -540,6 +577,19 @@ const styles = StyleSheet.create({
   },
   rowLabel: { fontSize: 14, color: "#6b7280" },
   rowValue: { fontSize: 14, fontWeight: "600", color: "#111827", maxWidth: "60%", textAlign: "right" },
+  soundRow: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  soundSub: { flex: 1, fontSize: 13, color: "#6b7280", lineHeight: 18 },
   divider: { height: 1, backgroundColor: "#f3f4f6", marginHorizontal: 16 },
   langGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   langBtn: {

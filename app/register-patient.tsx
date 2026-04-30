@@ -150,92 +150,97 @@ export default function RegisterPatientScreen() {
           </View>
         )}
 
-        <TextInput
-          style={styles.input}
-          placeholder={`${t("register.patientClinicCode")} (${t("common.optional")})`}
-          placeholderTextColor="#9CA3AF"
-          value={formData.clinicCode}
-          onChangeText={(text) => setFormData({ ...formData, clinicCode: text.toUpperCase() })}
-          autoCapitalize="characters"
-        />
-
-        <TextInput
-          style={styles.input}
-          placeholder={t("register.patientName")}
-          placeholderTextColor="#9CA3AF"
-          value={formData.patientName}
-          onChangeText={(text) => setFormData({ ...formData, patientName: text })}
-        />
-
-        <TextInput
-          style={styles.input}
-          placeholder={t("register.patientPhone")}
-          placeholderTextColor="#9CA3AF"
-          value={formData.phone}
-          onChangeText={(text) => setFormData({ ...formData, phone: text })}
-          keyboardType="phone-pad"
-        />
-
-        <TextInput
-          style={styles.input}
-          placeholder={t("register.patientEmail")}
-          placeholderTextColor="#9CA3AF"
-          value={formData.email}
-          onChangeText={(text) => setFormData({ ...formData, email: text })}
-          keyboardType="email-address"
-          autoCapitalize="none"
-        />
-
-        {/* ── Password ─────────────────────────────────────────────────── */}
-        <View style={styles.passwordWrapper}>
+        <View style={styles.field}>
+          <Text style={styles.label}>
+            {t("auth.clinic_code")} ({t("common.optional")})
+          </Text>
           <TextInput
-            style={styles.passwordInput}
-            placeholder={t("register.password")}
-            placeholderTextColor="#9CA3AF"
-            value={formData.password}
-            onChangeText={(text) => setFormData({ ...formData, password: text })}
-            secureTextEntry={!showPassword}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="next"
+            style={styles.input}
+            value={formData.clinicCode}
+            onChangeText={(text) => setFormData({ ...formData, clinicCode: text.toUpperCase() })}
+            autoCapitalize="characters"
           />
-          <Pressable onPress={() => setShowPassword(v => !v)} style={styles.eyeBtn}>
-            <Text style={styles.eyeIcon}>{showPassword ? "🙈" : "👁️"}</Text>
-          </Pressable>
         </View>
 
-        <View style={styles.passwordWrapper}>
+        <View style={styles.field}>
+          <Text style={styles.label}>{t("auth.full_name")}</Text>
           <TextInput
-            style={styles.passwordInput}
-            placeholder={t("register.confirmPassword")}
-            placeholderTextColor="#9CA3AF"
-            value={formData.confirmPassword}
-            onChangeText={(text) => setFormData({ ...formData, confirmPassword: text })}
-            secureTextEntry={!showConfirm}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="next"
+            style={styles.input}
+            value={formData.patientName}
+            onChangeText={(text) => setFormData({ ...formData, patientName: text })}
           />
-          <Pressable onPress={() => setShowConfirm(v => !v)} style={styles.eyeBtn}>
-            <Text style={styles.eyeIcon}>{showConfirm ? "🙈" : "👁️"}</Text>
-          </Pressable>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>{t("auth.phone")}</Text>
+          <TextInput
+            style={styles.input}
+            value={formData.phone}
+            onChangeText={(text) => setFormData({ ...formData, phone: text })}
+            keyboardType="phone-pad"
+          />
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>{t("register.patientEmail")}</Text>
+          <TextInput
+            style={styles.input}
+            value={formData.email}
+            onChangeText={(text) => setFormData({ ...formData, email: text })}
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>{t("auth.password_create")}</Text>
+          <View style={styles.passwordWrapper}>
+            <TextInput
+              style={styles.passwordInput}
+              value={formData.password}
+              onChangeText={(text) => setFormData({ ...formData, password: text })}
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="next"
+            />
+            <Pressable onPress={() => setShowPassword(v => !v)} style={styles.eyeBtn}>
+              <Text style={styles.eyeIcon}>{showPassword ? "🙈" : "👁️"}</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>{t("register.confirmPassword")}</Text>
+          <View style={styles.passwordWrapper}>
+            <TextInput
+              style={styles.passwordInput}
+              value={formData.confirmPassword}
+              onChangeText={(text) => setFormData({ ...formData, confirmPassword: text })}
+              secureTextEntry={!showConfirm}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="next"
+            />
+            <Pressable onPress={() => setShowConfirm(v => !v)} style={styles.eyeBtn}>
+              <Text style={styles.eyeIcon}>{showConfirm ? "🙈" : "👁️"}</Text>
+            </Pressable>
+          </View>
         </View>
         {formData.confirmPassword.length > 0 && formData.password !== formData.confirmPassword && (
           <Text style={styles.passwordHint}>{t("register.passwordMismatch")}</Text>
         )}
 
-        {/* ── Referral Code (optional) ─────────────────────────────────── */}
+        {/* Referral Code (optional) */}
         <View style={styles.referralWrapper}>
           <View style={styles.referralLabelRow}>
-            <Text style={styles.referralLabel}>{t("register.referralCode")}</Text>
+            <Text style={styles.label}>{t("register.referralCode")}</Text>
             <View style={styles.optionalBadge}>
-              <Text style={styles.optionalBadgeText}>Optional</Text>
+              <Text style={styles.optionalBadgeText}>{t("common.optional")}</Text>
             </View>
           </View>
           <TextInput
             style={styles.referralInput}
-            placeholder="e.g. ABC123"
-            placeholderTextColor="#9CA3AF"
             value={formData.referralCode}
             onChangeText={(text) => setFormData({ ...formData, referralCode: text })}
             autoCapitalize="characters"
@@ -290,13 +295,21 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 28,
   },
+  field: {
+    marginBottom: 14,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 6,
+  },
   input: {
     borderWidth: 1,
     borderColor: "#D1D5DB",
     backgroundColor: "#F9FAFB",
     padding: 14,
     borderRadius: 10,
-    marginBottom: 14,
     fontSize: 15,
     color: "#111827",
   },
@@ -381,7 +394,7 @@ const styles = StyleSheet.create({
   passwordWrapper: {
     flexDirection: "row", alignItems: "center",
     borderWidth: 1, borderColor: "#D1D5DB", backgroundColor: "#F9FAFB",
-    borderRadius: 10, marginBottom: 14, paddingRight: 12,
+    borderRadius: 10, paddingRight: 12,
   },
   passwordInput: {
     flex: 1, padding: 14, fontSize: 15, color: "#111827",
@@ -405,11 +418,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     marginBottom: 8,
-  },
-  referralLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#374151",
   },
   optionalBadge: {
     backgroundColor: "#E5E7EB",

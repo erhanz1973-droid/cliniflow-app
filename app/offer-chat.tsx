@@ -9,7 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { safeSetItem } from '../lib/asyncStorageSafe';
 import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/language-context';
 import { API_BASE } from '../lib/api';
@@ -192,7 +192,7 @@ export default function OfferChatScreen() {
         ? String(user.patientId).trim()
         : '';
     if (!oid || !pid || !OFFER_ID_UUID_RE.test(oid)) return;
-    void AsyncStorage.setItem(offerChatLastStorageKey(pid), oid);
+    void safeSetItem(offerChatLastStorageKey(pid), oid);
   }, [currentOfferId, user?.patientId, user?.type]);
 
   /** Mark the other party's messages read (doctor ↔ patient); backend picks counterparty by actor. */

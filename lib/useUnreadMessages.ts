@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { safeGetItem, safeSetItem } from "./asyncStorageSafe";
 import { API_BASE } from "./api";
 
 const POLL_INTERVAL_MS = 10_000;
@@ -15,7 +15,7 @@ export function useUnreadMessages(patientId: string | undefined, token: string |
   const fetchCount = useCallback(async () => {
     if (!patientId || !token) return;
     try {
-      const raw = await AsyncStorage.getItem(storageKey(patientId)).catch(() => null);
+      const raw = await safeGetItem(storageKey(patientId));
       const lastRead = raw ? Number(raw) : Date.now() - 7 * 24 * 60 * 60 * 1000;
 
       const url = `${API_BASE}/api/patient/${patientId}/messages/unread-count?since=${lastRead}`;
@@ -40,10 +40,10 @@ export function useUnreadMessages(patientId: string | undefined, token: string |
     };
   }, [fetchCount, patientId, token]);
 
-  /** Call this when the messages screen is opened to reset the badge */
+  /** Call when the messages screen is opened to reset tab badge; never blocks on storage. */
   const markRead = useCallback(async () => {
     if (!patientId) return;
-    await AsyncStorage.setItem(storageKey(patientId), String(Date.now())).catch(() => {});
+    void safeSetItem(storageKey(patientId), String(Date.now()));
     setUnreadCount(0);
   }, [patientId]);
 

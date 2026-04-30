@@ -1,12 +1,43 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet, View, Pressable, Text, ActivityIndicator, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { i18n } from '../lib/i18n';
+
+/** Bump when `public/patient-login.html` (or related shell) changes — forces WebView to skip cached HTML. */
+const PATIENT_LOGIN_HTML_CACHE_BUST = '123';
+
+/**
+ * Prepare hosted web shells for the in-app WebView:
+ * - find-clinic: `?lang=` from app i18n (see public/i18n.js)
+ * - patient-login: `?v=` cache-bust so OTP/login HTML updates are not stale
+ */
+function prepareWebShellUri(uri: string): string {
+  if (!uri || !/^https?:\/\//i.test(uri)) return uri;
+  try {
+    const u = new URL(uri);
+    const path = u.pathname.toLowerCase();
+    if (/find-clinic/i.test(path)) {
+      const lang = String(i18n.locale || 'en').trim().slice(0, 2) || 'en';
+      if (!u.searchParams.has('lang')) {
+        u.searchParams.set('lang', lang);
+      }
+    }
+    if (/patient-login/i.test(path)) {
+      u.searchParams.set('v', PATIENT_LOGIN_HTML_CACHE_BUST);
+    }
+    return u.toString();
+  } catch {
+    return uri;
+  }
+}
 
 export default function ModalScreen() {
   const params = useLocalSearchParams();
   const router = useRouter();
   const url = params.url as string;
   const title = params.title as string || '';
+
+  const webUrl = prepareWebShellUri(url);
 
   if (!url) {
     return (
@@ -24,6 +55,8 @@ export default function ModalScreen() {
     );
   }
 
+  console.log('[MODAL WebView]', { rawUrl: url, resolved: webUrl, ACTIVE_LANG: i18n.locale });
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -33,8 +66,10 @@ export default function ModalScreen() {
         </Pressable>
       </View>
       <WebView
-        source={{ uri: url }}
+        source={{ uri: webUrl }}
         style={styles.webview}
+        cacheEnabled={false}
+        incognito={true}
         javaScriptEnabled={true}
         domStorageEnabled={true}
         startInLoadingState={true}

@@ -1,4 +1,4 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { safeGetItem, safeRemoveItem, safeSetItem } from "./asyncStorageSafe";
 
 const KEY = "@cliniflow:selectedChatClinic";
 
@@ -10,7 +10,7 @@ export type SelectedClinic = {
 
 export async function loadSelectedChatClinic(): Promise<SelectedClinic | null> {
   try {
-    const raw = await AsyncStorage.getItem(KEY);
+    const raw = await safeGetItem(KEY);
     if (!raw) return null;
     const j = JSON.parse(raw) as Record<string, unknown>;
     const id = j?.id != null ? String(j.id).trim() : "";
@@ -26,20 +26,16 @@ export async function loadSelectedChatClinic(): Promise<SelectedClinic | null> {
 }
 
 export async function saveSelectedChatClinic(c: SelectedClinic | null): Promise<void> {
-  try {
-    if (!c?.id?.trim()) {
-      await AsyncStorage.removeItem(KEY);
-      return;
-    }
-    await AsyncStorage.setItem(
-      KEY,
-      JSON.stringify({
-        id: String(c.id).trim(),
-        clinic_code: c.clinic_code?.trim() || undefined,
-        name: c.name || undefined,
-      })
-    );
-  } catch {
-    // ignore
+  if (!c?.id?.trim()) {
+    await safeRemoveItem(KEY);
+    return;
   }
+  await safeSetItem(
+    KEY,
+    JSON.stringify({
+      id: String(c.id).trim(),
+      clinic_code: c.clinic_code?.trim() || undefined,
+      name: c.name || undefined,
+    }),
+  );
 }

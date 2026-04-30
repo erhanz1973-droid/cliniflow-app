@@ -17,12 +17,21 @@ import {
 import { useRouter } from "expo-router";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../lib/auth";
 import { API_BASE } from "../lib/api";
 import { saveSelectedChatClinic } from "../lib/selectedChatClinic";
+import { useLanguage } from "../lib/language-context";
+import { formatClinicCityLabel } from "../lib/clinicCityDisplay";
+import { resolveCityCode } from "../lib/cityCodes";
 
 /** Same key as patient messages (preferred country filter for “all” list). */
 const PREFERRED_DESTINATION_KEY = "@clinifly:preferredDestination";
+
+/** Set `true` when GET /api/clinics/nearby is verified in production. */
+const isNearbyEnabled = false;
+
+const NEARBY_COMING_SOON_LABEL = "Yakındaki klinikler (yakında aktif olacak)";
 
 type ListMode = "nearby" | "all";
 
@@ -72,6 +81,8 @@ async function resolvePreferredCountry(): Promise<string> {
 
 export default function ClinicOnboardingScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { t, currentLanguage } = useLanguage();
   const { user, signIn } = useAuth();
   const token = user?.token ?? "";
   const [clinics, setClinics] = useState<ClinicRow[]>([]);
@@ -80,21 +91,43 @@ export default function ClinicOnboardingScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [listMode, setListMode] = useState<ListMode>("nearby");
+  const [listMode, setListMode] = useState<ListMode>(isNearbyEnabled ? "nearby" : "all");
+
+  /** Stable translated strings — avoid re-invoking `t` on unrelated state churn (typing, spinner, etc.). */
+  const headerCopy = useMemo(
+    () => ({
+      find_clinic: t("find_clinic"),
+      nearby: t("nearby"),
+      all_clinics: t("all_clinics"),
+      search_clinic: t("search_clinic"),
+      get_offer: t("get_offer"),
+      sign_up: t("sign_up"),
+      back: t("requests.back"),
+      no_match_search: t("clinic_list.no_match_search"),
+      header_nearby_intro: t("clinic_list.header_nearby_intro"),
+      header_all_intro: t("clinic_list.header_all_intro"),
+    }),
+    [t, currentLanguage],
+  );
 
   const filteredClinics = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const qRaw = searchQuery.trim();
+    const q = qRaw.toLowerCase();
+    const qCanon = resolveCityCode(qRaw);
     if (!q) return clinics;
     return clinics.filter((c) => {
       const name = (c.name || "").toLowerCase();
       const city = (c.city || "").toLowerCase();
       const country = (c.country || "").toLowerCase();
       const code = (c.clinicCode || "").toLowerCase();
+      const cityCanonMatch =
+        Boolean(qCanon) && resolveCityCode(c.city) === qCanon;
       return (
         name.includes(q) ||
         city.includes(q) ||
         country.includes(q) ||
-        code.includes(q)
+        code.includes(q) ||
+        cityCanonMatch
       );
     });
   }, [clinics, searchQuery]);
@@ -204,7 +237,7 @@ export default function ClinicOnboardingScreen() {
   const handleRequestQuotePress = useCallback(
     (item: ClinicRow) => {
       if (user?.type !== "patient") {
-        Alert.alert("Bilgi", "Teklif almak için hasta hesabıyla giriş yapın.");
+        Alert.alert(t("common.info"), t("clinic_list.quote_need_patient"));
         return;
       }
       const payload = [
@@ -223,7 +256,7 @@ export default function ClinicOnboardingScreen() {
         },
       } as any);
     },
-    [user, router]
+    [user, router, t]
   );
 
   const load = useCallback(async () => {
@@ -267,14 +300,17 @@ export default function ClinicOnboardingScreen() {
         return Array.isArray(data.clinics) ? data.clinics : [];
       };
 
-      if (listMode === "all") {
+      const effectiveListMode = isNearbyEnabled ? listMode : "all";
+
+      if (effectiveListMode === "all") {
         list = await fetchAll();
       } else {
         const coords = await getDeviceCoords();
         if (!coords) {
           list = await fetchAll();
-          msg =
-            "Konum izni kapalı veya alınamadı — tüm klinikler gösteriliyor. Yakınınızdakiler için ayarlardan konumu açın veya \"Yakınımdaki\" ile yeniden deneyin.";
+          msg = t("clinic_list.msg_location_fallback", {
+            nearby: t("nearby"),
+          });
         } else {
           const qs = new URLSearchParams({
             lat: String(coords.lat),
@@ -294,7 +330,9 @@ export default function ClinicOnboardingScreen() {
           }
           list = Array.isArray(data.clinics) ? data.clinics : [];
           if (list.length === 0) {
-            msg = "10 km içinde klinik yok. Tüm kliniklere geçebilirsiniz.";
+            msg = t("clinic_list.msg_empty_nearby", {
+              all_clinics: t("all_clinics"),
+            });
           }
         }
       }
@@ -308,24 +346,58 @@ export default function ClinicOnboardingScreen() {
     } finally {
       setLoading(false);
     }
-  }, [token, listMode]);
+  }, [token, listMode, t, isNearbyEnabled]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   return (
-    <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Klinik bul</Text>
+    <View style={[styles.container, { paddingBottom: insets.bottom }]}>
+        <View
+          style={[
+            styles.header,
+            { paddingTop: Math.max(insets.top, 8) + 4 },
+          ]}
+        >
+          <View style={styles.headerNavRow}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={styles.headerBack}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={headerCopy.back}
+            >
+              <Text style={styles.headerBackText}>← {headerCopy.back}</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.headerTitle}>{headerCopy.find_clinic}</Text>
           <View style={styles.modeRow}>
             <TouchableOpacity
-              style={[styles.modeChip, listMode === "nearby" && styles.modeChipActive]}
-              onPress={() => setListMode("nearby")}
-              activeOpacity={0.8}
+              style={[
+                styles.modeChip,
+                isNearbyEnabled && listMode === "nearby" && styles.modeChipActive,
+                !isNearbyEnabled && styles.modeChipDisabled,
+              ]}
+              onPress={() =>
+                !isNearbyEnabled
+                  ? Alert.alert("Bu özellik yakında aktif olacak")
+                  : setListMode("nearby")
+              }
+              activeOpacity={isNearbyEnabled ? 0.8 : 1}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !isNearbyEnabled }}
+              accessibilityHint={!isNearbyEnabled ? NEARBY_COMING_SOON_LABEL : undefined}
             >
-              <Text style={[styles.modeChipText, listMode === "nearby" && styles.modeChipTextActive]}>
-                Yakınımdaki (10 km)
+              <Text
+                numberOfLines={2}
+                style={[
+                  styles.modeChipText,
+                  isNearbyEnabled && listMode === "nearby" && styles.modeChipTextActive,
+                  !isNearbyEnabled && styles.modeChipTextDisabled,
+                ]}
+              >
+                {!isNearbyEnabled ? NEARBY_COMING_SOON_LABEL : `${headerCopy.nearby} (10 km)`}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -334,7 +406,7 @@ export default function ClinicOnboardingScreen() {
               activeOpacity={0.8}
             >
               <Text style={[styles.modeChipText, listMode === "all" && styles.modeChipTextActive]}>
-                Tüm klinikler
+                {headerCopy.all_clinics}
               </Text>
             </TouchableOpacity>
           </View>
@@ -366,16 +438,17 @@ export default function ClinicOnboardingScreen() {
           </View>
         ) : (
           <View style={styles.listSection}>
-            <TextInput
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="İsim, şehir, ülke veya klinik kodu ara…"
-              placeholderTextColor="#94a3b8"
-              style={styles.searchInput}
-              autoCapitalize="none"
-              autoCorrect={false}
-              clearButtonMode="while-editing"
-            />
+            <View style={styles.field}>
+              <Text style={styles.label}>{headerCopy.search_clinic}</Text>
+              <TextInput
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                style={styles.searchInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+                clearButtonMode="while-editing"
+              />
+            </View>
             <FlatList
               data={filteredClinics}
               keyExtractor={(item) => item.id}
@@ -390,7 +463,12 @@ export default function ClinicOnboardingScreen() {
                     <View style={styles.cardText}>
                       <Text style={styles.name}>{item.name}</Text>
                       <Text style={styles.sub}>
-                        {[item.city, item.country].filter(Boolean).join(", ") || "—"}
+                        {[
+                          item.city ? formatClinicCityLabel(item.city, t) : null,
+                          item.country || null,
+                        ]
+                          .filter((p): p is string => Boolean(p && String(p).trim() && p !== "—"))
+                          .join(", ") || "—"}
                         {item.clinicCode ? ` · ${item.clinicCode}` : ""}
                         {item.distance_km != null ? ` · 📍 ${item.distance_km} km` : ""}
                       </Text>
@@ -405,11 +483,11 @@ export default function ClinicOnboardingScreen() {
                       onPress={() => handleRequestQuotePress(item)}
                       accessibilityRole="button"
                       accessibilityLabel={
-                        item.links?.find((l) => l.id === "request_quote")?.label || "Teklif al"
+                        item.links?.find((l) => l.id === "request_quote")?.label || headerCopy.get_offer
                       }
                     >
                       <Text style={styles.actionLinkText}>
-                        {item.links?.find((l) => l.id === "request_quote")?.label || "Teklif al"}
+                        {item.links?.find((l) => l.id === "request_quote")?.label || headerCopy.get_offer}
                       </Text>
                     </TouchableOpacity>
                     <Text style={styles.actionSep}>·</Text>
@@ -419,11 +497,11 @@ export default function ClinicOnboardingScreen() {
                       disabled={joiningCode === item.clinicCode}
                       accessibilityRole="button"
                       accessibilityLabel={
-                        item.links?.find((l) => l.id === "join_clinic")?.label || "Kaydol"
+                        item.links?.find((l) => l.id === "join_clinic")?.label || headerCopy.sign_up
                       }
                     >
                       <Text style={styles.actionLinkText}>
-                        {item.links?.find((l) => l.id === "join_clinic")?.label || "Kaydol"}
+                        {item.links?.find((l) => l.id === "join_clinic")?.label || headerCopy.sign_up}
                       </Text>
                     </TouchableOpacity>
                     {joiningCode === item.clinicCode ? (
@@ -434,26 +512,29 @@ export default function ClinicOnboardingScreen() {
               )}
               ListHeaderComponent={
                 <Text style={styles.hint}>
-                  {listMode === "nearby"
-                    ? `Yakın arama (10 km). `
-                    : `Tüm liste. `}
+                  {listMode === "nearby" && isNearbyEnabled
+                    ? headerCopy.header_nearby_intro
+                    : headerCopy.header_all_intro}
                   {filteredClinics.length === clinics.length
-                    ? `${clinics.length} klinik. Teklif al veya Kaydol ile devam edin.`
-                    : `${filteredClinics.length} / ${clinics.length} sonuç (filtreli).`}
+                    ? t("clinic_list.footer_hint", {
+                        count: String(clinics.length),
+                        get_offer: headerCopy.get_offer,
+                        sign_up: headerCopy.sign_up,
+                      })
+                    : t("clinic_list.filter_result_hint", {
+                        filtered: String(filteredClinics.length),
+                        total: String(clinics.length),
+                      })}
                 </Text>
               }
               ListEmptyComponent={
                 searchQuery.trim() ? (
-                  <Text style={styles.emptyFilter}>Aramanızla eşleşen klinik yok.</Text>
+                  <Text style={styles.emptyFilter}>{headerCopy.no_match_search}</Text>
                 ) : null
               }
             />
           </View>
         )}
-
-        <TouchableOpacity style={styles.back} onPress={() => router.back()}>
-          <Text style={styles.backText}>← Geri</Text>
-        </TouchableOpacity>
     </View>
   );
 }
@@ -461,13 +542,27 @@ export default function ClinicOnboardingScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f8fafc" },
   header: {
-    paddingTop: 56,
     paddingBottom: 12,
     paddingHorizontal: 16,
     backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderBottomColor: "#e2e8f0",
   },
+  headerNavRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+    minHeight: 36,
+  },
+  headerBack: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-start",
+    paddingVertical: 6,
+    paddingRight: 12,
+  },
+  headerBackText: { fontSize: 16, color: "#2563eb", fontWeight: "600" },
   headerTitle: { fontSize: 20, fontWeight: "800", color: "#0f172a" },
   modeRow: {
     flexDirection: "row",
@@ -488,13 +583,20 @@ const styles = StyleSheet.create({
     borderColor: "#2563eb",
     backgroundColor: "#eff6ff",
   },
+  modeChipDisabled: {
+    borderColor: "#e2e8f0",
+    backgroundColor: "#f1f5f9",
+    opacity: 0.85,
+  },
   modeChipText: { fontSize: 13, fontWeight: "600", color: "#64748b", textAlign: "center" },
   modeChipTextActive: { color: "#1d4ed8" },
+  modeChipTextDisabled: { color: "#94a3b8", fontWeight: "500", fontSize: 12 },
   listSection: { flex: 1 },
+  field: { marginHorizontal: 16, marginBottom: 8, gap: 6 },
+  label: { fontSize: 13, color: "#94a3b8" },
   searchInput: {
-    marginHorizontal: 16,
-    marginBottom: 8,
     paddingHorizontal: 14,
+    paddingVertical: 12,
     paddingVertical: 12,
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -514,7 +616,7 @@ const styles = StyleSheet.create({
   },
   retryText: { color: "#fff", fontWeight: "600" },
   emptyTitle: { fontSize: 17, fontWeight: "700", color: "#0f172a", marginBottom: 8 },
-  listPad: { paddingHorizontal: 16, paddingBottom: 100 },
+  listPad: { paddingHorizontal: 16, paddingBottom: 28 },
   hint: { fontSize: 13, color: "#64748b", marginBottom: 12, lineHeight: 18 },
   emptyFilter: { textAlign: "center", color: "#64748b", paddingVertical: 16 },
   card: {
@@ -543,6 +645,4 @@ const styles = StyleSheet.create({
   name: { fontSize: 16, fontWeight: "700", color: "#0f172a" },
   sub: { fontSize: 13, color: "#64748b", marginTop: 4 },
   rating: { fontSize: 13, color: "#ca8a04", marginTop: 6, fontWeight: "600" },
-  back: { position: "absolute", bottom: 24, left: 16 },
-  backText: { fontSize: 16, color: "#2563eb", fontWeight: "600" },
 });

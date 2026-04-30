@@ -253,35 +253,41 @@ export default function DoctorLogin() {
       <Text style={styles.title}>{t('login.doctorTitle')}</Text>
 
       <View style={styles.form}>
-        <TextInput
-          style={styles.input}
-          placeholder={t('login.emailPlaceholder')}
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoCorrect={false}
-          editable={!loading}
-        />
+        <View style={styles.field}>
+          <Text style={styles.label}>{t('auth.email')}</Text>
+          <TextInput
+            style={styles.input}
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!loading}
+          />
+        </View>
 
-        <TextInput
-          style={styles.input}
-          placeholder={t('login.passwordPlaceholder') ?? 'Şifre'}
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          autoCapitalize="none"
-          editable={!loading}
-        />
+        <View style={styles.field}>
+          <Text style={styles.label}>{t('auth.password')}</Text>
+          <TextInput
+            style={styles.input}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            autoCapitalize="none"
+            editable={!loading}
+          />
+        </View>
 
-        <TextInput
-          style={styles.input}
-          placeholder={t('login.clinicCodePlaceholder')}
-          value={clinicCode}
-          onChangeText={(v) => setClinicCode(v.toUpperCase())}
-          autoCapitalize="characters"
-          editable={!loading}
-        />
+        <View style={styles.field}>
+          <Text style={styles.label}>{t('auth.clinic_code')}</Text>
+          <TextInput
+            style={styles.input}
+            value={clinicCode}
+            onChangeText={(v) => setClinicCode(v.toUpperCase())}
+            autoCapitalize="characters"
+            editable={!loading}
+          />
+        </View>
 
         <Pressable
           style={[styles.button, loading && styles.buttonDisabled]}
@@ -376,6 +382,15 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     alignSelf: "center",
   },
+  field: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 6,
+  },
   description: {
     fontSize: 14,
     color: "#6B7280",
@@ -386,7 +401,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     borderRadius: 10,
     padding: 16,
-    marginBottom: 16,
     borderWidth: 1,
     borderColor: "#D1D5DB",
     fontSize: 16,

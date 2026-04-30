@@ -3,10 +3,11 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, ActivityIndicator, Alert,
 } from "react-native";
-import { useAuth } from "../../lib/auth";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_BASE } from "../../lib/api";
 import { useRouter } from "expo-router";
 import { useLanguage } from "../../lib/language-context";
+import { getCliniflowAuthToken, getPatientIdFromToken } from "../../lib/cliniflowAiMobile";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -117,7 +118,6 @@ function CheckboxItem({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function MedicalFormScreen() {
-  const { user } = useAuth();
   const router = useRouter();
   const { t } = useLanguage();
 
@@ -139,14 +139,24 @@ export default function MedicalFormScreen() {
   // Notes
   const [notes, setNotes] = useState("");
 
-  const patientId = String(user?.patientId || user?.id || "").trim();
-
   // ── Load existing form ──────────────────────────────────────────────────────
   const loadForm = useCallback(async () => {
-    if (!user?.token || !patientId) { setLoading(false); return; }
+    const token = await getCliniflowAuthToken(AsyncStorage);
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    const patientId = getPatientIdFromToken(token);
+    if (!patientId) {
+      setLoading(false);
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/medical-form`, {
-        headers: { Authorization: `Bearer ${user.token}`, Accept: "application/json" },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
       });
       if (!res.ok) { setLoading(false); return; }
       const json = await res.json().catch(() => ({}));
@@ -164,7 +174,7 @@ export default function MedicalFormScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user?.token, patientId]);
+  }, []);
 
   useEffect(() => { loadForm(); }, [loadForm]);
 
@@ -184,7 +194,16 @@ export default function MedicalFormScreen() {
 
   // ── Submit ──────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
-    if (!user?.token || !patientId) return;
+    const token = await getCliniflowAuthToken(AsyncStorage);
+    if (!token) {
+      Alert.alert(t("common.error"), t("medicalForm.saveError"));
+      return;
+    }
+    const patientId = getPatientIdFromToken(token);
+    if (!patientId) {
+      Alert.alert(t("common.error"), t("medicalForm.saveError"));
+      return;
+    }
     setSubmitting(true);
     setSaved(false);
     try {
@@ -200,7 +219,7 @@ export default function MedicalFormScreen() {
       const res = await fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/medical-form`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${user.token}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
           Accept: "application/json",
         },

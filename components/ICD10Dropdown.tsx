@@ -15,13 +15,14 @@ interface ICD10Code {
 interface ICD10DropdownProps {
   selectedCode: string;
   onCodeSelect: (code: ICD10Code) => void;
-  placeholder?: string;
+  /** Visible label above the search field (required). */
+  label: string;
 }
 
 export default function ICD10Dropdown({
   selectedCode,
   onCodeSelect,
-  placeholder = 'ICD-10 kodu ara…',
+  label,
 }: ICD10DropdownProps) {
   const { currentLanguage: language } = useLanguage();
   const { user } = useAuth();
@@ -102,12 +103,10 @@ export default function ICD10Dropdown({
 
   return (
     <View style={styles.wrapper}>
-      {/* Search input */}
+      <Text style={styles.fieldLabel}>{label}</Text>
       <View style={styles.inputRow}>
         <TextInput
           style={styles.input}
-          placeholder={placeholder}
-          placeholderTextColor="#9CA3AF"
           value={query}
           onChangeText={(t) => { setQuery(t); }}
           autoCorrect={false}
@@ -151,6 +150,11 @@ export default function ICD10Dropdown({
 const styles = StyleSheet.create({
   wrapper: {
     gap: 0,
+  },
+  fieldLabel: {
+    fontSize: 13,
+    color: "#94a3b8",
+    marginBottom: 6,
   },
   inputRow: {
     flexDirection: 'row',

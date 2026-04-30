@@ -82,10 +82,21 @@ export default function DebugApiScreen() {
           value={__DEV__ ? "Development" : "Production"}
         />
         <Info
-          label="EXPO_PUBLIC_API_URL (ignored)"
+          label="EXPO_PUBLIC_API_URL / EXPO_PUBLIC_API_BASE (embed at eas build)"
           value={
             process.env.EXPO_PUBLIC_API_URL ||
-            "(not used — API_BASE is hardcoded in lib/api.ts)"
+            process.env.EXPO_PUBLIC_API_BASE ||
+            "(unset — fallback in lib/api.ts)"
+          }
+          mono
+        />
+        <Info
+          label="expoConfig.extra.API_URL"
+          value={
+            String(
+              (Constants.expoConfig?.extra as { API_URL?: string } | undefined)
+                ?.API_URL || "",
+            ) || "(empty)"
           }
           mono
         />

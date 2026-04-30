@@ -20,6 +20,7 @@ import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../lib/auth";
 import { API_BASE } from "../lib/api";
+import { normalizeCity } from "../lib/cityCodes";
 
 type LatLng = { latitude: number; longitude: number };
 
@@ -100,6 +101,7 @@ export default function AdminClinicLocationScreen() {
       return;
     }
 
+    const cityTrim = city.trim();
     setSaving(true);
     try {
       const res = await fetch(`${API_BASE}/api/admin/clinic`, {
@@ -114,7 +116,8 @@ export default function AdminClinicLocationScreen() {
           longitude: marker.longitude,
           lat: marker.latitude,
           lng: marker.longitude,
-          city: city.trim() || null,
+          city: cityTrim || null,
+          city_code: cityTrim ? normalizeCity(cityTrim) : null,
           country: countryCode,
         }),
       });
