@@ -401,7 +401,11 @@ export default function DoctorProfileScreen() {
                 onChangeText={v => setForm(f => ({ ...f, languages: v }))}
                 placeholder={t('doctor.profile.languages')} />
             ) : (
-              <Text style={s.fieldValue}>{profile?.languages || t('doctor.profile.notSpecified')}</Text>
+              <Text style={s.fieldValue}>
+                {Array.isArray(profile?.languages)
+                  ? (profile.languages as any[]).map((l: any) => l?.name ?? l).filter(Boolean).join(', ') || t('doctor.profile.notSpecified')
+                  : profile?.languages || t('doctor.profile.notSpecified')}
+              </Text>
             )}
           </View>
           <View style={s.fieldRow}>

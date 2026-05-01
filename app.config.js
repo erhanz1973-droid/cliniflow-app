@@ -38,6 +38,19 @@ export default ({ config }) => {
 
   return {
     ...config,
+    scheme: config.scheme || "cliniflow",
+    plugins: [
+      ...(config.plugins || []),
+      [
+        "expo-notifications",
+        {
+          icon: "./assets/images/notification-icon.png",
+          color: "#2563EB",
+          defaultChannel: "chat",
+          sounds: ["./assets/audio/notification.wav"],
+        },
+      ],
+    ],
     extra: {
       ...config.extra,
       API_URL: apiUrl,
