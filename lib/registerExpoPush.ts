@@ -1,19 +1,40 @@
 import { Platform } from "react-native";
 import Constants from "expo-constants";
-import * as Notifications from "expo-notifications";
 import { API_BASE } from "./api";
 import { getMessageSoundPreference } from "./messageSoundPreference";
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: false,
-    shouldSetBadge: true,
-  }),
-});
+// Safe lazy import — expo-notifications crashes on Android Expo Go (SDK 53+).
+// In Expo Go: Notifications stays null, all push functions are no-ops.
+// In dev build / production: loaded normally.
+const isExpoGo = Constants.appOwnership === "expo";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let Notifications: any = null;
+
+if (!isExpoGo) {
+  try {
+    Notifications = require("expo-notifications");
+  } catch {
+    /* dev build without native module — rare */
+  }
+}
+
+if (Notifications) {
+  try {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: false,
+        shouldSetBadge: true,
+      }),
+    });
+  } catch {
+    /* non-fatal */
+  }
+}
 
 async function ensureAndroidChatChannel(): Promise<void> {
-  if (Platform.OS !== "android") return;
+  if (!Notifications || Platform.OS !== "android") return;
   try {
     await Notifications.setNotificationChannelAsync("chat", {
       name: "Chat",
@@ -26,12 +47,16 @@ async function ensureAndroidChatChannel(): Promise<void> {
   }
 }
 
-/** Register Expo push token with Railway backend + current sound preference (Expo payloads use sound: default). */
+/** Register Expo push token with Railway backend + current sound preference. */
 export async function registerExpoPushForSession(opts: {
   role: "patient" | "doctor";
   authToken: string;
 }): Promise<void> {
   if (!opts.authToken?.trim()) return;
+  if (!Notifications) {
+    if (__DEV__) console.log("[push] ⛔ Push disabled (Expo Go)");
+    return;
+  }
 
   await ensureAndroidChatChannel();
 
@@ -42,7 +67,6 @@ export async function registerExpoPushForSession(opts: {
     finalStatus = req.status;
   }
   if (finalStatus !== "granted") return;
-
 
   const projectId =
     Constants.expoConfig?.extra?.eas?.projectId ??
