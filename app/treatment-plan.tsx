@@ -12,6 +12,25 @@ import { API_ROUTES } from '../lib/api-routes';
 import { secureGet, securePost } from '../lib/secure-fetch';
 import { API_BASE } from '../lib/api';
 
+/** Format a Date as local ISO string (no Z / no UTC offset) so the civil date
+ *  is preserved regardless of the device's timezone. */
+function toLocalISOString(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  );
+}
+
+/** Local-date isSameDay — compare only year/month/day in device timezone */
+function isSameDayLocal(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
 // ── Procedure types ────────────────────────────────────────────────────────
 // Must match backend shared/procedures.js PROCEDURE_TYPES exactly
 const PROCEDURES = [
@@ -261,7 +280,7 @@ function AddModal({
       const body: any = {
         tooth_number: toothNum,
         procedure_type: selectedProc.type,
-        scheduled_at: selectedDate ? selectedDate.toISOString() : null,
+        scheduled_at: selectedDate ? toLocalISOString(selectedDate) : null,
         chair: chair.trim() || null,
         assigned_doctor_id: assignedId,
         notes: notes.trim() || null,
@@ -480,7 +499,7 @@ function EditModal({
       const body: any = {
         status,
         assigned_doctor_id: assignedId,
-        scheduled_at: selectedDate ? selectedDate.toISOString() : null,
+        scheduled_at: selectedDate ? toLocalISOString(selectedDate) : null,
         chair: chair.trim() || null,
         notes: notes.trim() || null,
       };

@@ -535,10 +535,9 @@ export default function DoctorDashboardHome() {
       }
       const upcomingList: PlanRow[] = [];
 
-      const today0 = new Date();
-      today0.setHours(0, 0, 0, 0);
-      const tomorrow0 = new Date(today0);
-      tomorrow0.setDate(today0.getDate() + 1);
+      const _now = new Date();
+      const today0 = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate());
+      const tomorrow0 = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate() + 1);
 
       const {
         today: todayLocal,
