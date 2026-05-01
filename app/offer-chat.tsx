@@ -189,9 +189,17 @@ const OfferChatMessageItem = React.memo(function OfferChatMessageItem({
 
   const isMe = item.sender_role === myRole;
   const isDoctorViewingPatient = myRole === 'doctor' && !isMe;
+  const isPatientViewingDoctor  = myRole === 'patient' && item.sender_role === 'doctor';
+
+  // Doctor view: show patient name; Patient view: show doctor name (with fallback)
   const patientSenderLabel = isDoctorViewingPatient
     ? String(item.sender_name || '').trim() || t('offerChat.senderFallback')
     : '';
+  const doctorSenderLabel = isPatientViewingDoctor
+    ? String(item.sender_name || '').trim() || t('offerChat.doctorFallback') || 'Doktor'
+    : '';
+  const otherSenderLabel = patientSenderLabel || doctorSenderLabel;
+
   const mediaUrl = resolveAttachmentMediaUrl(item.attachment_url, API_BASE);
   const hasImage = mediaUrl && (item.attachment_type === 'image' || item.attachment_type === 'xray');
   const hasDoc   = mediaUrl && item.attachment_type === 'document';
@@ -202,13 +210,13 @@ const OfferChatMessageItem = React.memo(function OfferChatMessageItem({
       {!isMe && (
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>
-            {(patientSenderLabel || item.sender_name || '?').charAt(0).toUpperCase()}
+            {(otherSenderLabel || '?').charAt(0).toUpperCase()}
           </Text>
         </View>
       )}
       <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleOther]}>
         {!isMe && !isDoctorViewingPatient && (
-          <Text style={styles.senderName}>{item.sender_name}</Text>
+          <Text style={styles.senderName}>{otherSenderLabel}</Text>
         )}
         {isDoctorViewingPatient && (hasImage || hasDoc) && !bubbleText ? (
           <Text style={styles.senderBesideMessage} numberOfLines={1}>{patientSenderLabel}</Text>
