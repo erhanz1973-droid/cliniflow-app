@@ -17,6 +17,7 @@ import { API_BASE } from '../lib/api';
 
 const SUBSCRIBED_TIMEOUT_MS = 8_000;
 const POLL_INTERVAL_MS = 5_000;
+const MSG_FETCH_LIMIT = 500;
 
 export type SupabaseOfferMessage = {
   id: string;
@@ -167,7 +168,7 @@ export function useSupabaseOfferMessages({
       .select('*')
       .eq('offer_id', oid)
       .order('created_at', { ascending: true })
-      .limit(50)
+      .limit(MSG_FETCH_LIMIT)
       .then(({ data, error }) => {
         if (disposed) return;
         if (error && __DEV__) console.log('[useSupabaseOfferMessages] SELECT error:', error.message);
@@ -211,7 +212,7 @@ export function useSupabaseOfferMessages({
             .select('*')
             .eq('offer_id', oid)
             .order('created_at', { ascending: true })
-            .limit(50)
+            .limit(MSG_FETCH_LIMIT)
             .then(({ data }) => {
               if (disposed || !data) return;
               // Filter ÖNCE map SONRA → sadece yeni satırlar map edilir, gereksiz re-render yok
@@ -242,7 +243,7 @@ export function useSupabaseOfferMessages({
         .select('*')
         .eq('offer_id', oid)
         .order('created_at', { ascending: true })
-        .limit(50)
+        .limit(MSG_FETCH_LIMIT)
         .then(({ data }) => {
           if (disposed || !data) return;
           setMessages(prev => {
