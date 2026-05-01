@@ -365,6 +365,7 @@ export default function OfferChatScreen() {
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
+  const isAtBottomRef = useRef(true);
   // Guided intraoral state
   const [intraoralVisible, setIntraoralVisible] = useState(false);
   const [intraoralStep, setIntraoralStep]       = useState(0);
@@ -558,8 +559,8 @@ export default function OfferChatScreen() {
   );
 
   useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    if (messages.length > 0 && isAtBottomRef.current) {
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 50);
     }
   }, [messages.length]);
 
@@ -610,6 +611,8 @@ export default function OfferChatScreen() {
     };
     if (__DEV__) console.log('[offer-chat send] FINAL MESSAGE OBJECT:', JSON.stringify(optimistic));
     setMessages((prev) => appendMappedChatMessage(prev, optimistic));
+    isAtBottomRef.current = true;
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 50);
     setSending(true);
 
     try {
@@ -835,6 +838,16 @@ export default function OfferChatScreen() {
             maxToRenderPerBatch={10}
             windowSize={7}
             removeClippedSubviews={true}
+            onScroll={(e) => {
+              const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+              isAtBottomRef.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
+            }}
+            scrollEventThrottle={100}
+            onContentSizeChange={() => {
+              if (isAtBottomRef.current) {
+                flatListRef.current?.scrollToEnd({ animated: false });
+              }
+            }}
           />
         )}
 
