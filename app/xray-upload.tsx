@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
-import { API_BASE } from "@/lib/api";
+import { API_BASE } from "../lib/api";
 
 export default function XrayUploadScreen() {
   const [uploading, setUploading] = useState(false);

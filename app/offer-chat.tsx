@@ -15,7 +15,13 @@ import { useLanguage } from '../lib/language-context';
 import { API_BASE } from '../lib/api';
 import { offerChatLastStorageKey } from '../lib/goToOfferChat';
 import { formatTreatmentRequestDescription } from '../lib/treatmentRequestDescription';
-
+import {
+  maybeAbortOfferRailwayMessagesFetch,
+  setGlobalChatOpen,
+  setGlobalOfferChatOpen,
+} from '../hooks/chatSessionGlobal';
+import { useSupabaseOfferMessages } from '../hooks/useSupabaseOfferMessages';
+import { appendMappedChatMessage, mergeSbMessages } from '../hooks/chatMessageUtils';
 // Guided intraoral photo steps
 const PHOTO_STEP_KEYS = [
   { key: 'upper', icon: '⬆️' },
@@ -86,8 +92,10 @@ function offerMessageRowToUI(
       ? String(rawOid).trim()
       : scope;
 
-  const rawText = row.text ?? row.message;
+  // Normalize: message_text (DB/Supabase canonical) → text (Railway API legacy) → message (eski fallback)
+  const rawText = row.message_text ?? row.text ?? row.message;
   const text = rawText == null ? null : String(rawText);
+  if (__DEV__) console.log('[offerMessageRowToUI] FINAL TEXT:', JSON.stringify(text));
 
   const role = String(row.sender_role || 'patient').toLowerCase();
   const sender_role =
@@ -141,6 +149,114 @@ function groupByDate(messages: Message[]) {
   return flat;
 }
 
+type FlatItem = ReturnType<typeof groupByDate>[number];
+
+const OfferChatMessageItem = React.memo(function OfferChatMessageItem({
+  item,
+  myRole,
+  t,
+}: {
+  item: FlatItem;
+  myRole: 'doctor' | 'patient';
+  t: (key: string, params?: Record<string, string | number>) => string;
+}) {
+  if (item.type === 'separator') {
+    return (
+      <View style={styles.dateSeparator}>
+        <View style={styles.dateLine} />
+        <Text style={styles.dateText}>{item.date}</Text>
+        <View style={styles.dateLine} />
+      </View>
+    );
+  }
+  if (item.sender_role === 'system') {
+    const systemText =
+      item.text === 'clinic_joined'
+        ? t('chat.systemClinicJoined') || '✅ Hasta klinik kaydını tamamladı'
+        : item.text || '';
+    return (
+      <View style={styles.systemMsgRow}>
+        <View style={styles.systemMsgBubble}>
+          <Text style={styles.systemMsgText}>{systemText}</Text>
+          <Text style={styles.systemMsgTime}>{fmtTime(item.created_at)}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  const isMe = item.sender_role === myRole;
+  const isDoctorViewingPatient = myRole === 'doctor' && !isMe;
+  const patientSenderLabel = isDoctorViewingPatient
+    ? String(item.sender_name || '').trim() || t('offerChat.senderFallback')
+    : '';
+  const mediaUrl = resolveAttachmentMediaUrl(item.attachment_url, API_BASE);
+  const hasImage = mediaUrl && (item.attachment_type === 'image' || item.attachment_type === 'xray');
+  const hasDoc   = mediaUrl && item.attachment_type === 'document';
+  const bubbleText = item.text ? formatTreatmentRequestDescription(item.text) : '';
+
+  return (
+    <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowOther]}>
+      {!isMe && (
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>
+            {(patientSenderLabel || item.sender_name || '?').charAt(0).toUpperCase()}
+          </Text>
+        </View>
+      )}
+      <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleOther]}>
+        {!isMe && !isDoctorViewingPatient && (
+          <Text style={styles.senderName}>{item.sender_name}</Text>
+        )}
+        {isDoctorViewingPatient && (hasImage || hasDoc) && !bubbleText ? (
+          <Text style={styles.senderBesideMessage} numberOfLines={1}>{patientSenderLabel}</Text>
+        ) : null}
+
+        {hasImage && mediaUrl && (
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => Linking.openURL(mediaUrl).catch(() => Alert.alert('Hata', 'Fotoğraf açılamadı.'))}
+          >
+            <View style={styles.attachImageWrap}>
+              <Image source={{ uri: mediaUrl }} style={styles.attachImage} resizeMode="cover" />
+              {item.attachment_type === 'xray' && (
+                <View style={styles.xrayBadge}><Text style={styles.xrayBadgeText}>🩻 X-Ray</Text></View>
+              )}
+              {item.attachment_type === 'image' && (
+                <View style={styles.intraoralBadge}><Text style={styles.intraoralBadgeText}>📷 Intraoral</Text></View>
+              )}
+            </View>
+          </TouchableOpacity>
+        )}
+
+        {hasDoc && mediaUrl && (
+          <TouchableOpacity
+            style={[styles.docBubble, isMe && styles.docBubbleMe]}
+            onPress={() => Linking.openURL(mediaUrl).catch(() => Alert.alert('Hata', 'Dosya açılamadı.'))}
+          >
+            <Text style={styles.docIcon}>📄</Text>
+            <Text style={[styles.docName, isMe && styles.docNameMe]} numberOfLines={2}>
+              {mediaUrl.split('/').pop()?.split('?')[0] || 'Document'}
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {bubbleText ? (
+          <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
+            {isDoctorViewingPatient ? (
+              <>
+                <Text style={styles.senderBesideMessage}>{patientSenderLabel}</Text>
+                <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>{' · '}{bubbleText}</Text>
+              </>
+            ) : bubbleText}
+          </Text>
+        ) : null}
+
+        <Text style={[styles.bubbleTime, isMe && styles.bubbleTimeMe]}>{fmtTime(item.created_at)}</Text>
+      </View>
+    </View>
+  );
+});
+
 export default function OfferChatScreen() {
   const router = useRouter();
   const { user } = useAuth();
@@ -163,6 +279,66 @@ export default function OfferChatScreen() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // ── Supabase: TEK KAYNAK (yapılandırılmışsa REST GET atlanır) ──────────────
+  const offerIdStr = currentOfferId == null ? '' : String(currentOfferId).trim();
+  const {
+    messages: sbOfferMessages,
+    ready: sbOfferReady,
+    configured: sbOfferConfigured,
+    timedOut: sbOfferTimedOut,
+  } = useSupabaseOfferMessages({ offerId: offerIdStr, token: user?.token });
+
+  // Supabase offer mesajlarını state'e additif olarak sync et
+  // ✅ Mevcut objeleri ASLA mutate etme, sadece yeni id'leri push et
+  useEffect(() => {
+    if (!sbOfferConfigured || !sbOfferReady) return;
+    const sbMsgs = sbOfferMessages as unknown as Message[];
+    setMessages(prev => {
+      // Sadece bu render'da YENİ GELEN mesajlar (önceki state'te yoktu)
+      const newlyArrived = sbMsgs.filter(sb => !prev.some(p => p.id === sb.id));
+
+      const next = mergeSbMessages(
+        prev,
+        sbMsgs,
+        m => !!(m as { _local?: boolean; pending?: boolean })._local ||
+             !!(m as { _local?: boolean; pending?: boolean }).pending,
+      );
+
+      // opt_* sadece gerçekten YENİ gelen bir mesaj eşleşirse kaldır.
+      // Eski aynı-metinli mesajlar newlyArrived'da olmaz → erken silme olmaz.
+      return next
+        .filter(m => {
+          if (!m.id.startsWith('opt_')) return true;
+          const optTs = Number(m.id.slice(4));
+          if (!optTs) return true;
+          const hasNewReal = newlyArrived.some(sb => {
+            if (sb.sender_role !== m.sender_role) return false;
+            const sbTs = new Date(sb.created_at).getTime();
+            // text eşleşmesi: null geliyorsa (DB kolon sorunu) sadece role+zaman yeterli
+            const textMatch = sb.text != null ? sb.text === m.text : true;
+            return textMatch && Math.abs(sbTs - optTs) < 30_000;
+          });
+          if (__DEV__ && hasNewReal) console.log('[offer-chat] ✅ opt removed, real arrived:', m.id);
+          return !hasNewReal;
+        })
+        .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    });
+  }, [sbOfferMessages, sbOfferReady, sbOfferConfigured]);
+
+  // Supabase hazır olunca loading kapat
+  useEffect(() => {
+    if (sbOfferConfigured && sbOfferReady) setLoading(false);
+  }, [sbOfferConfigured, sbOfferReady]);
+
+  // Supabase bağlanamadı (timedOut) → Railway fallback tetikle
+  useEffect(() => {
+    if (sbOfferConfigured && sbOfferTimedOut && user?.token) {
+      if (__DEV__) console.log('[offer-chat] ⚡ Supabase timedOut — Railway fallback');
+      void fetchMessages();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sbOfferTimedOut]);
   const [sending, setSending] = useState(false);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -178,6 +354,14 @@ export default function OfferChatScreen() {
   const postSendFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const myRole = user?.type === 'doctor' ? 'doctor' : 'patient';
+
+  const keyExtractor = useCallback((item: FlatItem, i: number) =>
+    item.type === 'separator' ? `sep_${item.date}_${i}` : String(item.id),
+  []);
+
+  const renderOfferChatItem = useCallback(({ item }: { item: FlatItem }) => (
+    <OfferChatMessageItem item={item} myRole={myRole} t={t} />
+  ), [myRole, t]);
 
   useEffect(() => {
     const id = currentOfferId == null ? '' : String(currentOfferId).trim();
@@ -212,6 +396,25 @@ export default function OfferChatScreen() {
       const silent = options?.silent === true;
       const oid = currentOfferId == null ? '' : String(currentOfferId).trim();
       if (!oid || !user?.token) {
+        if (!silent) setLoading(false);
+        return;
+      }
+
+      // Supabase aktifse offer REST GET'i atla — Supabase Realtime devralır.
+      if (sbOfferConfigured) {
+        if (sbOfferReady) {
+          // ✅ Supabase aktif ve bağlı — Railway'e gerek yok
+          return;
+        }
+        if (!sbOfferTimedOut) {
+          // 🔄 Supabase yapılandırıldı, henüz bağlanmadı — BEKLE
+          return;
+        }
+        // ⚡ sbOfferTimedOut → Supabase bağlanamadı, Railway fallback
+        if (__DEV__) console.log('[offer-chat] Supabase timeout — Railway devralıyor');
+      }
+
+      if (maybeAbortOfferRailwayMessagesFetch()) {
         if (!silent) setLoading(false);
         return;
       }
@@ -272,7 +475,7 @@ export default function OfferChatScreen() {
         }
       }
     },
-    [currentOfferId, user?.token, t]
+    [currentOfferId, user?.token, t, sbOfferConfigured, sbOfferReady, sbOfferTimedOut]
   );
 
   useEffect(() => {
@@ -305,10 +508,19 @@ export default function OfferChatScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (currentOfferId == null || !String(currentOfferId).trim()) return;
+      setGlobalOfferChatOpen(true);
+      setGlobalChatOpen(false);
+      if (currentOfferId == null || !String(currentOfferId).trim()) {
+        return () => {
+          setGlobalOfferChatOpen(false);
+        };
+      }
       void markAsRead();
       if (user?.token) void fetchMessages();
-    }, [currentOfferId, markAsRead, user?.token, fetchMessages])
+      return () => {
+        setGlobalOfferChatOpen(false);
+      };
+    }, [currentOfferId, markAsRead, user?.token, fetchMessages]),
   );
 
   useEffect(() => {
@@ -360,7 +572,8 @@ export default function OfferChatScreen() {
       attachment_type: opts.attachment_type || null,
       created_at: new Date().toISOString(),
     };
-    setMessages((prev) => [...prev, optimistic]);
+    if (__DEV__) console.log('[offer-chat send] FINAL MESSAGE OBJECT:', JSON.stringify(optimistic));
+    setMessages((prev) => appendMappedChatMessage(prev, optimistic));
     setSending(true);
 
     try {
@@ -376,15 +589,34 @@ export default function OfferChatScreen() {
         }),
       });
       const data = await res.json();
+      if (__DEV__) console.log('[offer-chat POST] response:', JSON.stringify(data));
       if (!data?.ok) throw new Error(data?.error || 'error');
-      if (postSendFetchTimerRef.current) {
-        clearTimeout(postSendFetchTimerRef.current);
-        postSendFetchTimerRef.current = null;
+
+      if (sbOfferConfigured && sbOfferReady) {
+        // POST onaylandı → opt_ ID'sini gerçek UUID ile değiştir.
+        // Realtime gelince aynı UUID'yi bulur → dedupe skip → boşluk/blink yok.
+        const confirmedId: string | undefined =
+          data.message?.id ?? data.id ?? data.data?.id;
+        if (confirmedId) {
+          setMessages(prev =>
+            prev.map(m => m.id === optimistic.id ? { ...m, id: String(confirmedId) } : m),
+          );
+          if (__DEV__) console.log('[offer-chat] ✅ opt_ ID updated:', optimistic.id, '→', confirmedId);
+        } else {
+          // Backend ID dönmedi — fallback: opt_ kaldır, Realtime ekleyecek
+          setMessages(prev => prev.filter(m => m.id !== optimistic.id));
+        }
+      } else {
+        // Supabase yok → Railway fetch ile teyit et
+        if (postSendFetchTimerRef.current) {
+          clearTimeout(postSendFetchTimerRef.current);
+          postSendFetchTimerRef.current = null;
+        }
+        postSendFetchTimerRef.current = setTimeout(() => {
+          postSendFetchTimerRef.current = null;
+          void fetchMessages({ silent: true });
+        }, 600);
       }
-      postSendFetchTimerRef.current = setTimeout(() => {
-        postSendFetchTimerRef.current = null;
-        void fetchMessages({ silent: true });
-      }, 600);
     } catch (e: any) {
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
       Alert.alert(t('common.error'), e.message || t('common.error'));
@@ -550,9 +782,7 @@ export default function OfferChatScreen() {
           <FlatList
             ref={flatListRef}
             data={flatData}
-            keyExtractor={(item, i) =>
-              item.type === 'separator' ? `sep_${item.date}_${i}` : item.id
-            }
+            keyExtractor={keyExtractor}
             contentContainerStyle={styles.messageList}
             ListEmptyComponent={
               <View style={styles.emptyBox}>
@@ -561,133 +791,14 @@ export default function OfferChatScreen() {
                 <Text style={styles.emptySub}>{t('offerChat.noMessagesSub')}</Text>
               </View>
             }
-            renderItem={({ item }) => {
-              if (item.type === 'separator') {
-                return (
-                  <View style={styles.dateSeparator}>
-                    <View style={styles.dateLine} />
-                    <Text style={styles.dateText}>{item.date}</Text>
-                    <View style={styles.dateLine} />
-                  </View>
-                );
-              }
-              // System event messages rendered as a centred notification strip
-              if (item.sender_role === 'system') {
-                const systemText =
-                  item.text === 'clinic_joined'
-                    ? t('chat.systemClinicJoined') || '✅ Hasta klinik kaydını tamamladı'
-                    : item.text || '';
-                return (
-                  <View style={styles.systemMsgRow}>
-                    <View style={styles.systemMsgBubble}>
-                      <Text style={styles.systemMsgText}>{systemText}</Text>
-                      <Text style={styles.systemMsgTime}>{fmtTime(item.created_at)}</Text>
-                    </View>
-                  </View>
-                );
-              }
-
-              const isMe = item.sender_role === myRole;
-              /** Doctor: show patient name beside message body (not only a tiny header line). */
-              const isDoctorViewingPatient = myRole === 'doctor' && !isMe;
-              const patientSenderLabel = isDoctorViewingPatient
-                ? String(item.sender_name || '').trim() || t('offerChat.senderFallback')
-                : '';
-              const mediaUrl = resolveAttachmentMediaUrl(item.attachment_url, API_BASE);
-              const hasImage = mediaUrl &&
-                (item.attachment_type === 'image' || item.attachment_type === 'xray');
-              const hasDoc   = mediaUrl && item.attachment_type === 'document';
-              const bubbleText = item.text
-                ? formatTreatmentRequestDescription(item.text)
-                : '';
-
-              return (
-                <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowOther]}>
-                  {!isMe && (
-                    <View style={styles.avatar}>
-                      <Text style={styles.avatarText}>
-                        {(patientSenderLabel || item.sender_name || '?').charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                  )}
-                  <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleOther]}>
-                    {!isMe && !isDoctorViewingPatient && (
-                      <Text style={styles.senderName}>{item.sender_name}</Text>
-                    )}
-                    {isDoctorViewingPatient && (hasImage || hasDoc) && !bubbleText ? (
-                      <Text style={styles.senderBesideMessage} numberOfLines={1}>
-                        {patientSenderLabel}
-                      </Text>
-                    ) : null}
-
-                    {/* Attachment: image / x-ray */}
-                    {hasImage && mediaUrl && (
-                      <TouchableOpacity
-                        activeOpacity={0.85}
-                        onPress={() => Linking.openURL(mediaUrl).catch(() =>
-                          Alert.alert('Hata', 'Fotoğraf açılamadı.')
-                        )}
-                      >
-                        <View style={styles.attachImageWrap}>
-                          <Image
-                            source={{ uri: mediaUrl }}
-                            style={styles.attachImage}
-                            resizeMode="cover"
-                          />
-                          {item.attachment_type === 'xray' && (
-                            <View style={styles.xrayBadge}>
-                              <Text style={styles.xrayBadgeText}>🩻 X-Ray</Text>
-                            </View>
-                          )}
-                          {item.attachment_type === 'image' && (
-                            <View style={styles.intraoralBadge}>
-                              <Text style={styles.intraoralBadgeText}>📷 Intraoral</Text>
-                            </View>
-                          )}
-                        </View>
-                      </TouchableOpacity>
-                    )}
-
-                    {/* Attachment: document / PDF */}
-                    {hasDoc && mediaUrl && (
-                      <TouchableOpacity
-                        style={[styles.docBubble, isMe && styles.docBubbleMe]}
-                        onPress={() => Linking.openURL(mediaUrl).catch(() =>
-                          Alert.alert('Hata', 'Dosya açılamadı.')
-                        )}
-                      >
-                        <Text style={styles.docIcon}>📄</Text>
-                        <Text style={[styles.docName, isMe && styles.docNameMe]} numberOfLines={2}>
-                          {mediaUrl.split('/').pop()?.split('?')[0] || 'Document'}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-
-                    {bubbleText ? (
-                      <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
-                        {isDoctorViewingPatient ? (
-                          <>
-                            <Text style={styles.senderBesideMessage}>{patientSenderLabel}</Text>
-                            <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
-                              {' · '}
-                              {bubbleText}
-                            </Text>
-                          </>
-                        ) : (
-                          bubbleText
-                        )}
-                      </Text>
-                    ) : null}
-
-                    <Text style={[styles.bubbleTime, isMe && styles.bubbleTimeMe]}>
-                      {fmtTime(item.created_at)}
-                    </Text>
-                  </View>
-                </View>
-              );
-            }}
+            renderItem={renderOfferChatItem}
+            initialNumToRender={15}
+            maxToRenderPerBatch={10}
+            windowSize={7}
+            removeClippedSubviews={true}
           />
         )}
+
 
         {/* Input bar */}
         <View style={styles.inputBar}>

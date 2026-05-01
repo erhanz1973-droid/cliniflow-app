@@ -41,6 +41,13 @@ import { sendMessage } from "../../lib/sendMessage";
 import { playInAppNewMessageSoundDebouncedForThread } from "../../lib/playInAppMessageSound";
 import { getMessageSoundPreference } from "../../lib/messageSoundPreference";
 import {
+  maybeAbortRailwayMessagesFetch,
+  setGlobalChatOpen,
+  setGlobalOfferChatOpen,
+} from "../../hooks/chatSessionGlobal";
+import { useSupabaseMessages } from "../../hooks/useSupabaseMessages";
+import { appendMappedChatMessage, mergeSbMessages, mergeIncomingRows } from "../../hooks/chatMessageUtils";
+import {
   subscribePrimaryChatRealtime,
   waitOnceSocketConnected,
 } from "../../lib/chatRealtime";
@@ -216,10 +223,13 @@ function socketLegacyToPatientMessage(raw: Record<string, unknown>): Message | n
   const tidRaw = raw.thread_id ?? raw.threadId;
   const thread_id =
     tidRaw != null && String(tidRaw).trim() !== "" ? String(tidRaw).trim() : undefined;
+  // Normalize: message_text (DB/Supabase canonical) → text (Socket.IO/Railway legacy)
+  const text = String(raw.message_text ?? raw.text ?? "");
+  if (__DEV__) console.log('[socketLegacyToPatientMessage] FINAL TEXT:', JSON.stringify(text));
   return {
     id,
     from,
-    text: String(raw.text ?? ""),
+    text,
     type: String(raw.type || "text"),
     attachment: raw.attachment as Message["attachment"],
     createdAt,
@@ -353,6 +363,51 @@ export default function MessagesScreen() {
     "Content-Type": "application/json",
   }), [token]);
 
+  // ── Supabase: TEK KAYNAK (yapılandırılmışsa Railway GET + Socket.IO atlanır) ───────────
+  const { messages: sbMessages, ready: sbReady, configured: sbConfigured, timedOut: sbTimedOut } =
+    useSupabaseMessages({ patientId, clinicId: chatClinicId });
+
+  // Supabase mesajları state'e additif olarak sync et — local/pending satırlarını koru
+  // ✅ Mevcut objeleri ASLA mutate etme, sadece yeni id'leri push et
+  useEffect(() => {
+    if (!sbConfigured || !sbReady) return;
+    const sbMsgs = sbMessages as unknown as Message[];
+    setMessages(prev => {
+      const next = mergeSbMessages(prev, sbMsgs, m => !!(m._local || m.pending));
+      // _local/pending optimistic mesajını kaldır — Supabase aynı text+from+zaman için gerçek ID'yi taşıdı.
+      // Zaman kısıtı: sadece opt oluşturulduktan SONRA (veya 5 sn öncesinde) gelen mesajlar eşleşir.
+      return next
+        .filter(m => {
+          if (!(m._local || m.pending)) return true;
+          // tmp-${Date.now()} formatından timestamp çıkar
+          const optTs = m.id.startsWith('tmp-') ? Number(m.id.slice(4)) : m.createdAt;
+          const hasReal = sbMsgs.some(sb => {
+            if (sb.text !== m.text || sb.from !== m.from) return false;
+            const sbTs = (sb as unknown as { createdAt: number }).createdAt;
+            return sbTs >= optTs - 5_000;
+          });
+          if (__DEV__ && hasReal) console.log('[messages] ✅ pending removed, real arrived:', m.text);
+          return !hasReal;
+        })
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .slice(-50);
+    });
+  }, [sbMessages, sbReady, sbConfigured]);
+
+  // Supabase hazır olunca loading kapat
+  useEffect(() => {
+    if (sbConfigured && sbReady) setLoading(false);
+  }, [sbConfigured, sbReady]);
+
+  // Supabase bağlanamadı (timedOut) → Railway fallback tetikle
+  useEffect(() => {
+    if (sbConfigured && sbTimedOut && token) {
+      if (__DEV__) console.log('[messages] ⚡ Supabase timedOut — Railway fallback');
+      void fetchMessages();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sbTimedOut]);
+
   // ── All messages merged (backend + local) ────────────────────────────────
   // Local ai_result messages are suppressed once the server version arrives
   // (matched by originalImageUrl base path) to avoid duplicates.
@@ -398,6 +453,25 @@ export default function MessagesScreen() {
 
   const fetchMessages = useCallback(async (silent = false) => {
     if (!token) { if (!silent) setLoading(false); return; }
+
+    if (sbConfigured) {
+      if (sbReady) {
+        // ✅ Supabase aktif ve bağlı — Railway'e gerek yok
+        return;
+      }
+      if (!sbTimedOut) {
+        // 🔄 Supabase yapılandırıldı, henüz bağlanmadı — BEKLE, fetch atma
+        // (sbTimedOut effect'i Railway fallback'i tetikler)
+        return;
+      }
+      // ⚡ sbTimedOut → Supabase bağlanamadı, Railway fallback
+      if (__DEV__) console.log('[messages] Supabase timeout — Railway devralıyor');
+    }
+
+    if (maybeAbortRailwayMessagesFetch()) {
+      if (!silent) setLoading(false);
+      return;
+    }
     try {
       const q =
         chatClinicId && String(chatClinicId).trim()
@@ -444,7 +518,10 @@ export default function MessagesScreen() {
       const doctorLabel = leadAssignmentDoctorDisplayName(la);
       const eligibleForBanner = !!nextAid && !!doctorLabel && !skipHint;
 
-      setMessages(msgs.slice(-50));
+      // Railway fetch — additif merge (mevcut objeleri değiştirme)
+      setMessages(prev =>
+        mergeIncomingRows(prev, msgs, m => m as Message, { sortKey: 'createdAt', limit: 50 })
+      );
 
       try {
         const soundOn = await getMessageSoundPreference();
@@ -508,7 +585,7 @@ export default function MessagesScreen() {
       }
     } catch {}
     finally { if (!silent) setLoading(false); }
-  }, [token, authHeaders, chatClinicId, patientId]);
+  }, [token, authHeaders, chatClinicId, patientId, sbConfigured, sbReady, sbTimedOut]);
 
   /** Prefer leadAssignment from GET; fall back to first message row (API may hydrate thread before assignment object). */
   const resolvedThreadId = useMemo(() => {
@@ -554,8 +631,14 @@ export default function MessagesScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- kasıtlı: sonsuz yeniden-fetch yok
   }, [token, patientId, chatClinicId]);
 
-  /** Socket.IO — only after first messages fetch settles and we have a thread UUID (from assignment or message rows). */
+  /** Socket.IO — Supabase aktif ve bağlandıysa atlanır; Supabase Realtime devralır. */
   useEffect(() => {
+    // Supabase yapılandırıldı ve gerçekten bağlandı (timedOut değil) → Socket.IO gerekmez
+    if (sbConfigured && !sbTimedOut) {
+      setChatRealtimeConnected(true);
+      return () => {};
+    }
+
     const tokenTrim = token?.trim() ?? "";
 
     if (!tokenTrim) {
@@ -581,22 +664,21 @@ export default function MessagesScreen() {
       onNewMessage: (legacy) => {
         const mapped = socketLegacyToPatientMessage(legacy);
         if (!mapped) return;
+        if (__DEV__) console.log('[Socket.IO] FINAL MESSAGE OBJECT:', JSON.stringify(mapped));
         setMessages((prev) => {
-          if (prev.find((m) => m.id === mapped.id)) return prev;
-          let base = prev;
-          if (mapped.from === "PATIENT") {
-            base = prev.filter(
-              (m) =>
-                !(
-                  (m.pending || m._local) &&
-                  m.from === "PATIENT" &&
-                  String(m.text || "") === String(mapped.text || "")
-                ),
-            );
-          }
-          return [...base, mapped]
-            .sort((a, b) => a.createdAt - b.createdAt)
-            .slice(-50);
+          // optimistic pending'i çıkar — server versiyonu geldi
+          const base =
+            mapped.from === "PATIENT"
+              ? prev.filter(
+                  m => !(
+                    (m.pending || m._local) &&
+                    m.from === "PATIENT" &&
+                    String(m.text || "") === String(mapped.text || "")
+                  ),
+                )
+              : prev;
+          const next = appendMappedChatMessage(base, mapped);
+          return next.sort((a, b) => a.createdAt - b.createdAt).slice(-50);
         });
       },
       onConnect: () => setChatRealtimeConnected(true),
@@ -610,14 +692,23 @@ export default function MessagesScreen() {
       chatSocketRef.current = null;
       setChatRealtimeConnected(false);
     };
-  }, [token, resolvedThreadId, loading]);
+  }, [token, resolvedThreadId, loading, sbConfigured, sbTimedOut]);
 
   useFocusEffect(
     useCallback(() => {
-      if (!token) return;
+      setGlobalChatOpen(true);
+      setGlobalOfferChatOpen(false);
+      if (!token) {
+        return () => {
+          setGlobalChatOpen(false);
+        };
+      }
       void resetAppIconBadgeCount();
       void postPatientChatAckOpen(token);
       markRead();
+      return () => {
+        setGlobalChatOpen(false);
+      };
     }, [token, markRead]),
   );
 
@@ -646,9 +737,11 @@ export default function MessagesScreen() {
       _local: true,
       pending: true,
     };
-    setMessages((prev) =>
-      [...prev, optimisticRow].sort((a, b) => a.createdAt - b.createdAt).slice(-50),
-    );
+    if (__DEV__) console.log('[send] FINAL MESSAGE OBJECT:', JSON.stringify(optimisticRow));
+    setMessages((prev) => {
+      const next = appendMappedChatMessage(prev, optimisticRow);
+      return next.sort((a, b) => a.createdAt - b.createdAt).slice(-50);
+    });
     setText("");
     setPendingAttachments([]);
     try {
@@ -1866,6 +1959,13 @@ const MessageBubble = React.memo(function MessageBubble({ msg }: { msg: Message 
   const locale = useDateLocale();
   const { t } = useLanguage();
 
+  if (__DEV__) {
+    console.log('[MessageBubble] RENDER id:', msg.id, '| text:', JSON.stringify(msg.text), '| from:', msg.from);
+    if (!msg.text && !msg.attachment) {
+      console.warn('🚨 TEXT LOST:', JSON.stringify(msg));
+    }
+  }
+
   // Local loading bubble
   if (msg.type === "ai_loading") return <AiLoadingBubble />;
 
@@ -1881,7 +1981,8 @@ const MessageBubble = React.memo(function MessageBubble({ msg }: { msg: Message 
     <View style={[s.bubbleWrap, isPatient ? s.bubbleRight : s.bubbleLeft]}>
       {!isPatient && <Text style={s.bubbleFrom}>{t("messages.clinic")}</Text>}
       <View style={[s.bubble, isPatient ? s.bubblePatient : s.bubbleClinic]}>
-        {!!msg.text && (
+        {/* text || attachment: her ikisi de yoksa bile bubble boş olmaz (sadece timestamp) */}
+        {(msg.text != null && msg.text !== '') && (
           <Text style={[s.bubbleText, isPatient && s.bubbleTextWhite]}>
             {msg.text}
           </Text>
