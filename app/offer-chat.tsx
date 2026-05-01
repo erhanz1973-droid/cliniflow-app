@@ -368,6 +368,7 @@ export default function OfferChatScreen() {
   const isAtBottomRef = useRef(true);
   const PAGE_SIZE = 60;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [hasNewMessage, setHasNewMessage] = useState(false);
   // Guided intraoral state
   const [intraoralVisible, setIntraoralVisible] = useState(false);
   const [intraoralStep, setIntraoralStep]       = useState(0);
@@ -561,12 +562,13 @@ export default function OfferChatScreen() {
   );
 
   useEffect(() => {
-    // When new messages arrive (beyond visible window), expand visible window
-    if (messages.length > visibleCount && isAtBottomRef.current) {
-      setVisibleCount(messages.length);
-    }
-    if (messages.length > 0 && isAtBottomRef.current) {
+    if (messages.length === 0) return;
+    if (isAtBottomRef.current) {
+      setHasNewMessage(false);
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 50);
+    } else {
+      // User is scrolled up — show "new message" badge
+      setHasNewMessage(true);
     }
   }, [messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -862,7 +864,9 @@ export default function OfferChatScreen() {
             removeClippedSubviews={true}
             onScroll={(e) => {
               const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
-              isAtBottomRef.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
+              const atBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
+              isAtBottomRef.current = atBottom;
+              if (atBottom) setHasNewMessage(false);
               // Load older messages when scrolled near top
               if (contentOffset.y < 100 && messages.length > visibleCount) {
                 setVisibleCount(c => Math.min(c + PAGE_SIZE, messages.length));
@@ -877,6 +881,32 @@ export default function OfferChatScreen() {
           />
         )}
 
+        {/* New message badge — visible when scrolled up and new message arrived */}
+        {hasNewMessage && (
+          <TouchableOpacity
+            onPress={() => {
+              isAtBottomRef.current = true;
+              setHasNewMessage(false);
+              flatListRef.current?.scrollToEnd({ animated: true });
+            }}
+            style={{
+              position: 'absolute',
+              bottom: 80,
+              alignSelf: 'center',
+              backgroundColor: '#2563eb',
+              borderRadius: 20,
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              zIndex: 10,
+              shadowColor: '#000',
+              shadowOpacity: 0.2,
+              shadowRadius: 4,
+              elevation: 4,
+            }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>↓ New message</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Input bar */}
         <View style={styles.inputBar}>
