@@ -42,6 +42,8 @@ type Message = {
   attachment_url: string | null;
   attachment_type: 'image' | 'xray' | 'document' | null;
   created_at: string;
+  /** Stable FlatList key — set once on opt_ creation, never changes even after ID update. */
+  _stableKey?: string;
 };
 
 function fmtTime(iso: string) {
@@ -290,40 +292,52 @@ export default function OfferChatScreen() {
     refresh: sbOfferRefresh,
   } = useSupabaseOfferMessages({ offerId: offerIdStr, token: user?.token });
 
-  // Supabase offer mesajlarını state'e additif olarak sync et
-  // ✅ Mevcut objeleri ASLA mutate etme, sadece yeni id'leri push et
+  // Supabase offer mesajlarını state'e additif olarak sync et.
+  // opt_* → gerçek UUID geçişi FlatList'te flash yaratmaması için IN-PLACE replace kullanır:
+  // aynı _stableKey → FlatList item'ı yeniden mount etmez, sadece günceller.
   useEffect(() => {
     if (!sbOfferConfigured || !sbOfferReady) return;
     const sbMsgs = sbOfferMessages as unknown as Message[];
     setMessages(prev => {
-      // Sadece bu render'da YENİ GELEN mesajlar (önceki state'te yoktu)
-      const newlyArrived = sbMsgs.filter(sb => !prev.some(p => p.id === sb.id));
+      // Supabase'den gelen yeni mesajlar (henüz prev'de yok)
+      const newSbMsgs = sbMsgs.filter(sb => !prev.some(p => p.id === sb.id));
 
-      const next = mergeSbMessages(
-        prev,
-        sbMsgs,
-        m => !!(m as { _local?: boolean; pending?: boolean })._local ||
-             !!(m as { _local?: boolean; pending?: boolean }).pending,
-      );
+      // 1️⃣ opt_* mesajlarını, eşleşen gerçek mesajla IN-PLACE değiştir
+      //    → FlatList key (_stableKey) sabit kalır, flash olmaz
+      const usedSbIds = new Set<string>();
+      const updatedPrev = prev.map(m => {
+        if (!m.id.startsWith('opt_')) return m;
+        const optTs = Number(m.id.slice(4));
+        if (!optTs) return m;
+        const match = newSbMsgs.find(sb => {
+          if (usedSbIds.has(sb.id)) return false;
+          if (sb.sender_role !== m.sender_role) return false;
+          const sbTs = new Date(sb.created_at).getTime();
+          const textMatch = sb.text != null ? sb.text === m.text : true;
+          return textMatch && Math.abs(sbTs - optTs) < 30_000;
+        });
+        if (match) {
+          usedSbIds.add(match.id);
+          if (__DEV__) console.log('[offer-chat] ✅ opt replaced in-place:', m.id, '→', match.id);
+          // _stableKey korunur → FlatList aynı hücreyi günceller, unmount/remount yok
+          return { ...match, _stableKey: m._stableKey ?? m.id };
+        }
+        return m;
+      });
 
-      // opt_* sadece gerçekten YENİ gelen bir mesaj eşleşirse kaldır.
-      // Eski aynı-metinli mesajlar newlyArrived'da olmaz → erken silme olmaz.
-      return next
-        .filter(m => {
-          if (!m.id.startsWith('opt_')) return true;
-          const optTs = Number(m.id.slice(4));
-          if (!optTs) return true;
-          const hasNewReal = newlyArrived.some(sb => {
-            if (sb.sender_role !== m.sender_role) return false;
-            const sbTs = new Date(sb.created_at).getTime();
-            // text eşleşmesi: null geliyorsa (DB kolon sorunu) sadece role+zaman yeterli
-            const textMatch = sb.text != null ? sb.text === m.text : true;
-            return textMatch && Math.abs(sbTs - optTs) < 30_000;
-          });
-          if (__DEV__ && hasNewReal) console.log('[offer-chat] ✅ opt removed, real arrived:', m.id);
-          return !hasNewReal;
-        })
-        .sort((a, b) => a.created_at.localeCompare(b.created_at));
+      // 2️⃣ Gerçekten yeni gelen mesajları ekle (opt_'ye eşleşmeyen)
+      const genuinelyNew = newSbMsgs.filter(sb => !usedSbIds.has(sb.id));
+
+      const anyInPlace = updatedPrev.some((m, i) => m !== prev[i]);
+      if (!anyInPlace && genuinelyNew.length === 0) return prev; // hiç değişiklik yok → re-render iptal
+
+      const merged = [...updatedPrev, ...genuinelyNew];
+
+      if (__DEV__ && genuinelyNew.length > 0) {
+        console.log('[mergeSbMessages] STATE LENGTH BEFORE:', prev.length, '→ AFTER:', merged.length, '(added:', genuinelyNew.length, ')');
+      }
+
+      return merged.sort((a, b) => a.created_at.localeCompare(b.created_at));
     });
   }, [sbOfferMessages, sbOfferReady, sbOfferConfigured]);
 
@@ -357,7 +371,9 @@ export default function OfferChatScreen() {
   const myRole = user?.type === 'doctor' ? 'doctor' : 'patient';
 
   const keyExtractor = useCallback((item: FlatItem, i: number) =>
-    item.type === 'separator' ? `sep_${item.date}_${i}` : String(item.id),
+    item.type === 'separator'
+      ? `sep_${item.date}_${i}`
+      : String((item as Message)._stableKey ?? item.id),
   []);
 
   const renderOfferChatItem = useCallback(({ item }: { item: FlatItem }) => (
@@ -572,8 +588,10 @@ export default function OfferChatScreen() {
     if (!user?.token || !String(currentOfferId).trim()) return;
 
     const scope = String(currentOfferId).trim();
+    const optId = `opt_${Date.now()}`;
     const optimistic: Message = {
-      id: `opt_${Date.now()}`,
+      id: optId,
+      _stableKey: optId,
       offer_id: scope,
       sender_id: user.id || '',
       sender_role: myRole,
@@ -609,8 +627,11 @@ export default function OfferChatScreen() {
         const confirmedId: string | undefined =
           data.message?.id ?? data.id ?? data.data?.id;
         if (confirmedId) {
+          // _stableKey korunur → FlatList key değişmez → flash/unmount olmaz
           setMessages(prev =>
-            prev.map(m => m.id === optimistic.id ? { ...m, id: String(confirmedId) } : m),
+            prev.map(m => m.id === optimistic.id
+              ? { ...m, id: String(confirmedId), _stableKey: m._stableKey ?? m.id }
+              : m),
           );
           if (__DEV__) console.log('[offer-chat] ✅ opt_ ID updated:', optimistic.id, '→', confirmedId);
         } else {
