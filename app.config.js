@@ -39,6 +39,19 @@ export default ({ config }) => {
   return {
     ...config,
     scheme: config.scheme || "cliniflow",
+    plugins: [
+      ...(config.plugins || []),
+      "expo-notifications",
+    ],
+    android: {
+      ...(config.android || {}),
+      notification: {
+        ...(config.android?.notification || {}),
+        sound: "./assets/notification.mp3",
+        icon: "./assets/images/adaptive-icon.png",
+        color: "#2563EB",
+      },
+    },
     extra: {
       ...config.extra,
       API_URL: apiUrl,

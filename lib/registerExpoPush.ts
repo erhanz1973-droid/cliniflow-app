@@ -24,7 +24,7 @@ if (Notifications) {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: true,
-        shouldPlaySound: false,
+        shouldPlaySound: true,
         shouldSetBadge: true,
       }),
     });
@@ -39,8 +39,9 @@ async function ensureAndroidChatChannel(): Promise<void> {
     await Notifications.setNotificationChannelAsync("chat", {
       name: "Chat",
       importance: Notifications.AndroidImportance.MAX,
-      sound: "default",
+      sound: "notification.mp3",
       vibrationPattern: [0, 250, 250, 250],
+      enableVibrate: true,
     });
   } catch {
     /* non-fatal */
