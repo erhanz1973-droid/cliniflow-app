@@ -51,10 +51,14 @@ import {
   subscribePrimaryChatRealtime,
   waitOnceSocketConnected,
 } from "../../lib/chatRealtime";
+import {
+  resetAppIconBadgeCount,
+  postPatientChatAckOpen,
+} from "../../lib/chatAckOpen";
 import ToothColorSelector, {
   type ToothColorPreset,
 } from "../../components/ToothColorSelector";
-const UPLOAD_CONSENT_KEY       = "@clinifly:upload_consent_accepted";
+const UPLOAD_CONSENT_KEY = "@clinifly:upload_consent_accepted";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

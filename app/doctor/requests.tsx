@@ -37,17 +37,6 @@ const ALL_TYPES = [
   { value: 'OTHER',      labelKey: 'treatmentPlan.proc.OTHER' },
 ];
 
-const MIN_PRICE: Record<string, number> = {
-  IMPLANT: 600, CROWN: 150, BRIDGE: 300, VENEER: 200,
-  ALL_ON_4: 4000, ALL_ON_6: 5000, WHITENING: 100,
-  EXTRACTION: 50, ROOT_CANAL: 200, CONSULT: 30,
-};
-
-function parsePriceMin(str: string): number | null {
-  const nums = str.replace(/,(\d{3})/g, '$1').replace(/[^\d.]/g, ' ').trim().split(/\s+/)
-    .map(Number).filter(n => !isNaN(n) && n > 0);
-  return nums.length > 0 ? Math.min(...nums) : null;
-}
 
 function fmtTs(iso: string, t: (k: string) => string) {
   try {
@@ -66,6 +55,7 @@ type MyOfferSummary = {
   id: string;
   treatment_type: string | null;
   price_range: string | null;
+  price_text: string | null;
   duration: string | null;
   note: string | null;
   created_at: string | null;
@@ -186,7 +176,7 @@ function OfferDetailModal({
               </Text>
             ) : null}
             {line(t('requests.offerDetail.treatment') || 'Treatment', o?.treatment_type ? (t(`treatmentPlan.proc.${o.treatment_type}`) || o.treatment_type) : null)}
-            {line(t('requests.offerDetail.price') || 'Price range', o?.price_range ?? null)}
+            {line(t('requests.offerDetail.price') || 'Price', o?.price_text ?? o?.price_range ?? null)}
             {line(t('requests.offerDetail.duration') || 'Duration', o?.duration ?? null)}
             {o?.note ? line(t('requests.offerDetail.note') || 'Note', o.note) : null}
             <TouchableOpacity
@@ -229,20 +219,13 @@ function QuickOfferModal({
   const [saving,    setSaving]      = useState(false);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
 
-  const minAllowed = treatType ? (MIN_PRICE[treatType] ?? null) : null;
-  const parsedMin  = price.trim() ? parsePriceMin(price) : null;
-  const isBelowMin = minAllowed !== null && parsedMin !== null && parsedMin < minAllowed;
-
   const submit = async () => {
     if (!treatType) {
       Alert.alert(t('requests.modal.selectType') || 'Select treatment type first');
       return;
     }
-    if (isBelowMin) {
-      Alert.alert(
-        t('requests.modal.priceTooLow') || 'Price too low',
-        (t('requests.modal.minPrice') || 'Minimum for this treatment is ${min}.').replace('${min}', `$${minAllowed}`)
-      );
+    if (price.trim().length > 0 && price.trim().length < 2) {
+      Alert.alert(t('common.error') || 'Error', t('requests.modal.priceTooShort') || 'Please enter a valid price.');
       return;
     }
     setSaving(true);
@@ -254,7 +237,7 @@ function QuickOfferModal({
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({
             treatment_type: treatType,
-            price_range:    price.trim()    || null,
+            price_text:     price.trim()    || null,
             duration:       duration.trim() || null,
             note:           note.trim()     || null,
           }),
@@ -344,7 +327,7 @@ function QuickOfferModal({
                       onPress={() => setTreatType(tp.value)}
                     >
                       <Text style={[ms.typeChipText, treatType === tp.value && ms.typeChipTextActive]}>
-                        {tp.label}
+                        {t(tp.labelKey) || tp.value}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -361,22 +344,16 @@ function QuickOfferModal({
 
             {/* Price */}
             <Text style={ms.fieldLabel}>
-              {t('requests.modal.priceRange') || 'Price range'}
-              {minAllowed !== null ? ` (min $${minAllowed})` : ''}
+              {t('requests.modal.price') || 'Price'}
             </Text>
             <TextInput
-              style={[ms.input, isBelowMin && ms.inputError]}
+              style={ms.input}
               value={price}
               onChangeText={setPrice}
-              placeholder={t('requests.modal.pricePlaceholder') || 'e.g. $800–1,200'}
+              placeholder={t('requests.modal.pricePlaceholder') || 'Örn: 5000-7000 TL veya muayene sonrası netleşir'}
               placeholderTextColor="#9CA3AF"
-              maxLength={80}
+              maxLength={120}
             />
-            {isBelowMin && (
-              <Text style={ms.errorHint}>
-                {(t('requests.modal.belowMin') || '⛔ Below minimum (${min})').replace('${min}', `$${minAllowed}`)}
-              </Text>
-            )}
 
             {/* Duration */}
             <Text style={ms.fieldLabel}>{t('requests.modal.duration') || 'Duration'}</Text>
@@ -412,9 +389,9 @@ function QuickOfferModal({
 
             {/* Send */}
             <TouchableOpacity
-              style={[ms.sendBtn, (saving || isBelowMin) && ms.sendBtnDisabled]}
+              style={[ms.sendBtn, saving && ms.sendBtnDisabled]}
               onPress={submit}
-              disabled={saving || isBelowMin}
+              disabled={saving}
               activeOpacity={0.85}
             >
               {saving

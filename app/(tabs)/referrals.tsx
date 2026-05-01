@@ -255,17 +255,6 @@ export default function ReferralsScreen() {
   const pendingCount = referrals.filter((r) => (r.status || "").toUpperCase() === "PENDING").length;
   const approvedCount = referrals.filter((r) => (r.status || "").toUpperCase() === "APPROVED").length;
   
-  console.log("[REFERRALS] Render stats:", {
-    totalReferrals: referrals.length,
-    pendingCount,
-    approvedCount,
-    referrals: referrals.map((r) => ({
-      id: r.id,
-      status: r.status,
-      inviterPatientId: r.inviterPatientId,
-      invitedPatientId: r.invitedPatientId,
-    }))
-  });
 
   // Bu hastanın rolünü belirle (inviter mi invited mi)
   const getReferralRole = (ref: ReferralItem): "inviter" | "invited" => {
@@ -276,28 +265,25 @@ export default function ReferralsScreen() {
 
   const getReferralDisplayName = (ref: ReferralItem): string => {
     const role = getReferralRole(ref);
-    console.log(`[REFERRALS] getReferralDisplayName for ref ${ref.id}:`, {
-      role,
-      inviterPatientName: ref.inviterPatientName,
-      invitedPatientName: ref.invitedPatientName,
-      inviterPatientId: ref.inviterPatientId,
-      invitedPatientId: ref.invitedPatientId
-    });
-    
-    // Show both names: Inviter → Invited
-    const inviterName = ref.inviterPatientName || ref.inviterPatientId || t("referrals.inviterPerson");
-    const invitedName = ref.invitedPatientName || ref.invitedPatientId || t("referrals.invitedPerson");
-    
-    return `${inviterName} → ${invitedName}`;
+    // Show only the OTHER party's name (not the current user's own name)
+    if (role === "inviter") {
+      return ref.invitedPatientName || ref.invitedPatientId || t("referrals.invitedPerson") || "—";
+    } else {
+      return ref.inviterPatientName || ref.inviterPatientId || t("referrals.inviterPerson") || "—";
+    }
   };
+
+  const clinicLevel1Discount: number | null =
+    clinicDiscountRates?.referralLevels?.level1 ?? null;
 
   const getDiscountPercent = (ref: ReferralItem): number | null => {
     const role = getReferralRole(ref);
-    if (role === "inviter") {
-      return ref.inviterDiscountPercent ?? ref.discountPercent ?? null;
-    } else {
-      return ref.invitedDiscountPercent ?? ref.discountPercent ?? null;
-    }
+    const fromRef =
+      role === "inviter"
+        ? (ref.inviterDiscountPercent ?? ref.discountPercent ?? null)
+        : (ref.invitedDiscountPercent ?? ref.discountPercent ?? null);
+    // Fall back to clinic level1 setting when the referral row has no discount stored
+    return fromRef ?? clinicLevel1Discount;
   };
 
   if (loading) {
@@ -394,17 +380,6 @@ export default function ReferralsScreen() {
               const discountPercent = getDiscountPercent(r);
               const isInviter = role === "inviter";
               
-              console.log(`[REFERRALS] Rendering referral ${index + 1}/${referrals.length}:`, {
-                id: r.id,
-                status: r.status,
-                role,
-                displayName,
-                discountPercent,
-                inviterPatientId: r.inviterPatientId,
-                invitedPatientId: r.invitedPatientId,
-                createdAt: r.createdAt,
-              });
-              
               return (
                 <View key={r.id} style={styles.refItem}>
                   <View style={{ flex: 1 }}>
@@ -414,11 +389,12 @@ export default function ReferralsScreen() {
                     </Text>
                     {r.status === "APPROVED" ? (
                       <Text style={styles.discountText}>
-                        🎉 {discountPercent ? t("referrals.bothEarnDiscount", { percent: discountPercent }) : t("referrals.bothEarnDiscount", { percent: 10 })}
+                        🎉 {t("referrals.bothEarnDiscount", { percent: discountPercent ?? 10 })}
                       </Text>
                     ) : (
                       <Text style={styles.pendingText}>
                         ⏳ {t("referrals.status.pendingDesc")}
+                        {discountPercent != null ? ` • %${discountPercent} ${t("referrals.discountBadge") || "indirim"}` : ""}
                       </Text>
                     )}
                   </View>

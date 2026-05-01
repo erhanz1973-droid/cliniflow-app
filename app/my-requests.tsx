@@ -32,18 +32,6 @@ function translateDuration(raw: string | null, t: (k: string) => string): string
     .replace(/\bmonths?\b/gi, t('duration.months') || 'months');
 }
 
-// Price minimums — used for offer scoring
-const MIN_PRICE: Record<string, number> = {
-  IMPLANT: 600, CROWN: 150, BRIDGE: 300, VENEER: 200,
-  ALL_ON_4: 4000, ALL_ON_6: 5000, WHITENING: 100,
-  EXTRACTION: 50, ROOT_CANAL: 200, CONSULT: 30,
-};
-
-function parsePriceMin(str: string): number | null {
-  const nums = str.replace(/,(\d{3})/g, '$1').replace(/[^\d.]/g, ' ').trim().split(/\s+/)
-    .map(Number).filter(n => !isNaN(n) && n > 0);
-  return nums.length > 0 ? Math.min(...nums) : null;
-}
 
 // Parse a duration string to an approximate number of days for sorting.
 // e.g. "3-5 days" → 4, "2 weeks" → 14, "1 month" → 30, "3-4 nights" → 3.5
@@ -59,31 +47,11 @@ function parseDurationDays(str: string): number {
 
 /**
  * Score an offer for sorting — lower is better.
- * Penalise suspiciously low prices (below min), reward shorter duration.
+ * Rewards shorter treatment duration.
  */
 function scoreOffer(offer: Offer): number {
-  const key      = offer.treatment_type?.toUpperCase() || '';
-  const minAllow = MIN_PRICE[key] ?? 0;
-  const priceMin = offer.price_range ? parsePriceMin(offer.price_range) : null;
-  const duration = offer.duration    ? parseDurationDays(offer.duration) : 999;
-
-  let score = 0;
-
-  // Price component (50%): normalise price; below minimum → heavy penalty
-  if (priceMin !== null && minAllow > 0) {
-    if (priceMin < minAllow) {
-      score += 200; // suspicious — bump to bottom
-    } else {
-      // Prefer lower price within a reasonable band (cap at 3× min)
-      const normalised = Math.min(priceMin / minAllow, 3);
-      score += normalised * 50;
-    }
-  }
-
-  // Duration component (50%): shorter treatment = better
-  score += Math.min(duration / 30, 3) * 50;
-
-  return score;
+  const duration = offer.duration ? parseDurationDays(offer.duration) : 999;
+  return Math.min(duration / 30, 3) * 100;
 }
 
 type Offer = {
@@ -91,6 +59,7 @@ type Offer = {
   clinic_id: string | null;
   clinic_name: string | null;
   treatment_type: string;
+  price_text: string | null;
   price_range: string | null;
   duration: string | null;
   note: string | null;
@@ -503,8 +472,8 @@ export default function MyRequestsScreen() {
                           <Text style={styles.offerType}>
                             {t(`treatmentPlan.proc.${offer.treatment_type}`) || offer.treatment_type}
                           </Text>
-                          {offer.price_range && (
-                            <Text style={styles.offerRow}>💰 {offer.price_range}</Text>
+                          {(offer.price_text ?? offer.price_range) && (
+                            <Text style={styles.offerRow}>💰 {offer.price_text ?? offer.price_range}</Text>
                           )}
                           {offer.duration && (
                             <Text style={styles.offerRow}>📅 {translateDuration(offer.duration, t)}</Text>

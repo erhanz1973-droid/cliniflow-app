@@ -2,8 +2,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet,
-  ActivityIndicator, Alert, SafeAreaView,
+  ActivityIndicator, Alert,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
@@ -38,6 +39,7 @@ export default function DoctorDiagnosisScreen() {
   const { patientId, encounterId, patientName } = useLocalSearchParams<{ patientId?: string; encounterId?: string; patientName?: string }>();
   const { user } = useAuth();
   const { t, currentLanguage } = useLanguage();
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -358,7 +360,7 @@ export default function DoctorDiagnosisScreen() {
       </ScrollView>
 
       {/* ── Proceed to treatment ── */}
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 14) }]}>
         <Pressable
           style={[styles.proceedBtn, proceeding && styles.proceedBtnDisabled]}
           onPress={handleProceed}
@@ -439,7 +441,9 @@ const styles = StyleSheet.create({
 
   // Bottom
   bottomBar: {
-    backgroundColor: '#1F2937', padding: 14,
+    backgroundColor: '#1F2937',
+    paddingHorizontal: 14,
+    paddingTop: 14,
   },
   proceedBtn: { alignItems: 'center', paddingVertical: 4 },
   proceedBtnDisabled: { opacity: 0.5 },

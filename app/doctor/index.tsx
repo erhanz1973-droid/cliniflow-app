@@ -467,6 +467,7 @@ export default function DoctorDashboardHome() {
   const [recentPatients, setRecentPatients] = useState<RecentPatient[]>([]);
   /** Internal: count of rows from API rebucket "other" (hint only; not on PlanRow) */
   const [rebucketFromApiOtherCount, setRebucketFromApiOtherCount] = useState(0);
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [scheduleTextModal, setScheduleTextModal] = useState<{ open: boolean; text: string }>({
     open: false,
     text: "",
@@ -639,6 +640,20 @@ export default function DoctorDashboardHome() {
           lastVisit: p.lastVisit != null ? String(p.lastVisit) : null,
         }))
       );
+
+      // Pending (unanswered) treatment request count for dashboard badge
+      try {
+        const reqRes = await fetch(`${API_BASE}/api/doctor/treatment-requests`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const reqData = await reqRes.json();
+        const pending = (reqData?.requests ?? []).filter(
+          (r: { status?: string }) => r.status === "pending"
+        ).length;
+        setPendingRequestCount(pending);
+      } catch {
+        // non-critical — badge stays at 0
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Dashboard error");
       setTodayPlans([]);
@@ -894,7 +909,16 @@ export default function DoctorDashboardHome() {
         <Text style={styles.sectionTitle}>{t("doctor.quickActions")}</Text>
         <View style={styles.actionsRow}>
           <TouchableOpacity style={styles.actionBtn} onPress={() => router.push("/doctor/requests")}>
-            <Text style={styles.actionIcon}>📨</Text>
+            <View style={styles.actionIconWrap}>
+              <Text style={styles.actionIcon}>📨</Text>
+              {pendingRequestCount > 0 && (
+                <View style={styles.requestsBadge}>
+                  <Text style={styles.requestsBadgeTxt}>
+                    {pendingRequestCount > 99 ? "99+" : pendingRequestCount}
+                  </Text>
+                </View>
+              )}
+            </View>
             <Text style={styles.actionLabel}>{t("doctor.quickActions.requests")}</Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -1192,7 +1216,23 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
-  actionIcon: { fontSize: 22, marginBottom: 4 },
+  actionIconWrap: { position: "relative", alignItems: "center", marginBottom: 4 },
+  actionIcon: { fontSize: 22 },
+  requestsBadge: {
+    position: "absolute",
+    top: -6,
+    right: -10,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#DC2626",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: "#fff",
+  },
+  requestsBadgeTxt: { color: "#fff", fontSize: 10, fontWeight: "800" },
   actionLabel: { fontSize: 11, fontWeight: "600", color: "#374151", textAlign: "center" },
   emptyText: { padding: 16, fontSize: 14, color: "#6b7280", textAlign: "center" },
   planCard: {

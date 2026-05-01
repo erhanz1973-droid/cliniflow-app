@@ -113,6 +113,7 @@ type HomeOffer = {
   clinic_id: string | null;
   clinic_name: string | null;
   treatment_type: string;
+  price_text: string | null;
   price_range: string | null;
   duration: string | null;
   note: string | null;

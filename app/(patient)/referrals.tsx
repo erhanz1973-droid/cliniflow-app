@@ -25,6 +25,7 @@ type ReferralItem = {
   status: string;
   createdAt: number | null;
   isInviter?: boolean;
+  discountPercent?: number | null;
 };
 
 type ReferralData = {
@@ -80,16 +81,32 @@ export default function ReferralsScreen() {
         const json = await refRes.value.json();
         if (json.ok) {
           const items = json.items || json.referrals || [];
+          // Best discount across all referral items (first non-null)
+          const bestDiscount: number | null =
+            items.reduce((found: number | null, item: any) => {
+              if (found != null) return found;
+              return item.inviterDiscountPercent ?? item.invitedDiscountPercent ?? item.discountPercent ?? null;
+            }, null);
           setData({
             referralCode:    json.referralCode || "",
-            discountPercent: json.discountPercent ?? null,
-            referrals: items.map((item: any) => ({
-              id:        item.id,
-              name:      item.partnerName || item.invitedPatientName || item.inviterPatientName || "—",
-              status:    item.status || "pending",
-              createdAt: item.createdAt ?? null,
-              isInviter: !!item.isInviter,
-            })),
+            discountPercent: json.discountPercent ?? bestDiscount ?? null,
+            referrals: items.map((item: any) => {
+              // Determine which role the current user plays so we show the OTHER person
+              const iAmInviter =
+                item.inviterPatientId === patientId;
+              const isInviter = iAmInviter;
+              const otherName = isInviter
+                ? (item.invitedPatientName || item.invitedPatientId || "—")
+                : (item.inviterPatientName || item.inviterPatientId || "—");
+              return {
+                id:             item.id,
+                name:           item.partnerName || otherName || "—",
+                status:         item.status || "pending",
+                createdAt:      item.createdAt ?? null,
+                isInviter,
+                discountPercent: item.inviterDiscountPercent ?? item.invitedDiscountPercent ?? item.discountPercent ?? null,
+              };
+            }),
           });
         }
       }
@@ -293,6 +310,11 @@ export default function ReferralsScreen() {
                   <Text style={styles.friendRole}>
                     {ref.isInviter ? t("referrals.roleInvited") : t("referrals.roleInviter")}
                   </Text>
+                  {(ref.discountPercent ?? discountPercent) != null && (
+                    <Text style={styles.friendDiscount}>
+                      🎁 %{ref.discountPercent ?? discountPercent} {t("referrals.discountBadge") || "indirim"}
+                    </Text>
+                  )}
                   {ref.createdAt ? (
                     <Text style={styles.friendDate}>
                       {new Date(ref.createdAt).toLocaleDateString(locale)}
@@ -416,6 +438,7 @@ const styles = StyleSheet.create({
   friendName:       { fontSize: 15, fontWeight: "600", color: "#111827" },
   friendDate:       { fontSize: 12, color: "#9ca3af", marginTop: 2 },
   friendRole:       { fontSize: 11, color: "#6366f1", fontWeight: "600", marginTop: 1 },
+  friendDiscount:   { fontSize: 12, color: "#16a34a", fontWeight: "700", marginTop: 2 },
   statusBadge: {
     paddingHorizontal: 10,
     paddingVertical: 4,

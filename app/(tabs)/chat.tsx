@@ -35,6 +35,7 @@ import {
   THREAD_ID_UUID_RE,
   waitOnceSocketConnected,
 } from "../../lib/chatRealtime";
+import { resetAppIconBadgeCount } from "../../lib/chatAckOpen";
 
 
 type Attachment = {

@@ -13,11 +13,12 @@ import { secureGet, securePost } from '../lib/secure-fetch';
 import { API_BASE } from '../lib/api';
 
 // ── Procedure types ────────────────────────────────────────────────────────
+// Must match backend shared/procedures.js PROCEDURE_TYPES exactly
 const PROCEDURES = [
   // Olaylar
   { type: 'CONSULT',        label: 'Konsültasyon',             category: 'Olaylar' },
-  { type: 'FOLLOWUP',       label: 'Kontrol',                  category: 'Olaylar' },
-  { type: 'LAB',            label: 'Laboratuvar / Tarama',     category: 'Olaylar' },
+  { type: 'XRAY',           label: 'Röntgen',                  category: 'Olaylar' },
+  { type: 'PANORAMIC_XRAY', label: 'Panoramik Röntgen',        category: 'Olaylar' },
   // Protetik
   { type: 'CROWN',                          label: 'Kron',                        category: 'Protetik' },
   { type: 'TEMP_CROWN',                     label: 'Geçici Kron',                 category: 'Protetik' },
@@ -39,27 +40,31 @@ const PROCEDURES = [
   { type: 'ROOT_CANAL_RETREATMENT', label: 'Kanal Retreatman',       category: 'Endodontik' },
   { type: 'CANAL_OPENING',          label: 'Kanal Açma',             category: 'Endodontik' },
   { type: 'CANAL_FILLING',          label: 'Kanal Dolgusu',          category: 'Endodontik' },
-  { type: 'ROOT_CANAL',             label: 'Kanal (Genel)',          category: 'Endodontik' },
   // Cerrahi
   { type: 'EXTRACTION',          label: 'Çekim',                category: 'Cerrahi' },
   { type: 'SURGICAL_EXTRACTION', label: 'Cerrahi Çekim',        category: 'Cerrahi' },
   { type: 'APICAL_RESECTION',    label: 'Apikal Rezeksiyon',    category: 'Cerrahi' },
-  { type: 'SINUS_LIFT',          label: 'Sinüs Lift',           category: 'Cerrahi' },
-  { type: 'BONE_GRAFT',          label: 'Kemik Grefti',         category: 'Cerrahi' },
   // İmplant
   { type: 'IMPLANT',          label: 'İmplant',            category: 'İmplant' },
   { type: 'HEALING_ABUTMENT', label: 'Healing Abutment',   category: 'İmplant' },
   { type: 'IMPLANT_CROWN',    label: 'İmplant Kron',       category: 'İmplant' },
+  { type: 'ALL_ON_4',         label: 'All on 4',           category: 'İmplant' },
+  { type: 'ALL_ON_6',         label: 'All on 6',           category: 'İmplant' },
   // Diğer
-  { type: 'CLEANING',         label: 'Temizlik',           category: 'Diğer' },
-  { type: 'GUM_TREATMENT',    label: 'Diş Eti Tedavisi',   category: 'Diğer' },
   { type: 'WHITENING',        label: 'Beyazlatma',         category: 'Diğer' },
-  { type: 'XRAY',             label: 'Röntgen',            category: 'Diğer' },
   { type: 'OTHER',            label: 'Diğer',              category: 'Diğer' },
 ];
-const PROC_MAP: Record<string, string> = Object.fromEntries(
-  PROCEDURES.map(p => [p.type, p.label])
-);
+const PROC_MAP: Record<string, string> = {
+  ...Object.fromEntries(PROCEDURES.map(p => [p.type, p.label])),
+  // display aliases for legacy/removed types
+  ROOT_CANAL: 'Kanal Tedavisi',
+  FOLLOWUP: 'Kontrol',
+  LAB: 'Laboratuvar',
+  SINUS_LIFT: 'Sinüs Lift',
+  BONE_GRAFT: 'Kemik Grefti',
+  CLEANING: 'Temizlik',
+  GUM_TREATMENT: 'Diş Eti Tedavisi',
+};
 function procLabel(type: string) {
   return PROC_MAP[String(type || '').toUpperCase()] || type || '—';
 }
@@ -228,6 +233,14 @@ function AddModal({
   const [showProcList, setShowProcList] = useState(false);
   const [showDoctorList, setShowDoctorList] = useState(false);
 
+  // Auto-select the current doctor when modal opens so treatments are always assigned
+  useEffect(() => {
+    if (visible && doctors.length > 0 && currentDoctorId) {
+      const self = doctors.find(d => d.id === currentDoctorId || d.doctor_id === currentDoctorId);
+      if (self) setSelectedDoctor(self);
+    }
+  }, [visible, doctors, currentDoctorId]);
+
   const diagnosedTeeth = [...new Set(diagnoses.map(d => String(d.tooth_number || '')).filter(Boolean))];
 
   const reset = () => {
@@ -244,12 +257,13 @@ function AddModal({
 
     try {
       setSaving(true);
+      const assignedId = selectedDoctor?.id || currentDoctorId || null;
       const body: any = {
         tooth_number: toothNum,
         procedure_type: selectedProc.type,
         scheduled_at: selectedDate ? selectedDate.toISOString() : null,
         chair: chair.trim() || null,
-        assigned_doctor_id: selectedDoctor?.id || null,
+        assigned_doctor_id: assignedId,
         notes: notes.trim() || null,
       };
       const res = await securePost(
@@ -451,18 +465,21 @@ function EditModal({
       const doc = doctors.find(d => d.id === treatment.assigned_doctor_id);
       setSelectedDoctor(doc || null);
     } else {
-      setSelectedDoctor(null);
+      // fallback: assign to the current logged-in doctor
+      const self = currentDoctorId ? doctors.find(d => d.id === currentDoctorId || d.doctor_id === currentDoctorId) : null;
+      setSelectedDoctor(self || null);
     }
-  }, [treatment, doctors]);
+  }, [treatment, doctors, currentDoctorId]);
 
   if (!treatment) return null;
 
   const save = async () => {
     try {
       setSaving(true);
+      const assignedId = selectedDoctor?.id || currentDoctorId || null;
       const body: any = {
         status,
-        assigned_doctor_id: selectedDoctor?.id || null,
+        assigned_doctor_id: assignedId,
         scheduled_at: selectedDate ? selectedDate.toISOString() : null,
         chair: chair.trim() || null,
         notes: notes.trim() || null,
