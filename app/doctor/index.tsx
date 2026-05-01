@@ -484,9 +484,15 @@ export default function DoctorDashboardHome() {
     setError(null);
     try {
       setAuthToken(token);
-      const res = await fetch(`${API_BASE}/api/doctor/dashboard`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const _ld = new Date();
+      const pad2 = (n: number) => String(n).padStart(2, '0');
+      const localToday = `${_ld.getFullYear()}-${pad2(_ld.getMonth() + 1)}-${pad2(_ld.getDate())}`;
+      const _lt = new Date(_ld.getFullYear(), _ld.getMonth(), _ld.getDate() + 1);
+      const localTomorrow = `${_lt.getFullYear()}-${pad2(_lt.getMonth() + 1)}-${pad2(_lt.getDate())}`;
+      const res = await fetch(
+        `${API_BASE}/api/doctor/dashboard?localToday=${localToday}&localTomorrow=${localTomorrow}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       const data = (await res.json()) as Record<string, unknown>;
       if (!data?.ok) throw new Error(String(data?.error || data?.message || `HTTP ${res.status}`));
 
