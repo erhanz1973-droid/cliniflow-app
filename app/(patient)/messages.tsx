@@ -295,7 +295,8 @@ export default function MessagesScreen() {
 
   const patientId = String(user?.patientId || "").trim();
   const token      = user?.token;
-  const hasClinic  = !!user?.clinicId;
+  // hasClinic: true if JWT has clinicId OR if a clinic was selected/persisted (e.g. via offer flow)
+  const hasClinic  = !!user?.clinicId || (selectedClinicReady && !!selectedClinic?.id);
   const { markRead } = useUnreadMessages(patientId || undefined, token || undefined);
 
   // Register intraoral camera bridge — always calls the latest processPhotoWithAI via ref
