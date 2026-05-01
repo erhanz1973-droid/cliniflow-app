@@ -181,7 +181,7 @@ export function useSupabaseOfferMessages({
         maybeSetReady();
       });
 
-    // Realtime — server-side filter: sadece bu teklif'in olayları gelir
+    // Realtime — client-side filter (server-side filter requires REPLICA IDENTITY FULL)
     const topic = `offer-messages-${oid}`;
     const channel = sb
       .channel(topic)
@@ -191,12 +191,12 @@ export function useSupabaseOfferMessages({
           event: 'INSERT',
           schema: 'public',
           table: 'offer_messages',
-          filter: `offer_id=eq.${oid}`,
         },
         (payload) => {
           const raw = payload.new as OfferMessagesRow;
-          if (!raw?.id) return;
-          if (__DEV__) console.log('🔥 RT INSERT offer_messages:', raw.id);
+          // Client-side filter — only handle rows for THIS offer
+          if (!raw?.id || String(raw.offer_id || '') !== oid) return;
+          if (__DEV__) console.log('🔥 RT INSERT offer_messages:', raw.id, 'role:', raw.sender_role);
           const msg = offerRowToMessage(raw, oid);
           setMessages(prev => {
             if (prev.some(m => m.id === msg.id)) return prev;
