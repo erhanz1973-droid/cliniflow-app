@@ -518,10 +518,18 @@ export default function OfferChatScreen() {
       }
       void markAsRead();
       if (user?.token) void fetchMessages();
-      // Always refresh from Supabase on focus — catches messages missed while screen was inactive
+      // Refresh from Supabase immediately on focus
       sbOfferRefresh();
+
+      // Poll every 4 seconds while screen is focused — guarantees delivery
+      // even when Supabase Realtime filter or Socket.IO misses an event
+      const pollId = setInterval(() => {
+        sbOfferRefresh();
+      }, 4_000);
+
       return () => {
         setGlobalOfferChatOpen(false);
+        clearInterval(pollId);
       };
     }, [currentOfferId, markAsRead, user?.token, fetchMessages, sbOfferRefresh]),
   );
