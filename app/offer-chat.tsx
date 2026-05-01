@@ -22,6 +22,7 @@ import {
 } from '../hooks/chatSessionGlobal';
 import { useSupabaseOfferMessages } from '../hooks/useSupabaseOfferMessages';
 import { appendMappedChatMessage, mergeSbMessages } from '../hooks/chatMessageUtils';
+import { playInAppNewMessageSoundDebouncedForThread } from '../lib/playInAppMessageSound';
 // Guided intraoral photo steps
 const PHOTO_STEP_KEYS = [
   { key: 'upper', icon: '⬆️' },
@@ -282,6 +283,8 @@ export default function OfferChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
 
+  const myRole = user?.type === 'doctor' ? 'doctor' : 'patient';
+
   // ── Supabase: TEK KAYNAK (yapılandırılmışsa REST GET atlanır) ──────────────
   const offerIdStr = currentOfferId == null ? '' : String(currentOfferId).trim();
   const {
@@ -354,10 +357,16 @@ export default function OfferChatScreen() {
         console.log('[mergeSbMessages] STATE LENGTH BEFORE:', prev.length, '→ AFTER:', merged.length, '(added:', genuinelyNew.length, ')');
       }
 
+      // Karşı taraftan yeni mesaj varsa ses çal (setTimeout: state updater'da side-effect'ten kaçın)
+      const hasIncoming = genuinelyNew.some(sb => sb.sender_role !== myRole);
+      if (hasIncoming && offerIdStr) {
+        setTimeout(() => playInAppNewMessageSoundDebouncedForThread(offerIdStr, 2000), 0);
+      }
+
       // ISO tarihleri lexicographic olarak sıralanabilir — localeCompare 10x daha yavaş
       return merged.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
     });
-  }, [sbOfferMessages, sbOfferConfigured]); // sbOfferReady kasıtlı olarak dep'de yok — yukarıdaki açıklamaya bak
+  }, [sbOfferMessages, sbOfferConfigured, myRole, offerIdStr]); // sbOfferReady kasıtlı olarak dep'de yok — yukarıdaki açıklamaya bak
 
   // Supabase hazır olunca loading kapat
   useEffect(() => {
@@ -389,8 +398,6 @@ export default function OfferChatScreen() {
   const fetchMessagesSeqRef = useRef(0);
   const fetchMessagesAbortRef = useRef<AbortController | null>(null);
   const postSendFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const myRole = user?.type === 'doctor' ? 'doctor' : 'patient';
 
   const keyExtractor = useCallback((item: FlatItem, i: number) =>
     item.type === 'separator'
