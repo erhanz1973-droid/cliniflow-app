@@ -366,6 +366,8 @@ export default function OfferChatScreen() {
   const [error, setError] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const isAtBottomRef = useRef(true);
+  const PAGE_SIZE = 60;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   // Guided intraoral state
   const [intraoralVisible, setIntraoralVisible] = useState(false);
   const [intraoralStep, setIntraoralStep]       = useState(0);
@@ -559,10 +561,14 @@ export default function OfferChatScreen() {
   );
 
   useEffect(() => {
+    // When new messages arrive (beyond visible window), expand visible window
+    if (messages.length > visibleCount && isAtBottomRef.current) {
+      setVisibleCount(messages.length);
+    }
     if (messages.length > 0 && isAtBottomRef.current) {
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 50);
     }
-  }, [messages.length]);
+  }, [messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Upload a file to the backend and get back a URL
   const uploadAttachment = async (
@@ -777,7 +783,11 @@ export default function OfferChatScreen() {
     }
   };
 
-  const flatData = groupByDate(messages);
+  // Show only the last `visibleCount` messages — older ones loaded on scroll up
+  const visibleMessages = messages.length > visibleCount
+    ? messages.slice(messages.length - visibleCount)
+    : messages;
+  const flatData = groupByDate(visibleMessages);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -826,6 +836,18 @@ export default function OfferChatScreen() {
             data={flatData}
             keyExtractor={keyExtractor}
             contentContainerStyle={styles.messageList}
+            ListHeaderComponent={
+              messages.length > visibleCount ? (
+                <TouchableOpacity
+                  onPress={() => setVisibleCount(c => Math.min(c + PAGE_SIZE, messages.length))}
+                  style={{ alignItems: 'center', paddingVertical: 8 }}
+                >
+                  <Text style={{ color: '#888', fontSize: 13 }}>
+                    ↑ {messages.length - visibleCount} older messages
+                  </Text>
+                </TouchableOpacity>
+              ) : null
+            }
             ListEmptyComponent={
               <View style={styles.emptyBox}>
                 <Text style={styles.emptyIcon}>💬</Text>
@@ -834,13 +856,17 @@ export default function OfferChatScreen() {
               </View>
             }
             renderItem={renderOfferChatItem}
-            initialNumToRender={15}
+            initialNumToRender={20}
             maxToRenderPerBatch={10}
-            windowSize={7}
+            windowSize={5}
             removeClippedSubviews={true}
             onScroll={(e) => {
               const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
               isAtBottomRef.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
+              // Load older messages when scrolled near top
+              if (contentOffset.y < 100 && messages.length > visibleCount) {
+                setVisibleCount(c => Math.min(c + PAGE_SIZE, messages.length));
+              }
             }}
             scrollEventThrottle={100}
             onContentSizeChange={() => {
