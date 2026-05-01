@@ -295,9 +295,16 @@ export default function OfferChatScreen() {
   // Supabase offer mesajlarını state'e additif olarak sync et.
   // opt_* → gerçek UUID geçişi FlatList'te flash yaratmaması için IN-PLACE replace kullanır:
   // aynı _stableKey → FlatList item'ı yeniden mount etmez, sadece günceller.
+  //
+  // ⚠️ sbOfferReady KONTROLÜ KASITLI OLARAK YOK:
+  // RT subscription henüz SUBSCRIBED olmasa bile Socket.IO mesajları hook'a gelebilir.
+  // sbOfferReady beklersek bu mesajlar offer-chat state'ine hiç geçmez.
+  // Sadece sbOfferConfigured=false ise veya sbMsgs tamamen boşsa atla.
   useEffect(() => {
-    if (!sbOfferConfigured || !sbOfferReady) return;
+    if (!sbOfferConfigured) return;
     const sbMsgs = sbOfferMessages as unknown as Message[];
+    // Hook henüz hiç mesaj almadıysa (SELECT tamamlanmadı, Socket.IO da yok) — atla
+    if (sbMsgs.length === 0) return;
     setMessages(prev => {
       // Supabase'den gelen yeni mesajlar (henüz prev'de yok)
       const newSbMsgs = sbMsgs.filter(sb => !prev.some(p => p.id === sb.id));
@@ -339,7 +346,7 @@ export default function OfferChatScreen() {
 
       return merged.sort((a, b) => a.created_at.localeCompare(b.created_at));
     });
-  }, [sbOfferMessages, sbOfferReady, sbOfferConfigured]);
+  }, [sbOfferMessages, sbOfferConfigured]); // sbOfferReady kasıtlı olarak dep'de yok — yukarıdaki açıklamaya bak
 
   // Supabase hazır olunca loading kapat
   useEffect(() => {
