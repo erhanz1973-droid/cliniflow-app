@@ -1,5 +1,5 @@
 // app/offer-chat.tsx — Offer-based messaging between patient and doctor
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView,
@@ -306,22 +306,32 @@ export default function OfferChatScreen() {
     // Hook henüz hiç mesaj almadıysa (SELECT tamamlanmadı, Socket.IO da yok) — atla
     if (sbMsgs.length === 0) return;
     setMessages(prev => {
-      // Supabase'den gelen yeni mesajlar (henüz prev'de yok)
-      const newSbMsgs = sbMsgs.filter(sb => !prev.some(p => p.id === sb.id));
+      // O(n) Set ile mevcut ID'leri index'le — prev.some() O(n²) yerine O(1) lookup
+      const prevIdSet = new Set(prev.map(m => m.id));
+      const newSbMsgs = sbMsgs.filter(sb => !prevIdSet.has(sb.id));
 
       // 1️⃣ opt_* mesajlarını, eşleşen gerçek mesajla IN-PLACE değiştir
       //    → FlatList key (_stableKey) sabit kalır, flash olmaz
+      //    O(n) Map: text → candidates (opt eşleştirme için)
+      const candidatesByText = new Map<string, Message[]>();
+      for (const sb of newSbMsgs) {
+        const key = `${sb.sender_role}::${sb.text ?? '__null__'}`;
+        if (!candidatesByText.has(key)) candidatesByText.set(key, []);
+        candidatesByText.get(key)!.push(sb);
+      }
+
       const usedSbIds = new Set<string>();
       const updatedPrev = prev.map(m => {
         if (!m.id.startsWith('opt_')) return m;
         const optTs = Number(m.id.slice(4));
         if (!optTs) return m;
-        const match = newSbMsgs.find(sb => {
+        const key = `${m.sender_role}::${m.text ?? '__null__'}`;
+        const candidates = candidatesByText.get(key);
+        if (!candidates) return m;
+        const match = candidates.find(sb => {
           if (usedSbIds.has(sb.id)) return false;
-          if (sb.sender_role !== m.sender_role) return false;
           const sbTs = new Date(sb.created_at).getTime();
-          const textMatch = sb.text != null ? sb.text === m.text : true;
-          return textMatch && Math.abs(sbTs - optTs) < 30_000;
+          return Math.abs(sbTs - optTs) < 30_000;
         });
         if (match) {
           usedSbIds.add(match.id);
@@ -344,7 +354,8 @@ export default function OfferChatScreen() {
         console.log('[mergeSbMessages] STATE LENGTH BEFORE:', prev.length, '→ AFTER:', merged.length, '(added:', genuinelyNew.length, ')');
       }
 
-      return merged.sort((a, b) => a.created_at.localeCompare(b.created_at));
+      // ISO tarihleri lexicographic olarak sıralanabilir — localeCompare 10x daha yavaş
+      return merged.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
     });
   }, [sbOfferMessages, sbOfferConfigured]); // sbOfferReady kasıtlı olarak dep'de yok — yukarıdaki açıklamaya bak
 
@@ -548,11 +559,12 @@ export default function OfferChatScreen() {
       // Refresh from Supabase immediately on focus
       sbOfferRefresh();
 
-      // Poll every 4 seconds while screen is focused — guarantees delivery
-      // even when Supabase Realtime filter or Socket.IO misses an event
+      // Poll every 8 seconds while screen is focused — guarantees delivery
+      // even when Supabase Realtime filter or Socket.IO misses an event.
+      // Kept at 8s (not 4s) to avoid re-triggering O(n) merge on large threads.
       const pollId = setInterval(() => {
         sbOfferRefresh();
-      }, 4_000);
+      }, 8_000);
 
       return () => {
         setGlobalOfferChatOpen(false);
@@ -786,10 +798,11 @@ export default function OfferChatScreen() {
   };
 
   // Show only the last `visibleCount` messages — older ones loaded on scroll up
-  const visibleMessages = messages.length > visibleCount
-    ? messages.slice(messages.length - visibleCount)
-    : messages;
-  const flatData = groupByDate(visibleMessages);
+  const visibleMessages = useMemo(
+    () => messages.length > visibleCount ? messages.slice(messages.length - visibleCount) : messages,
+    [messages, visibleCount],
+  );
+  const flatData = useMemo(() => groupByDate(visibleMessages), [visibleMessages]);
 
   return (
     <SafeAreaView style={styles.safe}>
