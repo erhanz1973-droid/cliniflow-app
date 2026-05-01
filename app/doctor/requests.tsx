@@ -17,24 +17,24 @@ import {
 
 // ── Quick treatment presets ───────────────────────────────────────────────────
 const QUICK = [
-  { value: 'IMPLANT',  label: 'Implant',  emoji: '🦷', price: '$800–1,200',    dur: '3–5 days' },
-  { value: 'CROWN',    label: 'Crown',    emoji: '👑', price: '$200–350',      dur: '2–3 days' },
-  { value: 'BRIDGE',   label: 'Bridge',   emoji: '🌉', price: '$400–700',      dur: '3–4 days' },
-  { value: 'ALL_ON_4', label: 'All-on-4', emoji: '✨', price: '$5,000–8,000',  dur: '5–7 days' },
+  { value: 'IMPLANT',  labelKey: 'treatmentPlan.proc.IMPLANT',  emoji: '🦷', price: '$800–1,200',   dur: '3–5 days' },
+  { value: 'CROWN',    labelKey: 'treatmentPlan.proc.CROWN',    emoji: '👑', price: '$200–350',     dur: '2–3 days' },
+  { value: 'BRIDGE',   labelKey: 'treatmentPlan.proc.BRIDGE_UNIT', emoji: '🌉', price: '$400–700', dur: '3–4 days' },
+  { value: 'ALL_ON_4', labelKey: 'treatReq.proc.allOn4',        emoji: '✨', price: '$5,000–8,000', dur: '5–7 days' },
 ];
 
 const ALL_TYPES = [
-  { value: 'IMPLANT',    label: 'Implant' },
-  { value: 'CROWN',      label: 'Crown' },
-  { value: 'BRIDGE',     label: 'Bridge' },
-  { value: 'VENEER',     label: 'Veneer' },
-  { value: 'ALL_ON_4',   label: 'All-on-4' },
-  { value: 'ALL_ON_6',   label: 'All-on-6' },
-  { value: 'WHITENING',  label: 'Whitening' },
-  { value: 'EXTRACTION', label: 'Extraction' },
-  { value: 'ROOT_CANAL', label: 'Root Canal' },
-  { value: 'CONSULT',    label: 'Consultation' },
-  { value: 'OTHER',      label: 'Other' },
+  { value: 'IMPLANT',    labelKey: 'treatmentPlan.proc.IMPLANT' },
+  { value: 'CROWN',      labelKey: 'treatmentPlan.proc.CROWN' },
+  { value: 'BRIDGE',     labelKey: 'treatmentPlan.proc.BRIDGE_UNIT' },
+  { value: 'VENEER',     labelKey: 'treatmentPlan.proc.VENEER' },
+  { value: 'ALL_ON_4',   labelKey: 'treatReq.proc.allOn4' },
+  { value: 'ALL_ON_6',   labelKey: 'treatReq.proc.allOn6' },
+  { value: 'WHITENING',  labelKey: 'treatmentPlan.proc.WHITENING' },
+  { value: 'EXTRACTION', labelKey: 'treatmentPlan.proc.EXTRACTION' },
+  { value: 'ROOT_CANAL', labelKey: 'treatmentPlan.proc.ROOT_CANAL' },
+  { value: 'CONSULT',    labelKey: 'treatmentPlan.proc.CONSULT' },
+  { value: 'OTHER',      labelKey: 'treatmentPlan.proc.OTHER' },
 ];
 
 const MIN_PRICE: Record<string, number> = {
@@ -185,7 +185,7 @@ function OfferDetailModal({
                 {t('requests.offerDetail.noPayload') || 'Details will appear after you refresh; conversation is still available.'}
               </Text>
             ) : null}
-            {line(t('requests.offerDetail.treatment') || 'Treatment', o?.treatment_type ?? null)}
+            {line(t('requests.offerDetail.treatment') || 'Treatment', o?.treatment_type ? (t(`treatmentPlan.proc.${o.treatment_type}`) || o.treatment_type) : null)}
             {line(t('requests.offerDetail.price') || 'Price range', o?.price_range ?? null)}
             {line(t('requests.offerDetail.duration') || 'Duration', o?.duration ?? null)}
             {o?.note ? line(t('requests.offerDetail.note') || 'Note', o.note) : null}
@@ -271,7 +271,7 @@ function QuickOfferModal({
   };
 
   const modalTitle = preset
-    ? `${preset.emoji} ${preset.label} ${t('requests.modal.sendOffer') || 'Send Offer'}`
+    ? `${preset.emoji} ${t(preset.labelKey) || preset.value} ${t('requests.modal.sendOffer') || 'Send Offer'}`
     : (t('requests.modal.makeOffer') || 'Make an Offer');
 
   const patientSummaryText = formatTreatmentRequestDescription(request.description);
@@ -352,7 +352,7 @@ function QuickOfferModal({
               </View>
             ) : (
               <View style={ms.presetRow}>
-                <Text style={ms.presetBadge}>{preset?.emoji} {preset?.label}</Text>
+                <Text style={ms.presetBadge}>{preset?.emoji} {preset ? t(preset.labelKey) || preset.value : ''}</Text>
                 <TouchableOpacity onPress={() => setShowMore(true)}>
                   <Text style={ms.changeTypeLink}>{t('requests.modal.changeType') || 'Change type'}</Text>
                 </TouchableOpacity>
@@ -544,7 +544,7 @@ function RequestCard({
       <View style={cs.metaRow}>
         {req.preferred_treatment && (
           <View style={cs.metaChip}>
-            <Text style={cs.metaChipText}>🦷 {req.preferred_treatment}</Text>
+            <Text style={cs.metaChipText}>🦷 {t(`treatmentPlan.proc.${req.preferred_treatment}`) || req.preferred_treatment}</Text>
           </View>
         )}
         {req.budget && (
@@ -570,7 +570,7 @@ function RequestCard({
               activeOpacity={0.75}
             >
               <Text style={cs.quickEmoji}>{q.emoji}</Text>
-              <Text style={cs.quickLabel}>{q.label}</Text>
+              <Text style={cs.quickLabel}>{t(q.labelKey) || q.value}</Text>
             </TouchableOpacity>
           ))}
           <TouchableOpacity style={cs.quickBtnMore} onPress={openFull} activeOpacity={0.75}>
