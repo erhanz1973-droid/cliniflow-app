@@ -287,6 +287,7 @@ export default function OfferChatScreen() {
     ready: sbOfferReady,
     configured: sbOfferConfigured,
     timedOut: sbOfferTimedOut,
+    refresh: sbOfferRefresh,
   } = useSupabaseOfferMessages({ offerId: offerIdStr, token: user?.token });
 
   // Supabase offer mesajlarını state'e additif olarak sync et
@@ -517,10 +518,12 @@ export default function OfferChatScreen() {
       }
       void markAsRead();
       if (user?.token) void fetchMessages();
+      // Always refresh from Supabase on focus — catches messages missed while screen was inactive
+      sbOfferRefresh();
       return () => {
         setGlobalOfferChatOpen(false);
       };
-    }, [currentOfferId, markAsRead, user?.token, fetchMessages]),
+    }, [currentOfferId, markAsRead, user?.token, fetchMessages, sbOfferRefresh]),
   );
 
   useEffect(() => {

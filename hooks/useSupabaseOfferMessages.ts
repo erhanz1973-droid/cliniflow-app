@@ -9,7 +9,7 @@
  * useEffect deps: [offerId, configured] — SADECE BUNLAR.
  * ❌ messages, state, function, object ekleme.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { io, type Socket } from 'socket.io-client';
 import { getSupabaseClient, isSupabaseRealtimeConfigured } from '../lib/supabase';
@@ -106,6 +106,8 @@ export type UseSupabaseOfferMessagesResult = {
   configured: boolean;
   /** 8 sn içinde SUBSCRIBED gelmedi → Railway fallback kullan. */
   timedOut: boolean;
+  /** Manuel olarak DB'den en son mesajları çek (focus veya pull-to-refresh için) */
+  refresh: () => void;
 };
 
 export function useSupabaseOfferMessages({
@@ -322,5 +324,30 @@ export function useSupabaseOfferMessages({
     };
   }, [offerId, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { messages, ready, configured, timedOut };
+  // Manuel refresh: Supabase Realtime veya Socket.IO teslim edemediyse focus/pull anında yakalar
+  const refresh = useCallback(() => {
+    const oid = String(offerId || '').trim();
+    if (!oid || !configured) return;
+    const sb = getSupabaseClient();
+    if (!sb) return;
+    void sb
+      .from('offer_messages')
+      .select('*')
+      .eq('offer_id', oid)
+      .order('created_at', { ascending: true })
+      .limit(MSG_FETCH_LIMIT)
+      .then(({ data }) => {
+        if (!data) return;
+        setMessages(prev => {
+          const freshRows = (data as OfferMessagesRow[]).filter(
+            r => !prev.some(p => p.id === r.id),
+          );
+          if (freshRows.length === 0) return prev;
+          if (__DEV__) console.log('[useSupabaseOfferMessages] manual refresh +', freshRows.length, 'new rows');
+          return sortAndDedupe([...prev, ...freshRows.map(r => offerRowToMessage(r, oid))]);
+        });
+      });
+  }, [offerId, configured]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return { messages, ready, configured, timedOut, refresh };
 }
