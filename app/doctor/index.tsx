@@ -468,6 +468,7 @@ export default function DoctorDashboardHome() {
   /** Internal: count of rows from API rebucket "other" (hint only; not on PlanRow) */
   const [rebucketFromApiOtherCount, setRebucketFromApiOtherCount] = useState(0);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const [unreadMsgCount, setUnreadMsgCount] = useState(0);
   const [scheduleTextModal, setScheduleTextModal] = useState<{ open: boolean; text: string }>({
     open: false,
     text: "",
@@ -659,6 +660,17 @@ export default function DoctorDashboardHome() {
       } catch {
         // non-critical — badge stays at 0
       }
+
+      // Unread patient messages badge
+      try {
+        const msgRes = await fetch(`${API_BASE}/api/doctor/messages/unread-counts?totalOnly=1`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const msgData = await msgRes.json();
+        setUnreadMsgCount(Number(msgData?.totalUnread ?? msgData?.total ?? 0));
+      } catch {
+        // non-critical
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Dashboard error");
       setTodayPlans([]);
@@ -689,6 +701,22 @@ export default function DoctorDashboardHome() {
     setRefreshing(true);
     void load();
   };
+
+  // Poll unread message count every 30 s (lightweight — totalOnly=1)
+  useEffect(() => {
+    if (!token) return;
+    const fetchUnread = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/doctor/messages/unread-counts?totalOnly=1`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const d = await r.json();
+        setUnreadMsgCount(Number(d?.totalUnread ?? d?.total ?? 0));
+      } catch { /* non-critical */ }
+    };
+    const id = setInterval(fetchUnread, 30_000);
+    return () => clearInterval(id);
+  }, [token]);
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -930,7 +958,16 @@ export default function DoctorDashboardHome() {
             style={styles.actionBtn}
             onPress={() => router.push("/doctor/patients")}
           >
-            <Text style={styles.actionIcon}>👥</Text>
+            <View style={styles.actionIconWrap}>
+              <Text style={styles.actionIcon}>👥</Text>
+              {unreadMsgCount > 0 && (
+                <View style={styles.requestsBadge}>
+                  <Text style={styles.requestsBadgeTxt}>
+                    {unreadMsgCount > 99 ? "99+" : unreadMsgCount}
+                  </Text>
+                </View>
+              )}
+            </View>
             <Text style={styles.actionLabel}>{t("doctor.quickActions.patients")}</Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -1056,7 +1093,16 @@ export default function DoctorDashboardHome() {
           activeOpacity={0.7}
           onPress={() => router.push("/doctor/patients")}
         >
-          <Text style={styles.navIcon}>👥</Text>
+          <View style={styles.actionIconWrap}>
+            <Text style={styles.navIcon}>👥</Text>
+            {unreadMsgCount > 0 && (
+              <View style={styles.requestsBadge}>
+                <Text style={styles.requestsBadgeTxt}>
+                  {unreadMsgCount > 99 ? "99+" : unreadMsgCount}
+                </Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.navLabel}>{t("nav.patients") || "Patients"}</Text>
         </TouchableOpacity>
         <TouchableOpacity
