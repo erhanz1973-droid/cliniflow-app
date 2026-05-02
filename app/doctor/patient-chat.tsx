@@ -222,7 +222,7 @@ export default function DoctorPatientChatScreen() {
       const json = await res.json().catch(() => ({}));
       if (!json.ok) {
         setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
-        Alert.alert('Hata', json.error || 'Mesaj gönderilemedi.');
+        Alert.alert('Hata', json.detail || json.error || 'Mesaj gönderilemedi.');
         setText(trimmed);
       }
     } catch (err: any) {
