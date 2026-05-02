@@ -8,10 +8,11 @@
       }
     },
     "production": {
-      "credentialsSource": "local"
+      "credentialsSource": "local",
+      "autoIncrement": true
     }
   },
   "cli": {
-    "appVersionSource": "local"
+    "appVersionSource": "remote"
   }
 }
