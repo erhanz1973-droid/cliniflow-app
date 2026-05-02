@@ -11,10 +11,10 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   Alert,
   type ListRenderItemInfo,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { API_BASE } from '../../lib/api';
@@ -33,6 +33,7 @@ interface Message {
 export default function DoctorPatientChatScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const { patientId, patientName } = useLocalSearchParams<{
     patientId?: string;
     patientName?: string;
@@ -246,7 +247,7 @@ export default function DoctorPatientChatScreen() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
@@ -265,9 +266,9 @@ export default function DoctorPatientChatScreen() {
       </View>
 
       <KeyboardAvoidingView
-        behavior="padding"
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
       >
         {loading ? (
           <ActivityIndicator style={{ flex: 1 }} size="large" color="#2563EB" />
@@ -298,7 +299,7 @@ export default function DoctorPatientChatScreen() {
           />
         )}
 
-        <View style={styles.inputBar}>
+        <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
           <TextInput
             style={styles.input}
             value={text}
