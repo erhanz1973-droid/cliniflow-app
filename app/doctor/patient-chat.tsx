@@ -180,10 +180,10 @@ export default function DoctorPatientChatScreen() {
     };
   }, [user?.token, loading, resolvedThreadId]);
 
-  // Inverted liste: alt (yeni) tarafa kaydır
+  // Scroll to bottom (newest) when message list grows
   useEffect(() => {
     if (messages.length > 0) {
-      setTimeout(() => flatRef.current?.scrollToOffset({ offset: 0, animated: true }), 120);
+      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 120);
     }
   }, [messages.length]);
 
@@ -281,14 +281,12 @@ export default function DoctorPatientChatScreen() {
             renderItem={renderDoctorMessageItem}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
-            inverted
-            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-            initialNumToRender={10}
+            initialNumToRender={20}
             maxToRenderPerBatch={10}
             windowSize={5}
             removeClippedSubviews={true}
             onContentSizeChange={() =>
-              flatRef.current?.scrollToOffset({ offset: 0, animated: false })
+              flatRef.current?.scrollToEnd({ animated: false })
             }
             ListEmptyComponent={
               <View style={styles.emptyBox}>
