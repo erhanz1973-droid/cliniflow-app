@@ -31,8 +31,13 @@ type DoctorTask = {
 function fmtDue(d: string | null | undefined) {
   if (!d) return "—";
   try {
-    const x = new Date(d);
-    if (Number.isNaN(x.getTime())) return String(d);
+    const s = String(d).trim();
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(s);
+    const x = dateOnly ? new Date(`${s}T12:00:00`) : new Date(s);
+    if (Number.isNaN(x.getTime())) return s;
+    if (dateOnly) {
+      return x.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+    }
     return x.toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
   } catch {
     return String(d);
