@@ -8,7 +8,9 @@
       }
     },
     "production": {
-      "credentialsSource": "local",
+      "android": {
+        "credentialsSource": "remote"
+      },
       "autoIncrement": true
     }
   },
