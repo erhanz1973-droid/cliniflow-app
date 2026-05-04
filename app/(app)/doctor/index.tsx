@@ -163,6 +163,30 @@ function parseYmdLocal(ymd: string): Date | null {
   return out;
 }
 
+function pad2Clock(n: number): string {
+  return String(Math.trunc(n)).padStart(2, "0");
+}
+
+/**
+ * Unambiguous LOCAL wall clock for dashboard rebucket (`YYYY-MM-DD HH:mm:ss`).
+ * Prefer this over concatenating `"date + T + time"` and passing to Date (.UTC drift).
+ */
+function combineDateAndTimeLocalYmdHm(dateYmd: string, timeHm: string): string | undefined {
+  const dp = String(dateYmd || "").trim();
+  const rawT = String(timeHm || "09:00").trim();
+  const tm = /^(\d{1,2})[.:](\d{2})(?::(\d{2}))?/.exec(rawT);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dp) || !tm) return undefined;
+  const y = Number(dp.slice(0, 4));
+  const mo = Number(dp.slice(5, 7)) - 1;
+  const day = Number(dp.slice(8, 10));
+  const hh = Math.min(23, Math.max(0, Number(tm[1])));
+  const mm = Math.min(59, Math.max(0, Number(tm[2])));
+  const ss = tm[3] != null ? Math.min(59, Math.max(0, Number(tm[3]))) : 0;
+  const dt = new Date(y, mo, day, hh, mm, ss);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo || dt.getDate() !== day) return undefined;
+  return `${dp} ${pad2Clock(hh)}:${pad2Clock(mm)}:${pad2Clock(ss)}`;
+}
+
 /**
  * Unambiguous only: YYYY-MM-DD, ISO-8601 (…T…), or explicit Z/offset; YYYY-MM-DD HH:mm in local;
  * Rejects e.g. DD/MM/YYYY.
@@ -173,6 +197,24 @@ function parseIsoOrLocalDateTime(s: string): Date | null {
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return parseYmdLocal(t);
   if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(t)) return null;
   if (/^\d{4}-\d{2}-\d{2}T/.test(t)) {
+    // With Z / offset: real instant. Without: treat as local wall clock (avoid Date("…T…") UTC quirks).
+    const hasExplicitZone = /\bGMT\b|Z$|[+-]\d{2}:?\d{2}\s*$/.test(t);
+    if (hasExplicitZone) {
+      const inst = new Date(t);
+      return Number.isFinite(inst.getTime()) ? inst : null;
+    }
+    const mT = /^(\d{4})-(\d{2})-(\d{2})T(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?/.exec(t);
+    if (mT) {
+      const y = Number(mT[1]);
+      const mo = Number(mT[2]) - 1;
+      const d = Number(mT[3]);
+      const h = Number(mT[4]);
+      const min = Number(mT[5]);
+      const sec = mT[6] != null ? Number(mT[6]) : 0;
+      const out = new Date(y, mo, d, h, min, sec);
+      if (out.getFullYear() !== y || out.getMonth() !== mo || out.getDate() !== d) return null;
+      return out;
+    }
     const inst = new Date(t);
     return Number.isFinite(inst.getTime()) ? inst : null;
   }
@@ -302,14 +344,23 @@ function mapApptToPlan(a: DashboardAppt): PlanRow {
   let sched: string | undefined;
   if (datePart) {
     if (datePart.includes("T")) {
-      sched = datePart;
+      const parsed = parseIsoOrLocalDateTime(datePart.trim());
+      if (parsed) {
+        const y = parsed.getFullYear();
+        const mo = parsed.getMonth() + 1;
+        const d = parsed.getDate();
+        const ymd = `${y}-${pad2Clock(mo)}-${pad2Clock(d)}`;
+        sched = combineDateAndTimeLocalYmdHm(ymd, `${parsed.getHours()}:${parsed.getMinutes()}:${parsed.getSeconds()}`);
+      }
+      if (!sched) sched = datePart;
     } else {
       sched =
-        timePart.length === 5
+        combineDateAndTimeLocalYmdHm(datePart, timePart) ??
+        (timePart.length === 5
           ? `${datePart}T${timePart}:00`
           : timePart
             ? `${datePart}T${timePart}`
-            : `${datePart}T09:00:00`;
+            : `${datePart}T09:00:00`);
     }
   }
   const encOrPlanId = String(a?.planId || "").trim();
