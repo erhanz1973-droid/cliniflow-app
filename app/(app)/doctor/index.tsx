@@ -312,10 +312,11 @@ function mapApptToPlan(a: DashboardAppt): PlanRow {
             : `${datePart}T09:00:00`;
     }
   }
-  const encId = String(a?.planId || "").trim();
+  const encOrPlanId = String(a?.planId || "").trim();
+  /** Backend often sets planId to encounter UUID — multiple ET rows share it. Prefer appointment id (et-…). */
   const apptId = String(a?.appointmentId || "").trim();
   return {
-    id: encId || apptId || `appt-${datePart}-${timePart}`,
+    id: apptId || encOrPlanId || `appt-${datePart}-${timePart}`,
     status: String(a?.status || "scheduled"),
     procedure_name: String(a?.procedureSummary || "Randevu"),
     scheduled_date: sched,
@@ -351,8 +352,7 @@ function stripInternalPlanFields(p: PlanRow): PlanRow {
 }
 
 /**
- * Stable ids from the API: collapse true duplicates (e.g. same row in both arrays).
- * Synthetic `appt-…` ids also include patient, schedule, procedure so distinct rows are never merged.
+ * Stable ids: prefer appointment/clinic row id; planId alone is often encounter_id (many treatments per encounter).
  */
 function planDedupeKey(p: PlanRow): string {
   const id = (p.id || "").trim();
