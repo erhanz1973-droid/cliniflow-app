@@ -1,19 +1,43 @@
 {
-  "name": "Cliniflow",
-  "slug": "cliniflow-app",
-  "version": "1.2.1",
-  "owner": "erhanz",
-  "ios": {
-    "bundleIdentifier": "com.erhanz.cliniflow-app",
-    "buildNumber": "34"
-  },
-  "android": {
-    "versionCode": 34
-  },
-  "extra": {
-    "API_URL": "https://cliniflow-backend-clean-production.up.railway.app",
-    "eas": {
-      "projectId": "f970fe3c-b598-44e7-9f04-c938e4a4321d"
+  "expo": {
+    "scheme": "clinifly",
+    "name": "Cliniflow",
+    "slug": "clinifly-new",
+    "version": "123",
+    "owner": "erhanzorlu",
+    "ios": {
+      "bundleIdentifier": "net.clinifly.mobile",
+      "buildNumber": "42",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.clinifly.mobile",
+      "versionCode": 32,
+      "blockedPermissions": [
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_EXTERNAL_STORAGE"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "default",
+          "enableBackgroundRemoteNotifications": true
+        }
+      ]
+    ],
+    "extra": {
+      "API_URL": "https://cliniflow-backend-clean-production.up.railway.app",
+      "eas": {
+        "projectId": "f970fe3c-b598-44e7-9f04-c938e4a4321d"
+      }
     }
   }
 }
