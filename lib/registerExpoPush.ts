@@ -1,3 +1,4 @@
+import type { MutableRefObject } from "react";
 import { Platform } from "react-native";
 import Constants from "expo-constants";
 import { API_BASE } from "./api";
@@ -21,13 +22,23 @@ if (!isExpoGo) {
 
 if (Notifications) {
   try {
+    // Align with doctor-clean: iOS 15+ banner/list + sound + badge for foreground presentation.
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
         shouldPlaySound: true,
         shouldSetBadge: true,
       }),
     });
+    if (__DEV__) {
+      console.log("[push][PUSH_PRESENTATION] setNotificationHandler installed", {
+        expoGo: isExpoGo,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+      });
+    }
   } catch {
     /* non-fatal */
   }
@@ -37,12 +48,24 @@ async function ensureAndroidChatChannel(): Promise<void> {
   if (!Notifications || Platform.OS !== "android") return;
   try {
     await Notifications.setNotificationChannelAsync("chat", {
-      name: "Chat",
+      name: "chat",
       importance: Notifications.AndroidImportance.MAX,
-      sound: "notification.mp3",
+      sound: "default",
       vibrationPattern: [0, 250, 250, 250],
       enableVibrate: true,
+      showBadge: true,
     });
+    await Notifications.setNotificationChannelAsync("default", {
+      name: "default",
+      importance: Notifications.AndroidImportance.MAX,
+      sound: "default",
+      vibrationPattern: [0, 250, 250, 250],
+      enableVibrate: true,
+      showBadge: true,
+    });
+    if (__DEV__) {
+      console.log("[push][PUSH_PRESENTATION] android_channels default+chat configured (sound default, MAX)");
+    }
   } catch {
     /* non-fatal */
   }
@@ -52,22 +75,53 @@ async function ensureAndroidChatChannel(): Promise<void> {
 export async function registerExpoPushForSession(opts: {
   role: "patient" | "doctor";
   authToken: string;
+  signal?: AbortSignal;
+  authSessionEpochAtStart?: number;
+  authSessionEpochRef?: MutableRefObject<number>;
 }): Promise<void> {
   if (!opts.authToken?.trim()) return;
+  const sig = opts.signal;
+  const stale = (): boolean =>
+    opts.authSessionEpochRef != null &&
+    opts.authSessionEpochAtStart != null &&
+    opts.authSessionEpochRef.current !== opts.authSessionEpochAtStart;
+
+  if (sig?.aborted) return;
+  if (stale()) return;
   if (!Notifications) {
     if (__DEV__) console.log("[push] ⛔ Push disabled (Expo Go)");
     return;
   }
 
   await ensureAndroidChatChannel();
+  if (sig?.aborted || stale()) return;
 
-  const { status: existing } = await Notifications.getPermissionsAsync();
-  let finalStatus = existing;
-  if (existing !== "granted") {
-    const req = await Notifications.requestPermissionsAsync();
-    finalStatus = req.status;
+  const permBefore = await Notifications.getPermissionsAsync();
+  if (__DEV__) {
+    console.log("[push][PUSH_PRESENTATION] getPermissionsAsync (before request)", permBefore);
   }
-  if (finalStatus !== "granted") return;
+  if (sig?.aborted || stale()) return;
+  let finalStatus = permBefore.status;
+  if (finalStatus !== "granted") {
+    const req = await Notifications.requestPermissionsAsync({
+      ios: {
+        allowAlert: true,
+        allowBadge: true,
+        allowSound: true,
+      },
+    });
+    finalStatus = req.status;
+    if (__DEV__) {
+      console.log("[push][PUSH_PRESENTATION] requestPermissionsAsync result", req);
+    }
+  }
+  if (sig?.aborted || stale()) return;
+  if (finalStatus !== "granted") {
+    if (__DEV__) {
+      console.warn("[push][PUSH_PRESENTATION] notifications not granted; skip token", { finalStatus });
+    }
+    return;
+  }
 
   const projectId =
     Constants.expoConfig?.extra?.eas?.projectId ??
@@ -80,10 +134,15 @@ export async function registerExpoPushForSession(opts: {
     return;
   }
 
+  if (sig?.aborted || stale()) return;
+
   const tokenStr = typeof expoToken === "string" ? expoToken.trim() : "";
   if (!tokenStr.startsWith("ExponentPushToken[")) return;
 
   const messageSound = await getMessageSoundPreference();
+  if (sig?.aborted || stale()) return;
+
+  const expoExperienceId = String(Constants.expoConfig?.originalFullName ?? "").trim();
 
   try {
     const path =
@@ -102,6 +161,7 @@ export async function registerExpoPushForSession(opts: {
         token: tokenStr,
         messageSound,
         platform: Platform.OS,
+        ...(expoExperienceId ? { expoExperienceId } : {}),
       }),
     });
     if (!res.ok) {
