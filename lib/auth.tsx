@@ -352,6 +352,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.log('[AuthProvider] Auth data loaded:', parsed ? 'User found' : 'No user');
         } catch (error) {
           console.error("[AUTH] Error loading auth:", error);
+          emitAuthTelemetryV1("session_restore_fail", {
+            reason: "exception",
+            message: String(error instanceof Error ? error.message : error).slice(0, 160),
+          });
           await storageSet(AUTH_KEY, null);
           setUser(null);
           setAuthToken(null); // 🔥 CRITICAL: Clear token from API layer
