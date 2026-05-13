@@ -12,12 +12,12 @@
     "start:dev": "npx expo start --dev-client",
     "start:clean": "npx expo start -c",
     "pod:install": "bash scripts/ios-pod-install.sh",
+    "doctor": "npx expo-doctor",
     "android": "npx expo run:android",
     "ios": "npx expo run:ios",
     "web": "npx expo start --web"
   },
   "dependencies": {
-    "@expo/config-plugins": "~54.0.4",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
     "@react-native-picker/picker": "2.11.1",
