@@ -3,12 +3,13 @@
  */
 import { type Session } from "@supabase/supabase-js";
 import * as AppleAuthentication from "expo-apple-authentication";
+import * as Crypto from "expo-crypto";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { Platform } from "react-native";
 import { API_BASE } from "./api";
 import { emitAuthTelemetryV1 } from "./authTelemetry";
-import { getSupabaseAuthClient } from "./supabaseAuthClient";
+import { getSupabaseAuthClient, isSupabaseAuthConfigured } from "./supabaseAuthClient";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -36,13 +37,13 @@ function parseImplicitTokensFromUrl(url: string): { access_token?: string; refre
   return {};
 }
 
-function randomNonce32(): string {
-  const c = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-  let s = "";
-  for (let i = 0; i < 32; i++) s += c[Math.floor(Math.random() * c.length)];
-  return s;
-}
-
+/**
+ * Supabase-hosted Google OAuth (in-app browser).
+ * Dashboard: Authentication → Providers → Google (Web client ID + secret).
+ * Google Cloud: Authorized redirect URIs must include `https://<project>.supabase.co/auth/v1/callback`.
+ * Supabase: Authentication → URL Configuration → add this app’s redirect, e.g. `clinifly://auth-callback`
+ * (same value as `Linking.createURL("auth-callback")` in production builds).
+ */
 export async function signInWithGoogle(): Promise<{ session: Session | null; error: Error | null }> {
   const supabase = getSupabaseAuthClient();
   if (!supabase) return { session: null, error: new Error("oauth_not_configured") };
@@ -50,7 +51,11 @@ export async function signInWithGoogle(): Promise<{ session: Session | null; err
   const redirectTo = Linking.createURL("auth-callback");
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo, skipBrowserRedirect: true },
+    options: {
+      redirectTo,
+      skipBrowserRedirect: true,
+      scopes: "email profile openid",
+    },
   });
   if (error || !data?.url) return { session: null, error: error || new Error("oauth_no_url") };
 
@@ -88,7 +93,15 @@ export async function signInWithApple(): Promise<{ session: Session | null; erro
   const available = await AppleAuthentication.isAvailableAsync();
   if (!available) return { session: null, error: new Error("apple_unavailable") };
 
-  const rawNonce = randomNonce32();
+  /**
+   * Apple: send SHA256(raw) as a string (default digest = lowercase hex, matches Supabase Flutter example).
+   * Supabase: send the same `rawNonce` so GoTrue can verify the ID token `nonce` claim.
+   * If you still see "Nonces mismatch" with this flow, hosted/self-hosted GoTrue may be comparing
+   * hex(SHA256(nonce)) to Apple’s base64url claim — see https://github.com/supabase/auth/issues/2378
+   * Self-hosted workaround: GOTRUE_APPLE_SKIP_NONCE_CHECK=true (weakens replay checks; prefer Auth upgrade).
+   */
+  const rawNonce = Crypto.randomUUID();
+  const hashedNonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
   let credential: AppleAuthentication.AppleAuthenticationCredential;
   try {
     credential = await AppleAuthentication.signInAsync({
@@ -96,7 +109,7 @@ export async function signInWithApple(): Promise<{ session: Session | null; erro
         AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
         AppleAuthentication.AppleAuthenticationScope.EMAIL,
       ],
-      nonce: rawNonce,
+      nonce: hashedNonce,
     });
   } catch (e: unknown) {
     const err = e as { code?: string; message?: string };
@@ -161,6 +174,11 @@ export async function exchangeCliniflyJwtFromOAuthSession(opts: {
         emitAuthTelemetryV1("oauth_bridge_refresh_retry", { provider: opts.provider });
         access = String(next).trim();
         ({ res, json } = await doFetch(access));
+      } else {
+        emitAuthTelemetryV1("oauth_supabase_refresh_fail", {
+          provider: opts.provider,
+          message: String(error?.message || "no_session_after_refresh").slice(0, 160),
+        });
       }
     }
   }
@@ -172,4 +190,39 @@ export async function exchangeCliniflyJwtFromOAuthSession(opts: {
   }
   if (!json?.token) return { ok: false, status: 500, code: "no_token", message: "Invalid server response" };
   return { ok: true, payload: json };
+}
+
+/** Supabase OAuth (Google/Apple) + Clinifly JWT bridge — shared by login and register screens. */
+export type PatientOAuthBridgeOutcome =
+  | { ok: true; payload: CliniflyOAuthPayload }
+  | { ok: false; step: "not_configured" }
+  | { ok: false; step: "native"; message: string }
+  | { ok: false; step: "bridge"; status: number; code: string; message: string };
+
+export async function runPatientOAuthWithBridge(opts: {
+  provider: OAuthProvider;
+  clinicCode?: string;
+}): Promise<PatientOAuthBridgeOutcome> {
+  if (!isSupabaseAuthConfigured()) return { ok: false, step: "not_configured" };
+  const pair =
+    opts.provider === "google" ? await signInWithGoogle() : await signInWithApple();
+  const { session, error } = pair;
+  if (error) return { ok: false, step: "native", message: error.message };
+  const at = session?.access_token?.trim();
+  if (!at) return { ok: false, step: "native", message: "no_access_token" };
+  const bridge = await exchangeCliniflyJwtFromOAuthSession({
+    accessToken: at,
+    provider: opts.provider,
+    clinicCode: opts.clinicCode?.trim() || undefined,
+  });
+  if (bridge.ok === false) {
+    return {
+      ok: false,
+      step: "bridge",
+      status: bridge.status,
+      code: bridge.code,
+      message: bridge.message,
+    };
+  }
+  return { ok: true, payload: bridge.payload };
 }

@@ -25,6 +25,8 @@ export function getSupabaseAuthClient(): SupabaseClient | null {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: false,
+        /** Required for mobile `signInWithOAuth` + `exchangeCodeForSession` (Google / Apple bridge). */
+        flowType: "pkce",
       },
     });
   }
