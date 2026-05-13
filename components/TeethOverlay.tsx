@@ -6,8 +6,19 @@ import {
   Modal,
   StyleSheet,
 } from "react-native";
-import type { Tooth } from "../lib/api";
-import { MOUTH_CROP_TOP, MOUTH_CROP_BOTTOM } from "../lib/api";
+
+type ToothStatus = "healthy" | "caries" | "missing";
+
+type Tooth = {
+  id: string | number;
+  x: number;
+  y: number;
+  status: ToothStatus;
+};
+
+/** Normalized crop band for mouth detections — keep in sync with analyze pipeline */
+const MOUTH_CROP_TOP = 0.4;
+const MOUTH_CROP_BOTTOM = 0.75;
 
 /* ── Mouth region bounds (normalized 0-1) ───────────────── *
  * Mirror the crop window used in analyzeTeethUri so detections

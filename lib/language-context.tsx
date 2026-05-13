@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Localization from 'expo-localization';
 import {
@@ -28,9 +28,10 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 
   // Initialize language on mount
   useEffect(() => {
+    let cancelled = false;
     const initLanguage = async () => {
       try {
-        setIsLoading(true);
+        if (!cancelled) setIsLoading(true);
         if (__DEV__) console.log('[LanguageContext] Starting initialization...');
 
         const loggedStoredLang = await AsyncStorage.getItem(STORAGE_KEY);
@@ -78,6 +79,8 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
             console.log("[LanguageContext] language_version matches", APP_LANG_VERSION, "stored lang:", lang);
         }
 
+        if (cancelled) return;
+
         i18n.locale = lang;
         setCurrentLanguageState(lang);
 
@@ -96,19 +99,25 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         }
       } catch (error) {
         console.error('[LanguageContext] Init error:', error);
+        if (cancelled) return;
         i18n.locale = DEFAULT_APP_LANGUAGE;
         setCurrentLanguageState(DEFAULT_APP_LANGUAGE);
       } finally {
-        setIsLoading(false);
-        if (__DEV__)
-          console.log('[LanguageContext] Initialization complete, isLoading:', false);
+        if (!cancelled) {
+          setIsLoading(false);
+          if (__DEV__)
+            console.log('[LanguageContext] Initialization complete, isLoading:', false);
+        }
       }
     };
 
     initLanguage();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const setLanguage = async (lang: Language) => {
+  const setLanguage = useCallback(async (lang: Language) => {
     if (!SUPPORTED_LANGUAGES.includes(lang)) {
       throw new Error(`Unsupported language: ${lang}`);
     }
@@ -127,7 +136,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       console.error('[LanguageContext] Set language error:', error);
       throw error;
     }
-  };
+  }, []);
 
   const t = useCallback(
     (key: string, params?: Record<string, string | number>): string => {
@@ -147,12 +156,15 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     [currentLanguage]
   );
 
-  const value: LanguageContextType = {
-    currentLanguage,
-    setLanguage,
-    t,
-    isLoading,
-  };
+  const value = useMemo(
+    (): LanguageContextType => ({
+      currentLanguage,
+      setLanguage,
+      t,
+      isLoading,
+    }),
+    [currentLanguage, setLanguage, t, isLoading],
+  );
 
   return (
     <LanguageContext.Provider value={value}>

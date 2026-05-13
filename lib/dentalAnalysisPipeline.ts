@@ -38,7 +38,7 @@ export async function compressImageForAi(
   const { maxWidth = 1024, quality = 0.75 } = opts;
   const readSizeKB = async (fileUri: string): Promise<number> => {
     try {
-      const info = await FileSystem.getInfoAsync(fileUri, { size: true });
+      const info = await FileSystem.getInfoAsync(fileUri, { size: true } as Parameters<typeof FileSystem.getInfoAsync>[1]);
       if (info.exists && "size" in info && (info as any).size > 0) {
         return Math.round((info as any).size / 1024);
       }
@@ -87,15 +87,26 @@ export async function uploadImageForAi(
   token: string
 ): Promise<{ ok: true; url: string } | { ok: false; message: string; aborted?: boolean }> {
   try {
-    const info = await FileSystem.getInfoAsync(uri, { size: true });
+    const info = await FileSystem.getInfoAsync(uri, { size: true } as Parameters<typeof FileSystem.getInfoAsync>[1]);
     const size = info.exists && "size" in info ? ((info as any).size as number) : 0;
     if (size === 0) {
       return { ok: false, message: "empty_file" };
     }
   } catch { /* proceed */ }
 
+  const normalizedMime =
+    mimeType === "image/jpg" || mimeType === "jpeg" ? "image/jpeg" : mimeType;
+  const isPng = normalizedMime === "image/png";
+  const fileName =
+    name && /\.(jpe?g|png|heic|webp)$/i.test(String(name))
+      ? String(name)
+      : isPng
+        ? `photo_${Date.now()}.png`
+        : `photo_${Date.now()}.jpg`;
+  const partType = isPng ? "image/png" : "image/jpeg";
+
   const formData = new FormData();
-  formData.append("file", { uri, name, type: mimeType } as any);
+  formData.append("file", { uri, name: fileName, type: partType } as any);
   const controller = new AbortController();
   const tid = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
   try {
@@ -169,7 +180,8 @@ export async function analyzePhoto(params: {
 
   const up = await uploadImageForAi(compressed.uri, uploadName, compressed.mimeType, token);
   if (!up.ok) {
-    return { ok: false, phase: "upload", message: up.message };
+    const failUp = up as Extract<Awaited<ReturnType<typeof uploadImageForAi>>, { ok: false }>;
+    return { ok: false, phase: "upload", message: failUp.message };
   }
   const fileUrl = up.url;
 

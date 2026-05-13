@@ -3,14 +3,16 @@
  * This app persists the session under `clinifly.auth.v1` (see `auth.tsx`); `authToken` is optional.
  */
 import { Platform } from "react-native";
-import type AsyncStorageStatic from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+type AsyncStore = Pick<typeof AsyncStorage, "getItem" | "setItem" | "removeItem">;
 
 export const AUTH_TOKEN_STORAGE_KEY = "authToken";
 
 const AUTH_SESSION_KEY = "clinifly.auth.v1";
 
 async function storageGet(
-  AS: AsyncStorageStatic,
+  AS: AsyncStore,
   key: string,
 ): Promise<string | null> {
   try {
@@ -65,14 +67,14 @@ export function getPatientIdFromToken(token: string): string {
  * Latest persisted patient JWT (raw). Tries `authToken`, then `clinifly.auth.v1` → `user.token`.
  */
 export async function getCliniflowAuthToken(
-  AsyncStorage: AsyncStorageStatic | null | undefined,
+  store: AsyncStore | null | undefined,
 ): Promise<string> {
-  if (!AsyncStorage || typeof AsyncStorage.getItem !== "function") return "";
+  if (!store || typeof store.getItem !== "function") return "";
   try {
-    const direct = await storageGet(AsyncStorage, AUTH_TOKEN_STORAGE_KEY);
+    const direct = await storageGet(store, AUTH_TOKEN_STORAGE_KEY);
     if (direct && direct.trim()) return stripBearerPrefix(direct);
 
-    const raw = await storageGet(AsyncStorage, AUTH_SESSION_KEY);
+    const raw = await storageGet(store, AUTH_SESSION_KEY);
     if (!raw) return "";
     const parsed = JSON.parse(raw) as { token?: string };
     const t = parsed?.token;

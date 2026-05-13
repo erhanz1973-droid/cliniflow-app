@@ -58,6 +58,20 @@ if (typeof __DEV__ !== "undefined" && __DEV__) {
 
 export const API_BASE = API_URL;
 
+/**
+ * Backend often returns path-only URLs (`/uploads/...`). `Linking.openURL` and `Image`
+ * may interpret those as local paths (`file:///uploads/...`). Join with API origin.
+ */
+export function resolvePublicAssetUrl(raw: string | null | undefined): string {
+  const u = String(raw ?? "").trim();
+  if (!u) return u;
+  if (/^https?:\/\//i.test(u)) return u;
+  if (u.startsWith("//")) return `https:${u}`;
+  const pathOnly = u.replace(/^file:\/\//i, "");
+  const path = pathOnly.startsWith("/") ? pathOnly : `/${pathOnly}`;
+  return `${API_BASE.replace(/\/+$/, "")}${path}`;
+}
+
 if (typeof __DEV__ !== "undefined" && !__DEV__) {
   if (!API_BASE.startsWith("https://")) {
     console.error("[CONFIG ERROR] Invalid API_BASE in production:", API_BASE);

@@ -1,4 +1,24 @@
 {
-  "compilerOptions": {},
-  "extends": "expo/tsconfig.base"
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "exclude": [
+    "node_modules",
+    "cliniflow-clean",
+    "lib/_archive_dupes",
+    "lib/firebase.ts",
+    "components/parallax-scroll-view.tsx",
+    "components/hello-wave.tsx",
+    "components/external-link.tsx",
+    "components/themed-text.tsx",
+    "components/themed-view.tsx",
+    "components/ui/collapsible.tsx",
+    "components/ui/icon-symbol.tsx",
+    "components/ui/icon-symbol.ios.tsx",
+    "server_next_routes_backup"
+  ]
 }

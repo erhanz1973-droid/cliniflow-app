@@ -1010,9 +1010,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "login.oauthPatientNotLinked":
       "Bu hesap henüz Clinifly hasta kaydına bağlı değil. Önce klinik koduyla kayıt olun, ardından tekrar deneyin.",
     "login.oauthMergeConflict": "Bu hesap başka bir profille çakışıyor. Lütfen destek ile iletişime geçin.",
+    "login.oauthProviderMismatch":
+      "Bu kayıt farklı bir giriş sağlayıcısı ile ilişkilendirilmiş. Önceki sağlayıcıyı veya telefon girişini kullanın.",
     "login.oauthInvalidToken": "Oturum doğrulanamadı. Lütfen tekrar deneyin.",
     "login.oauthCancelled": "Giriş iptal edildi.",
     "login.appleNotAvailable": "Apple ile giriş bu cihazda kullanılamıyor.",
+    "login.appleCredentialInvalid": "Apple oturumu geçersiz veya iptal edilmiş. Lütfen tekrar deneyin veya telefon ile giriş yapın.",
     "login.orDivider": "veya",
     "login.patientWrongPassword": "Telefon veya şifre hatalı.",
     "login.patientPasswordRequired": "Bu hesap için şifre gerekiyor.",
@@ -2507,9 +2510,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "login.oauthPatientNotLinked":
       "This account is not linked to a Clinifly patient yet. Register with your clinic code first, then try again.",
     "login.oauthMergeConflict": "This account conflicts with another profile. Please contact support.",
+    "login.oauthProviderMismatch":
+      "This profile was linked with a different sign-in provider. Use the original provider or phone login.",
     "login.oauthInvalidToken": "Session could not be verified. Please try again.",
     "login.oauthCancelled": "Sign-in was cancelled.",
     "login.appleNotAvailable": "Apple sign-in is not available on this device.",
+    "login.appleCredentialInvalid": "Apple sign-in was interrupted or the credential is no longer valid. Try again or use phone login.",
     "login.orDivider": "or",
     "login.patientWrongPassword": "Incorrect phone or password.",
     "login.patientPasswordRequired": "This account requires a password.",
@@ -3762,9 +3768,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "login.oauthNotConfigured": "Google / Apple sign-in is not configured (Supabase).",
     "login.oauthPatientNotLinked": "This account is not linked to a Clinifly patient yet. Register with your clinic code first.",
     "login.oauthMergeConflict": "Account conflict. Please contact support.",
+    "login.oauthProviderMismatch":
+      "This profile was linked with a different sign-in provider. Use the original provider or phone login.",
     "login.oauthInvalidToken": "Session could not be verified. Please try again.",
     "login.oauthCancelled": "Sign-in was cancelled.",
     "login.appleNotAvailable": "Apple sign-in is not available on this device.",
+    "login.appleCredentialInvalid": "Apple sign-in was interrupted or the credential is no longer valid. Try again or use phone login.",
     "login.orDivider": "or",
     "login.patientWrongPassword": "არასწორია ტელეფონი ან პაროლი.",
     "login.patientPasswordRequired": "ამ ანგარიშისთვის საჭიროა პაროლი.",
@@ -4552,9 +4561,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "login.oauthNotConfigured": "Google / Apple sign-in is not configured (Supabase).",
     "login.oauthPatientNotLinked": "This account is not linked to a Clinifly patient yet. Register with your clinic code first.",
     "login.oauthMergeConflict": "Account conflict. Please contact support.",
+    "login.oauthProviderMismatch":
+      "This profile was linked with a different sign-in provider. Use the original provider or phone login.",
     "login.oauthInvalidToken": "Session could not be verified. Please try again.",
     "login.oauthCancelled": "Sign-in was cancelled.",
     "login.appleNotAvailable": "Apple sign-in is not available on this device.",
+    "login.appleCredentialInvalid": "Apple sign-in was interrupted or the credential is no longer valid. Try again or use phone login.",
     "login.orDivider": "or",
     "login.patientWrongPassword": "Неверный телефон или пароль.",
     "login.patientPasswordRequired": "Для этого аккаунта требуется пароль.",

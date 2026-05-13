@@ -80,5 +80,5 @@ const styles = StyleSheet.create({
   },
   textCol: { flex: 1, minWidth: 0 },
   title: { fontSize: 18, fontWeight: "800" },
-  subtitle: { marginTop: 4, fontSize: 14, color: "#6B7280", lineHeight: 20 },
+  subtitle: { marginTop: 4, fontSize: 14, color: "#475569", lineHeight: 20, fontWeight: "600" },
 });

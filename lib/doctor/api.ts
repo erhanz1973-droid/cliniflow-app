@@ -48,9 +48,10 @@ export async function registerDoctor(data: DoctorRegisterRequest): Promise<Docto
   return apiPost<DoctorResponse>('/api/register/doctor', payload);
 }
 
-// ❌ OTP YOK – doktor için kapalı
-export async function verifyDoctorOtp() {
-  throw new Error('Doctor OTP flow is disabled');
+// ❌ OTP YOK – doktor için kapalı (imza uyumluluğu için argüman varsayılan yok sayılır)
+export async function verifyDoctorOtp(_unused?: Partial<DoctorLoginRequest>): Promise<never> {
+  void _unused;
+  throw new Error("Doctor OTP flow is disabled");
 }
 
 // Get doctor data
