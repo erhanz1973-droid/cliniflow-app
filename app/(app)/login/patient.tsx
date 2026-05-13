@@ -40,7 +40,7 @@ function looksLikeEmail(s: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim());
 }
 
-export default function PatientLogin() {
+export default function PatientLoginScreen() {
   const { signIn } = useAuth();
   const router = useRouter();
   const { t, currentLanguage, setLanguage } = useLanguage();
@@ -122,6 +122,7 @@ export default function PatientLogin() {
         const m = oauthErr.message;
         if (m === "oauth_cancelled") throw new Error(t("login.oauthCancelled"));
         if (m === "apple_ios_only" || m === "apple_unavailable") throw new Error(t("login.appleNotAvailable"));
+        if (m === "apple_credential_invalid") throw new Error(t("login.appleCredentialInvalid"));
         if (m === "oauth_not_configured") throw new Error(t("login.oauthNotConfigured"));
         throw oauthErr;
       }
@@ -144,6 +145,10 @@ export default function PatientLogin() {
         }
         if (bridge.code === "patient_merge_conflict") {
           Alert.alert(t("login.error"), t("login.oauthMergeConflict"));
+          return;
+        }
+        if (bridge.code === "oauth_provider_mismatch") {
+          Alert.alert(t("login.error"), t("login.oauthProviderMismatch"));
           return;
         }
         if (bridge.code === "invalid_oauth_token") {

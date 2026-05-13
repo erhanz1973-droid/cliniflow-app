@@ -1,16 +1,28 @@
 /**
- * Static `extra` — do NOT use `...config.extra` or merge with `(config)=>` /
- * dynamic `API_URL`; that can resurrect an old EAS projectId.
+ * Merge layer on top of `app.json` (version, slug, ios, android incl. versionCode, extra/eas).
+ * Keeps Play-sensitive Android manifest tweaks here without duplicating project identity.
  */
-export default {
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const appJson = require("./app.json");
+
+const BLOCKED_ANDROID_MEDIA_PERMISSIONS = [
+  "android.permission.READ_MEDIA_IMAGES",
+  "android.permission.READ_MEDIA_VIDEO",
+  "android.permission.READ_EXTERNAL_STORAGE",
+];
+
+module.exports = {
   expo: {
-    name: "Clinifly",
-    slug: "clinifly-new",
-    extra: {
-      API_URL: "https://cliniflow-backend-clean-production.up.railway.app",
-      eas: {
-        projectId: "f970fe3c-b598-44e7-9f04-c938e4a4321d",
-      },
+    ...appJson.expo,
+    ios: {
+      ...(appJson.expo.ios || {}),
+      usesAppleSignIn: true,
+    },
+    android: {
+      ...(appJson.expo.android || {}),
+      package: "com.clinifly.mobile",
+      blockedPermissions: BLOCKED_ANDROID_MEDIA_PERMISSIONS,
+      softwareKeyboardLayoutMode: "resize",
     },
   },
 };

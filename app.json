@@ -8,6 +8,7 @@
     "ios": {
       "bundleIdentifier": "net.clinifly.mobile",
       "buildNumber": "43",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification"
