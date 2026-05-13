@@ -20,9 +20,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../../lib/auth";
 import { useLanguage } from "../../../lib/language-context";
 import { API_BASE, setAuthToken } from "../../../lib/api";
+import { fetchDoctorUnreadTotalOnly } from "../../../lib/doctorMessaging";
 
 type DashboardAppt = {
   appointmentId?: string;
+  /** Canonical instant from API (ISO 8601 Z) */
+  scheduledAt?: string;
+  /** Pre-formatted in clinic TZ (yyyy-MM-dd HH:mm) */
+  displayTime?: string;
+  /** IANA — clinic canonical */
+  timezone?: string;
   date?: string;
   time?: string;
   patientName?: string;
@@ -39,8 +46,11 @@ type PlanRow = {
   scheduled_date?: string;
   date?: string;
   created_at?: string;
+  scheduledAtUtc?: string;
+  displayTimeClinic?: string;
+  clinicTimezone?: string;
   patient: { name: string };
-  /** Set only for merge/dedup (stripped before state) */
+  /** Set only for dedup merge (stripped before state) */
   _sourceBucket?: "today" | "tomorrow" | "legacy";
 };
 
@@ -95,14 +105,6 @@ type Stats = {
   today: number;
   waiting: number;
 };
-
-function isSameDay(d1: Date, d2: Date): boolean {
-  return (
-    d1.getDate() === d2.getDate() &&
-    d1.getMonth() === d2.getMonth() &&
-    d1.getFullYear() === d2.getFullYear()
-  );
-}
 
 function asObj(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
@@ -163,33 +165,8 @@ function parseYmdLocal(ymd: string): Date | null {
   return out;
 }
 
-function pad2Clock(n: number): string {
-  return String(Math.trunc(n)).padStart(2, "0");
-}
-
 /**
- * Unambiguous LOCAL wall clock for dashboard rebucket (`YYYY-MM-DD HH:mm:ss`).
- * Prefer this over concatenating `"date + T + time"` and passing to Date (.UTC drift).
- */
-function combineDateAndTimeLocalYmdHm(dateYmd: string, timeHm: string): string | undefined {
-  const dp = String(dateYmd || "").trim();
-  const rawT = String(timeHm || "09:00").trim();
-  const tm = /^(\d{1,2})[.:](\d{2})(?::(\d{2}))?/.exec(rawT);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dp) || !tm) return undefined;
-  const y = Number(dp.slice(0, 4));
-  const mo = Number(dp.slice(5, 7)) - 1;
-  const day = Number(dp.slice(8, 10));
-  const hh = Math.min(23, Math.max(0, Number(tm[1])));
-  const mm = Math.min(59, Math.max(0, Number(tm[2])));
-  const ss = tm[3] != null ? Math.min(59, Math.max(0, Number(tm[3]))) : 0;
-  const dt = new Date(y, mo, day, hh, mm, ss);
-  if (dt.getFullYear() !== y || dt.getMonth() !== mo || dt.getDate() !== day) return undefined;
-  return `${dp} ${pad2Clock(hh)}:${pad2Clock(mm)}:${pad2Clock(ss)}`;
-}
-
-/**
- * Unambiguous only: YYYY-MM-DD, ISO-8601 (…T…), or explicit Z/offset; YYYY-MM-DD HH:mm in local;
- * Rejects e.g. DD/MM/YYYY.
+ * Unambiguous only: legacy strings (YYYY-MM-DD, ISO offset, HH:mm space). Prefer API `scheduledAt` for new payloads.
  */
 function parseIsoOrLocalDateTime(s: string): Date | null {
   const t = s.trim();
@@ -261,6 +238,49 @@ function truncateForUi(s: string, max = 40): string {
   return `${t.slice(0, max - 1)}…`;
 }
 
+/** Optional FDI / simple tooth id at end of procedure line for compact count column */
+function extractTrailingToothToken(proc: string): string {
+  const t = String(proc || "").trim();
+  const m = /\b([1-4][0-8]|[1-9])\s*$/.exec(t);
+  return m ? m[1] : "";
+}
+
+function getPlanStatusPresentation(
+  plan: PlanRow,
+  t: (key: string) => string
+): { label: string; bg: string; fg: string } {
+  const s = String(plan.status || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+  if (s === "completed" || s === "done") {
+    return {
+      label: translateOrFallback(t, "doctor.status.completed", "Completed"),
+      bg: "#d1fae5",
+      fg: "#065f46",
+    };
+  }
+  if (s === "in_progress" || s === "inprogress") {
+    return {
+      label: translateOrFallback(t, "doctor.status.inProgress", "In Progress"),
+      bg: "#fef3c7",
+      fg: "#92400e",
+    };
+  }
+  if (s === "planned" || s === "scheduled") {
+    return {
+      label: translateOrFallback(t, "doctor.status.scheduled", "Scheduled"),
+      bg: "#dbeafe",
+      fg: "#1e40af",
+    };
+  }
+  return {
+    label: plan.status || "—",
+    bg: "#f3f4f6",
+    fg: "#374151",
+  };
+}
+
 function applyI18nVars(s: string, vars?: Record<string, string | number>): string {
   if (!vars) return s;
   let out = s;
@@ -300,23 +320,45 @@ function translateOrFallback(
 function normalizeApptRaw(raw: unknown): DashboardAppt {
   const r = asObj(raw) ?? {};
   const patient = asObj(r.patient);
-  /** Öncelik: API start_at; yoksa encounter / visit zamanı (treatment_plans + patient_encounters kaynağı) */
+  const scheduledAt =
+    r.scheduledAt != null
+      ? String(r.scheduledAt).trim()
+      : r.scheduled_at != null
+        ? String(r.scheduled_at).trim()
+        : "";
+  const displayTime =
+    r.displayTime != null
+      ? String(r.displayTime).trim()
+      : r.display_time != null
+        ? String(r.display_time).trim()
+        : "";
+  const timezone =
+    r.timezone != null
+      ? String(r.timezone).trim()
+      : r.time_zone != null
+        ? String(r.time_zone).trim()
+        : "";
+  /** Legacy / fallback when canonical scheduledAt missing */
   const startInst =
-    r.start_at ??
-    r.startAt ??
-    r.encounter_scheduled_at ??
-    r.encounterScheduledAt ??
-    r.encounter_date ??
-    r.encounterDate ??
-    r.visit_date ??
-    r.visitDate ??
-    r.scheduled_at ??
-    r.scheduledAt ??
-    r.start_time ??
-    r.startTime;
+    scheduledAt ||
+    (r.start_at ??
+      r.startAt ??
+      r.encounter_scheduled_at ??
+      r.encounterScheduledAt ??
+      r.encounter_date ??
+      r.encounterDate ??
+      r.visit_date ??
+      r.visitDate ??
+      r.scheduled_at ??
+      r.scheduledAt ??
+      r.start_time ??
+      r.startTime);
   let dateStr = String(r.date ?? r.appointment_date ?? "").trim();
   let timeStr = String(r.time ?? r.appointment_time ?? "09:00").trim();
-  if (!dateStr && startInst != null && String(startInst).length >= 10) {
+  if (scheduledAt && Number.isFinite(Date.parse(scheduledAt))) {
+    dateStr = scheduledAt.slice(0, 10);
+    timeStr = scheduledAt.slice(11, 16);
+  } else if (!dateStr && startInst != null && String(startInst).length >= 10) {
     const s = String(startInst);
     dateStr = s.slice(0, 10);
     if (!r.time && !r.appointment_time) {
@@ -326,6 +368,9 @@ function normalizeApptRaw(raw: unknown): DashboardAppt {
   }
   return {
     appointmentId: String(r.appointmentId ?? r.appointment_id ?? r.id ?? "").trim(),
+    scheduledAt,
+    displayTime,
+    timezone,
     date: dateStr,
     time: timeStr,
     patientName: String(r.patientName ?? r.patient_name ?? patient?.name ?? "").trim(),
@@ -339,39 +384,43 @@ function normalizeApptRaw(raw: unknown): DashboardAppt {
 }
 
 function mapApptToPlan(a: DashboardAppt): PlanRow {
-  const datePart = String(a?.date || "").trim();
-  const timePart = String(a?.time || "09:00").trim();
-  let sched: string | undefined;
-  if (datePart) {
-    if (datePart.includes("T")) {
-      const parsed = parseIsoOrLocalDateTime(datePart.trim());
-      if (parsed) {
-        const y = parsed.getFullYear();
-        const mo = parsed.getMonth() + 1;
-        const d = parsed.getDate();
-        const ymd = `${y}-${pad2Clock(mo)}-${pad2Clock(d)}`;
-        sched = combineDateAndTimeLocalYmdHm(ymd, `${parsed.getHours()}:${parsed.getMinutes()}:${parsed.getSeconds()}`);
-      }
-      if (!sched) sched = datePart;
-    } else {
-      sched =
-        combineDateAndTimeLocalYmdHm(datePart, timePart) ??
-        (timePart.length === 5
+  const encOrPlanId = String(a?.planId || "").trim();
+  const apptId = String(a?.appointmentId || "").trim();
+  const canonical = String(a.scheduledAt || "").trim();
+  const disp = String(a.displayTime || "").trim();
+  const tz = String(a.timezone || "").trim();
+
+  let scheduled_date: string | undefined;
+  let date: string | undefined;
+  if (canonical && Number.isFinite(Date.parse(canonical))) {
+    scheduled_date = canonical;
+    date = canonical;
+  } else if (disp) {
+    scheduled_date = disp.replace(" ", "T");
+    date = disp;
+  } else {
+    const datePart = String(a?.date || "").trim();
+    const timePart = String(a?.time || "09:00").trim();
+    if (datePart) {
+      scheduled_date =
+        timePart.length === 5
           ? `${datePart}T${timePart}:00`
           : timePart
             ? `${datePart}T${timePart}`
-            : `${datePart}T09:00:00`);
+            : `${datePart}T09:00:00`;
+      date = scheduled_date;
     }
   }
-  const encOrPlanId = String(a?.planId || "").trim();
-  /** Backend often sets planId to encounter UUID — multiple ET rows share it. Prefer appointment id (et-…). */
-  const apptId = String(a?.appointmentId || "").trim();
+
   return {
-    id: apptId || encOrPlanId || `appt-${datePart}-${timePart}`,
+    id: apptId || encOrPlanId || `appt-${a.date || ""}-${a.time || ""}`,
     status: String(a?.status || "scheduled"),
     procedure_name: String(a?.procedureSummary || "Randevu"),
-    scheduled_date: sched,
-    date: sched,
+    scheduled_date,
+    date,
+    scheduledAtUtc: canonical || undefined,
+    displayTimeClinic: disp || undefined,
+    clinicTimezone: tz || undefined,
     patient: { name: String(a?.patientName || "Hasta") },
   };
 }
@@ -407,7 +456,7 @@ function stripInternalPlanFields(p: PlanRow): PlanRow {
  */
 function planDedupeKey(p: PlanRow): string {
   const id = (p.id || "").trim();
-  const t = (p.scheduled_date || p.date || p.created_at || "")
+  const t = (p.scheduledAtUtc || p.scheduled_date || p.date || p.created_at || "")
     .replace(/\s+/g, " ")
     .trim();
   const name = p.patient.name.trim().toLowerCase();
@@ -437,6 +486,10 @@ function dedupePlanRows(plans: PlanRow[], label: string): PlanRow[] {
 }
 
 function getPlanSortKeyMs(p: PlanRow): number {
+  if (p.scheduledAtUtc) {
+    const u = Date.parse(p.scheduledAtUtc);
+    if (Number.isFinite(u)) return u;
+  }
   const t = parseScheduleLocal(p.scheduled_date || p.date || p.created_at);
   return t && Number.isFinite(t.getTime()) ? t.getTime() : Number.MAX_SAFE_INTEGER;
 }
@@ -445,53 +498,31 @@ function sortPlansByStart(plans: PlanRow[]): PlanRow[] {
   return [...plans].sort((a, b) => getPlanSortKeyMs(a) - getPlanSortKeyMs(b));
 }
 
-/**
- * Re-split merged API rows by device-local calendar (display only; backend is source of truth for membership).
- * Does not place overdue (non–calendar-today) items into the today list.
- */
-function rebucketByLocalZone(
-  plans: PlanRow[],
-  localToday: Date,
-  localTomorrow: Date
-): {
-  today: PlanRow[];
-  tomorrow: PlanRow[];
-  other: PlanRow[];
-  unparseableCount: number;
-  otherDayCount: number;
-} {
-  const today: PlanRow[] = [];
-  const tomorrow: PlanRow[] = [];
-  const other: PlanRow[] = [];
-  let unparseableCount = 0;
-  let otherDayCount = 0;
-
-  for (const p of plans) {
-    const rawS = p.scheduled_date || p.date;
-    const d = parseScheduleLocal(rawS);
-    if (!d) {
-      unparseableCount += 1;
-      warnUnparseableSchedule("rebucket", rawS, p.id, { sourceBucket: p._sourceBucket });
-      other.push(p);
-      continue;
-    }
-    if (isSameDay(d, localToday)) {
-      today.push(p);
-    } else if (isSameDay(d, localTomorrow)) {
-      tomorrow.push(p);
-    } else {
-      otherDayCount += 1;
-      other.push(p);
-    }
+/** Calendar YYYY-MM-DD for instant in IANA zone (clinic); device-local if tz empty. */
+function formatYmdInTimeZone(d: Date, ianaTz: string): string {
+  const tz = String(ianaTz || "").trim();
+  if (!tz) {
+    const y = d.getFullYear();
+    const mo = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${mo}-${day}`;
   }
-  const otherSorted = sortPlansByStart(other);
-  return {
-    today,
-    tomorrow,
-    other: otherSorted,
-    unparseableCount,
-    otherDayCount,
-  };
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const y = parts.find((x) => x.type === "year")?.value;
+  const m = parts.find((x) => x.type === "month")?.value;
+  const day = parts.find((x) => x.type === "day")?.value;
+  if (!y || !m || !day) {
+    const yy = d.getFullYear();
+    const mo = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yy}-${mo}-${dd}`;
+  }
+  return `${y}-${m}-${day}`;
 }
 
 export default function DoctorDashboardHome() {
@@ -536,17 +567,10 @@ export default function DoctorDashboardHome() {
     setError(null);
     try {
       setAuthToken(token);
-      const _ld = new Date();
-      const pad2 = (n: number) => String(n).padStart(2, '0');
-      const localToday = `${_ld.getFullYear()}-${pad2(_ld.getMonth() + 1)}-${pad2(_ld.getDate())}`;
-      const _lt = new Date(_ld.getFullYear(), _ld.getMonth(), _ld.getDate() + 1);
-      const localTomorrow = `${_lt.getFullYear()}-${pad2(_lt.getMonth() + 1)}-${pad2(_lt.getDate())}`;
-      const deviceTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-      const tzQ = deviceTz ? `&localTz=${encodeURIComponent(deviceTz)}` : "";
-      const res = await fetch(
-        `${API_BASE}/api/doctor/dashboard?localToday=${localToday}&localTomorrow=${localTomorrow}${tzQ}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+
+      const res = await fetch(`${API_BASE}/api/doctor/dashboard`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = (await res.json()) as Record<string, unknown>;
       if (!data?.ok) throw new Error(String(data?.error || data?.message || `HTTP ${res.status}`));
 
@@ -572,53 +596,39 @@ export default function DoctorDashboardHome() {
         waiting: Number(st.waiting) || 0,
       });
 
-      const { today: rawToday, tomorrow: rawTomorrow } = pickAppointmentArrays(data);
-      const mergedMapped = [
-        ...rawToday.map((row) => mapApptToPlanWithSource(normalizeApptRaw(row), "today")),
-        ...rawTomorrow.map((row) => mapApptToPlanWithSource(normalizeApptRaw(row), "tomorrow")),
-      ];
-      const afterDedup = dedupePlanRows(mergedMapped, "api merge");
+      const dc = asObj(data.dashboardCalendar) ?? asObj(data.dashboard_calendar);
+      const apiCalTz = dc ? String(dc.timezone ?? "").trim() : "";
+      const todayYmdApi = dc ? String(dc.todayYmd ?? "").trim() : "";
+      const tomorrowYmdApi = dc ? String(dc.tomorrowYmd ?? "").trim() : "";
 
-      if (__DEV__) {
-        console.log(
-          "[DoctorDashboard] stats.today:",
-          st.today,
-          "raw today:",
-          rawToday.length,
-          "tomorrow:",
-          rawTomorrow.length,
-          "after dedup:",
-          afterDedup.length,
-          "keys:",
-          Object.keys(data).slice(0, 20)
-        );
-      }
+      const { today: rawToday, tomorrow: rawTomorrow } = pickAppointmentArrays(data);
+      const attachTz = (row: unknown) => {
+        const n = normalizeApptRaw(row);
+        return apiCalTz && !n.timezone ? ({ ...n, timezone: apiCalTz } as DashboardAppt) : n;
+      };
+      let todayList = sortPlansByStart(
+        dedupePlanRows(
+          rawToday.map((row) => mapApptToPlanWithSource(attachTz(row), "today")),
+          "today raw"
+        )
+      );
+      let tomorrowList = sortPlansByStart(
+        dedupePlanRows(
+          rawTomorrow.map((row) => mapApptToPlanWithSource(attachTz(row), "tomorrow")),
+          "tomorrow raw"
+        )
+      );
+
+      setRebucketFromApiOtherCount(0);
+
       const upcomingList: PlanRow[] = [];
 
-      const _now = new Date();
-      const today0 = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate());
-      const tomorrow0 = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate() + 1);
-
-      const {
-        today: todayLocal,
-        tomorrow: tomorrowLocal,
-        other: apiOther,
-        unparseableCount: otherUnparseable,
-        otherDayCount: otherCalendarDay,
-      } = rebucketByLocalZone(afterDedup, today0, tomorrow0);
-      if (__DEV__) {
-        console.log("🧪 [DoctorDashboard] other bucket (rebucket)", {
-          total: apiOther.length,
-          unparseable: otherUnparseable,
-          otherCalendarDay: otherCalendarDay,
-        });
-      }
-      setRebucketFromApiOtherCount(apiOther.length);
-      for (const p of apiOther) {
-        upcomingList.push(p);
-      }
-      let todayList = sortPlansByStart(todayLocal);
-      let tomorrowList = sortPlansByStart(tomorrowLocal);
+      const devNow = new Date();
+      const calTz = apiCalTz || Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const fallbackTodayYmd = todayYmdApi || formatYmdInTimeZone(devNow, calTz);
+      const devTom = new Date(devNow);
+      devTom.setDate(devTom.getDate() + 1);
+      const fallbackTomorrowYmd = tomorrowYmdApi || formatYmdInTimeZone(devTom, calTz);
 
       const legacyRaw = Array.isArray(data.recentTreatmentPlans)
         ? data.recentTreatmentPlans
@@ -640,9 +650,10 @@ export default function DoctorDashboardHome() {
             upcomingList.push(plan);
             return;
           }
-          if (isSameDay(planDate, today0)) todayList.push(plan);
-          else if (isSameDay(planDate, tomorrow0)) tomorrowList.push(plan);
-          else if (planDate > today0) upcomingList.push(plan);
+          const ymd = formatYmdInTimeZone(planDate, calTz);
+          if (ymd === fallbackTodayYmd) todayList.push(plan);
+          else if (ymd === fallbackTomorrowYmd) tomorrowList.push(plan);
+          else if (ymd > fallbackTodayYmd) upcomingList.push(plan);
         });
       } else {
         legacy.forEach((plan) => {
@@ -657,8 +668,9 @@ export default function DoctorDashboardHome() {
             upcomingList.push(plan);
             return;
           }
-          if (isSameDay(planDate, today0) || isSameDay(planDate, tomorrow0)) return;
-          if (planDate > tomorrow0) upcomingList.push(plan);
+          const ymd = formatYmdInTimeZone(planDate, calTz);
+          if (ymd === fallbackTodayYmd || ymd === fallbackTomorrowYmd) return;
+          if (ymd > fallbackTomorrowYmd) upcomingList.push(plan);
         });
       }
 
@@ -714,13 +726,10 @@ export default function DoctorDashboardHome() {
         // non-critical — badge stays at 0
       }
 
-      // Unread patient messages badge
+      // Unread patient messages badge (deduped client-side with poll — fetchDoctorUnreadTotalOnly)
       try {
-        const msgRes = await fetch(`${API_BASE}/api/doctor/messages/unread-counts?totalOnly=1`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const msgData = await msgRes.json();
-        setUnreadMsgCount(Number(msgData?.totalUnread ?? msgData?.total ?? 0));
+        const n = await fetchDoctorUnreadTotalOnly(token);
+        setUnreadMsgCount(n);
       } catch {
         // non-critical
       }
@@ -760,11 +769,8 @@ export default function DoctorDashboardHome() {
     if (!token) return;
     const fetchUnread = async () => {
       try {
-        const r = await fetch(`${API_BASE}/api/doctor/messages/unread-counts?totalOnly=1`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const d = await r.json();
-        setUnreadMsgCount(Number(d?.totalUnread ?? d?.total ?? 0));
+        const n = await fetchDoctorUnreadTotalOnly(token);
+        setUnreadMsgCount(n);
       } catch { /* non-critical */ }
     };
     const id = setInterval(fetchUnread, 30_000);
@@ -796,109 +802,201 @@ export default function DoctorDashboardHome() {
   };
 
   const renderPlanCard = (plan: PlanRow, isToday: boolean, isTomorrow: boolean) => {
-    const dateStr = plan.scheduled_date || plan.date || plan.created_at;
-    let dateLabel = "—";
-    let timeLabel = "";
-    const fullScheduleRaw = dateStr ? String(dateStr).replace(/\s+/g, " ").trim() : "";
-    const parsed = dateStr ? parseScheduleLocal(dateStr) : null;
-    const isScheduleTruncated = Boolean(dateStr && !parsed && fullScheduleRaw.length > 40);
+    const tz =
+      plan.clinicTimezone && String(plan.clinicTimezone).trim().length > 0
+        ? String(plan.clinicTimezone).trim()
+        : Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-    if (dateStr) {
-      const date = parsed;
-      if (date) {
-        if (isToday) dateLabel = `📅 ${translateOrFallback(t, "doctor.stats.today", "Today")}`;
-        else if (isTomorrow) dateLabel = `📅 ${translateOrFallback(t, "timeline.tomorrow", "Tomorrow")}`;
+    let dayPillText = "—";
+    let timeLabel = "";
+    let fullScheduleRaw = "";
+
+    const utcMs =
+      plan.scheduledAtUtc && Number.isFinite(Date.parse(plan.scheduledAtUtc))
+        ? Date.parse(plan.scheduledAtUtc)
+        : null;
+
+    if (utcMs != null) {
+      const dt = new Date(utcMs);
+      fullScheduleRaw =
+        plan.displayTimeClinic?.replace(/\s+/g, " ").trim() || dt.toISOString();
+      if (isToday) dayPillText = translateOrFallback(t, "doctor.stats.today", "Today");
+      else if (isTomorrow) dayPillText = translateOrFallback(t, "timeline.tomorrow", "Tomorrow");
+      else
+        dayPillText = dt.toLocaleDateString(undefined, {
+          timeZone: tz,
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        });
+      timeLabel = dt.toLocaleTimeString(undefined, {
+        timeZone: tz,
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } else if (plan.displayTimeClinic) {
+      const raw = String(plan.displayTimeClinic).replace(/\s+/g, " ").trim();
+      fullScheduleRaw = raw;
+      if (isToday) dayPillText = translateOrFallback(t, "doctor.stats.today", "Today");
+      else if (isTomorrow) dayPillText = translateOrFallback(t, "timeline.tomorrow", "Tomorrow");
+      else dayPillText = raw.slice(0, 10);
+      timeLabel = raw.length >= 13 ? raw.slice(-5) : raw;
+    } else {
+      const dateStr = plan.scheduled_date || plan.date || plan.created_at;
+      const parsed = dateStr ? parseScheduleLocal(String(dateStr)) : null;
+      fullScheduleRaw = dateStr ? String(dateStr).replace(/\s+/g, " ").trim() : "";
+      if (dateStr && parsed) {
+        if (isToday) dayPillText = translateOrFallback(t, "doctor.stats.today", "Today");
+        else if (isTomorrow) dayPillText = translateOrFallback(t, "timeline.tomorrow", "Tomorrow");
         else
-          dateLabel = `📅 ${date.toLocaleDateString(undefined, {
+          dayPillText = parsed.toLocaleDateString(undefined, {
             day: "numeric",
             month: "short",
             year: "numeric",
-          })}`;
-        if (!Number.isNaN(date.getTime())) {
-          timeLabel = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+          });
+        if (!Number.isNaN(parsed.getTime())) {
+          timeLabel = parsed.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
         }
-      } else {
-        const raw = truncateForUi(fullScheduleRaw);
-        dateLabel = `📅 ${raw}`;
-        timeLabel = raw;
+      } else if (dateStr) {
+        const truncated = truncateForUi(fullScheduleRaw);
+        dayPillText = truncated;
+        timeLabel = truncated;
       }
     }
 
-    const isPlanned =
-      plan.status === "planned" || plan.status === "scheduled" || plan.status === "SCHEDULED";
+    const isScheduleTruncated = Boolean(fullScheduleRaw && fullScheduleRaw.length > 40 && !utcMs && !plan.displayTimeClinic);
+
+    const statusUi = getPlanStatusPresentation(plan, t);
+    const toothToken = extractTrailingToothToken(plan.procedure_name);
 
     const showPatientAlert = () =>
       Alert.alert(plan.patient.name, plan.procedure_name, [
         { text: translateOrFallback(t, "common.ok", "OK") },
       ], { cancelable: true });
 
-    const dateBadgeEl = (
-      <View
-        style={[
-          styles.dateBadge,
-          isToday && styles.dateBadgeToday,
-          isTomorrow && styles.dateBadgeTomorrow,
-        ]}
-      >
-        <Text
-          style={[
-            styles.dateBadgeText,
-            (isToday || isTomorrow) && styles.dateBadgeTextHighlight,
-          ]}
-        >
-          {dateLabel}
+    const dayPillStyle = [
+      styles.planDayPill,
+      isToday && styles.planDayPillToday,
+      isTomorrow && styles.planDayPillTomorrow,
+      (isToday || isTomorrow) && styles.planDayPillFixed,
+    ];
+
+    const rowTopEl = (
+      <View style={styles.planRowTop}>
+        <Text style={styles.planCalIcon} accessibilityLabel="Calendar">
+          📅
         </Text>
-        {timeLabel ? <Text style={styles.timeText}>{timeLabel}</Text> : null}
+        <View style={dayPillStyle}>
+          <Text
+            style={[styles.planDayPillText, (isToday || isTomorrow) && styles.planDayPillTextHighlight]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {dayPillText}
+          </Text>
+        </View>
+        {timeLabel ? (
+          <View style={styles.planTimePill}>
+            <Text style={styles.planTimePillText} numberOfLines={1}>
+              {timeLabel}
+            </Text>
+          </View>
+        ) : null}
+        <View style={styles.planTopDivider} />
+        <Text
+          style={styles.planPatientTop}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {plan.patient.name}
+        </Text>
+        <Text style={styles.planDot}>·</Text>
+        <View style={styles.planTreatmentWrap}>
+          <Text style={styles.planToothIcon} numberOfLines={1}>
+            🦷
+          </Text>
+          <Text
+            style={styles.planProcedureInline}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {plan.procedure_name}
+          </Text>
+        </View>
+        <Text style={[styles.planToothCount, !toothToken && styles.planToothCountEmpty]}>
+          {toothToken || " "}
+        </Text>
       </View>
     );
 
-    const bodyEl = (
-      <>
-        <Text style={styles.planPatient}>{plan.patient.name}</Text>
-        <Text style={styles.planProcedure}>{plan.procedure_name}</Text>
-        <View style={styles.planFooter}>
-          <View
-            style={[
-              styles.statusBadge,
-              { backgroundColor: isPlanned ? "#dbeafe" : "#dcfce7" },
-            ]}
-          >
-            <Text
-              style={[
-                styles.statusBadgeText,
-                { color: isPlanned ? "#1e40af" : "#166534" },
-              ]}
-            >
-              {isPlanned ? translateOrFallback(t, "doctor.status.scheduled", "Scheduled") : plan.status}
-            </Text>
-          </View>
+    const footerEl = (
+      <View style={styles.planFooter}>
+        <View style={[styles.statusBadge, { backgroundColor: statusUi.bg }]}>
+          <Text style={[styles.statusBadgeText, { color: statusUi.fg }]}>{statusUi.label}</Text>
         </View>
-      </>
+      </View>
     );
 
     if (isScheduleTruncated) {
       return (
         <View style={styles.planCard}>
-          <Pressable
-            onPress={() => openScheduleTextModal(fullScheduleRaw)}
-            style={({ pressed }) => [styles.scheduleBadgePress, pressed && styles.planPressablePressed]}
-            accessibilityRole="button"
-            accessibilityLabel={translateOrFallback(
-              t,
-              "doctor.scheduleExpandA11y",
-              "View full schedule text"
-            )}
-          >
-            {dateBadgeEl}
-          </Pressable>
-          <Pressable
-            onPress={showPatientAlert}
-            style={({ pressed }) => [styles.planCardBodyTap, pressed && styles.planPressablePressed]}
-            accessibilityLabel={plan.patient.name}
-            accessibilityRole="button"
-          >
-            {bodyEl}
-          </Pressable>
+          <View style={styles.planRowTop}>
+            <Pressable
+              onPress={() => openScheduleTextModal(fullScheduleRaw)}
+              style={({ pressed }) => [
+                styles.planScheduleTapCluster,
+                pressed && styles.planPressablePressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={translateOrFallback(
+                t,
+                "doctor.scheduleExpandA11y",
+                "View full schedule text"
+              )}
+            >
+              <Text style={styles.planCalIcon}>📅</Text>
+              <View style={dayPillStyle}>
+                <Text
+                  style={[styles.planDayPillText, (isToday || isTomorrow) && styles.planDayPillTextHighlight]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {dayPillText}
+                </Text>
+              </View>
+              {timeLabel ? (
+                <View style={styles.planTimePill}>
+                  <Text style={styles.planTimePillText} numberOfLines={1}>
+                    {timeLabel}
+                  </Text>
+                </View>
+              ) : null}
+            </Pressable>
+            <View style={styles.planTopDivider} />
+            <Pressable
+              onPress={showPatientAlert}
+              style={({ pressed }) => [styles.planPatientTapCluster, pressed && styles.planPressablePressed]}
+              accessibilityLabel={plan.patient.name}
+              accessibilityRole="button"
+            >
+              <View style={styles.planPatientTapInner}>
+                <Text style={styles.planPatientTop} numberOfLines={1} ellipsizeMode="tail">
+                  {plan.patient.name}
+                </Text>
+                <Text style={styles.planDot}>·</Text>
+                <View style={styles.planTreatmentWrap}>
+                  <Text style={styles.planToothIcon}>🦷</Text>
+                  <Text style={styles.planProcedureInline} numberOfLines={1} ellipsizeMode="tail">
+                    {plan.procedure_name}
+                  </Text>
+                </View>
+                <Text style={[styles.planToothCount, !toothToken && styles.planToothCountEmpty]}>
+                  {toothToken || " "}
+                </Text>
+              </View>
+            </Pressable>
+          </View>
+          {footerEl}
         </View>
       );
     }
@@ -910,8 +1008,8 @@ export default function DoctorDashboardHome() {
         accessibilityLabel={`${plan.patient.name}, ${plan.procedure_name}`}
         accessibilityRole="button"
       >
-        {dateBadgeEl}
-        {bodyEl}
+        {rowTopEl}
+        {footerEl}
       </Pressable>
     );
   };
@@ -1009,10 +1107,10 @@ export default function DoctorDashboardHome() {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.actionBtn}
-            onPress={() => router.push("/doctor/patients")}
+            onPress={() => router.push("/doctor/inbox")}
           >
             <View style={styles.actionIconWrap}>
-              <Text style={styles.actionIcon}>👥</Text>
+              <Text style={styles.actionIcon}>💬</Text>
               {unreadMsgCount > 0 && (
                 <View style={styles.requestsBadge}>
                   <Text style={styles.requestsBadgeTxt}>
@@ -1020,6 +1118,19 @@ export default function DoctorDashboardHome() {
                   </Text>
                 </View>
               )}
+            </View>
+            <Text style={styles.actionLabel}>
+              {t("doctor.quickActions.messages") !== "doctor.quickActions.messages"
+                ? t("doctor.quickActions.messages")
+                : "Leads Inbox"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => router.push("/doctor/patients")}
+          >
+            <View style={styles.actionIconWrap}>
+              <Text style={styles.actionIcon}>👥</Text>
             </View>
             <Text style={styles.actionLabel}>{t("doctor.quickActions.patients")}</Text>
           </TouchableOpacity>
@@ -1350,13 +1461,6 @@ const styles = StyleSheet.create({
   planPressablePressed: {
     opacity: 0.88,
   },
-  scheduleBadgePress: {
-    alignSelf: "flex-start",
-  },
-  planCardBodyTap: {
-    alignSelf: "stretch",
-    marginTop: 0,
-  },
   scheduleModalRoot: {
     flex: 1,
     justifyContent: "center",
@@ -1411,22 +1515,63 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 15,
   },
-  dateBadge: {
-    backgroundColor: "#f3f4f6",
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    alignSelf: "flex-start",
+  planRowTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "nowrap",
     marginBottom: 8,
+    minWidth: 0,
   },
-  dateBadgeToday: { backgroundColor: "#dcfce7" },
-  dateBadgeTomorrow: { backgroundColor: "#dbeafe" },
-  dateBadgeText: { fontSize: 11, color: "#6b7280", fontWeight: "600" },
-  dateBadgeTextHighlight: { color: "#111827", fontWeight: "700" },
-  timeText: { fontSize: 10, color: "#9ca3af", marginTop: 2 },
-  planPatient: { fontSize: 15, fontWeight: "700", color: "#111827" },
-  planProcedure: { fontSize: 13, color: "#6b7280", marginTop: 2 },
-  planFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 },
+  planCalIcon: { fontSize: 13, marginRight: 2 },
+  planDayPill: {
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: "#f3f4f6",
+    maxWidth: "34%",
+  },
+  planDayPillToday: { backgroundColor: "#dcfce7" },
+  planDayPillTomorrow: { backgroundColor: "#dbeafe" },
+  planDayPillFixed: { minWidth: 44 },
+  planDayPillText: { fontSize: 11, color: "#6b7280", fontWeight: "600" },
+  planDayPillTextHighlight: { color: "#111827", fontWeight: "700" },
+  planTimePill: {
+    marginLeft: 4,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: "#f3f4f6",
+  },
+  planTimePillText: { fontSize: 11, color: "#374151", fontWeight: "600" },
+  planTopDivider: { width: 1, height: 16, backgroundColor: "#e5e7eb", marginHorizontal: 6 },
+  planPatientTop: { flexShrink: 1, maxWidth: "38%", fontSize: 14, fontWeight: "700", color: "#111827" },
+  planDot: { fontSize: 13, color: "#9ca3af", marginHorizontal: 2, fontWeight: "700" },
+  planTreatmentWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 1,
+    maxWidth: "28%",
+    minWidth: 0,
+  },
+  planToothIcon: { fontSize: 12, marginRight: 2 },
+  planProcedureInline: {
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 12,
+    color: "#6b7280",
+    fontWeight: "500",
+  },
+  planToothCount: { width: 24, textAlign: "right", fontSize: 12, fontWeight: "700", color: "#374151" },
+  planToothCountEmpty: { color: "transparent" },
+  planScheduleTapCluster: { flexDirection: "row", alignItems: "center", flexShrink: 0 },
+  planPatientTapCluster: { flex: 1, flexShrink: 1, minWidth: 0 },
+  planPatientTapInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    minWidth: 0,
+  },
+  planFooter: { flexDirection: "row", justifyContent: "flex-start", alignItems: "center", marginTop: 6 },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
   statusBadgeText: { fontSize: 10, fontWeight: "600" },
   rowBorder: { borderBottomWidth: 1, borderBottomColor: "#f3f4f6" },

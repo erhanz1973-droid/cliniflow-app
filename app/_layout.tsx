@@ -1,89 +1,12 @@
-import { useEffect, type ReactNode } from "react";
-import * as SplashScreen from "expo-splash-screen";
-import { AuthProvider, useAuth } from "../lib/auth";
-import { LanguageProvider, useLanguage } from "../lib/language-context";
 import { Stack } from "expo-router";
-import { View, Text, ActivityIndicator } from "react-native";
-import { registerExpoPushForSession } from "../lib/registerExpoPush";
-import { installForegroundChatNotificationEffects } from "../lib/chatPushForegroundBehavior";
+import { View, Text } from "react-native";
 
-function PushNotificationRegistration() {
-  const { user, isAuthReady } = useAuth();
+/** Install `expo-notifications` handler + Android channels before any screen (not only Profile). */
+import "../lib/registerExpoPush";
 
-  useEffect(() => {
-    if (!isAuthReady || !user?.token) return;
-    const role =
-      user.type === "doctor" ? "doctor" : user.type === "patient" ? "patient" : null;
-    if (!role) return;
-    void registerExpoPushForSession({ role, authToken: user.token });
-  }, [isAuthReady, user?.token, user?.type]);
-
-  useEffect(() => {
-    if (!isAuthReady) return;
-    const unsub = installForegroundChatNotificationEffects(() => {
-      if (!user) return null;
-      const t = String(user.type || "").toLowerCase();
-      if (t === "patient") {
-        return { type: "patient", patientId: user.patientId || user.id };
-      }
-      if (t === "doctor") {
-        return { type: "doctor", doctorId: user.doctorId || user.id };
-      }
-      return null;
-    });
-    return unsub;
-  }, [isAuthReady, user?.type, user?.id, user?.patientId, user?.doctorId]);
-
-  return null;
-}
-
-function LanguageReadyGate({ children }: { children: ReactNode }) {
-  const { isLoading } = useLanguage();
-  if (isLoading) {
-    return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f8faff" }}>
-        <ActivityIndicator size="large" color="#2563EB" />
-      </View>
-    );
-  }
-  return <>{children}</>;
-}
-
-function RootLayoutInner() {
-  useEffect(() => {
-    let cancelled = false;
-    const run = async () => {
-      try {
-        await SplashScreen.preventAutoHideAsync();
-      } catch {
-        /* already prevented or unsupported */
-      }
-      if (cancelled) return;
-      try {
-        await SplashScreen.hideAsync();
-      } catch {
-        /* no native splash for this VC — ignore */
-      }
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return <Stack screenOptions={{ headerShown: false }} />;
-}
-
+/** Root navigator only — providers live in `app/(app)/_layout.tsx` + `Slot`. */
 export default function RootLayout() {
-  return (
-    <LanguageProvider>
-        <LanguageReadyGate>
-        <AuthProvider>
-          <PushNotificationRegistration />
-          <RootLayoutInner />
-        </AuthProvider>
-      </LanguageReadyGate>
-    </LanguageProvider>
-  );
+  return <Stack screenOptions={{ headerShown: false }} />;
 }
 
 export function ErrorBoundary({ error }: { error: Error }) {
