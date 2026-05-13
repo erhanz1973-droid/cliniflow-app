@@ -25,6 +25,15 @@ Admin and Patient apps must always use the same backend per environment.
 
 If referrals do not appear in admin, check `EXPO_PUBLIC_API_URL` first.
 
+## Native builds, EAS, and Xcode (production reliability)
+
+- **Do not rely on Expo Go** for OAuth or push: use a **development build** (`eas build --profile development`) or **production** build. Push registration skips native work in Expo Go (`lib/registerExpoPush.ts`).
+- **Local iOS pods:** React Native 0.81+ expects **Xcode ≥ 16.1**. Xcode 14.x may fail at `pod install` with an upgrade message. Prefer **EAS** for iOS binaries, or upgrade Xcode locally.
+- **CocoaPods locale:** if `Unicode Normalization not appropriate for ASCII-8BIT`, run:  
+  `export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` then `cd ios && pod install --repo-update`.
+- **Full stabilization checklist** (OAuth, push, App Store, git safety): see  
+  [`docs/PRODUCTION_STABILIZATION_REPORT.md`](./docs/PRODUCTION_STABILIZATION_REPORT.md).
+
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)
