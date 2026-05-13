@@ -2,7 +2,8 @@
 import { useCallback } from "react";
 import { useRouter } from 'expo-router';
 import { Alert } from 'react-native';
-import { apiGet, apiPost } from '../api';
+import { apiGet, apiPost, API_BASE, TIMEOUT_POST } from '../api';
+import { savePendingOtpSession } from '../pendingOtpSession';
 
 export interface PatientRegisterRequest {
   name: string;
@@ -31,12 +32,39 @@ export interface PatientResponse {
   error?: string; // Add error property
 }
 
-// Patient registration
+/** POST /api/register/patient — returns JSON body on 4xx so caller can handle user_already_exists without losing OTP recovery. */
 export async function registerPatient(data: PatientRegisterRequest): Promise<PatientResponse> {
-  return apiPost<PatientResponse>('/api/register/patient', {
-    ...data,
-    userType: 'PATIENT' // Explicit patient role
-  });
+  const url = `${API_BASE}/api/register/patient`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_POST);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ ...data, userType: "PATIENT" }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    const text = await res.text();
+    let json: PatientResponse & { requiresOTP?: boolean; patientId?: string; emailSent?: boolean } = {} as any;
+    try {
+      json = text ? JSON.parse(text) : ({} as any);
+    } catch {
+      throw new Error(`Invalid JSON from register: ${text.slice(0, 200)}`);
+    }
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: (json as any)?.error || `http_${res.status}`,
+        ...(typeof json === "object" && json ? json : {}),
+      } as PatientResponse;
+    }
+    return json;
+  } catch (e: any) {
+    clearTimeout(timeoutId);
+    if (e?.name === "AbortError") throw new Error("register_timeout");
+    throw e;
+  }
 }
 
 // Patient login/OTP verification
@@ -78,11 +106,20 @@ export function usePatientRegistration() {
     if (!result.ok) {
       const err = new Error(result.error || 'registration_failed') as any;
       err.code = result.error;
+      err.registerResult = result;
       throw err;
     }
 
     // If OTP is required, go to verification screen
     if ((result as any).requiresOTP) {
+      await savePendingOtpSession({
+        email: data.email || "",
+        phone: data.phone,
+        patientId: String((result as any).patientId || ""),
+        clinicCode: data.clinicCode || "",
+        flow: "register",
+        emailSent: (result as any).emailSent === false ? "0" : "1",
+      });
       router.replace({
         pathname: '/otp' as any,
         params: {
@@ -90,6 +127,8 @@ export function usePatientRegistration() {
           email: data.email || '',
           patientId: (result as any).patientId || '',
           source: 'patient',
+          clinicCode: data.clinicCode || '',
+          flow: 'register',
           emailSent: (result as any).emailSent === false ? '0' : '1',
         },
       });

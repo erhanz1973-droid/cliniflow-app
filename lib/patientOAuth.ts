@@ -7,6 +7,7 @@ import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { Platform } from "react-native";
 import { API_BASE } from "./api";
+import { emitAuthTelemetryV1 } from "./authTelemetry";
 import { getSupabaseAuthClient } from "./supabaseAuthClient";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -88,13 +89,25 @@ export async function signInWithApple(): Promise<{ session: Session | null; erro
   if (!available) return { session: null, error: new Error("apple_unavailable") };
 
   const rawNonce = randomNonce32();
-  const credential = await AppleAuthentication.signInAsync({
-    requestedScopes: [
-      AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-      AppleAuthentication.AppleAuthenticationScope.EMAIL,
-    ],
-    nonce: rawNonce,
-  });
+  let credential: AppleAuthentication.AppleAuthenticationCredential;
+  try {
+    credential = await AppleAuthentication.signInAsync({
+      requestedScopes: [
+        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+        AppleAuthentication.AppleAuthenticationScope.EMAIL,
+      ],
+      nonce: rawNonce,
+    });
+  } catch (e: unknown) {
+    const err = e as { code?: string; message?: string };
+    if (err?.code === "ERR_REQUEST_CANCELED" || err?.code === "ERR_CANCELED") {
+      return { session: null, error: new Error("oauth_cancelled") };
+    }
+    if (String(err?.code || "").includes("NOT_HANDLED") || String(err?.message || "").includes("credential")) {
+      return { session: null, error: new Error("apple_credential_invalid") };
+    }
+    return { session: null, error: e instanceof Error ? e : new Error(String(err?.message || "apple_sign_in_failed")) };
+  }
 
   const idToken = credential.identityToken;
   if (!idToken) return { session: null, error: new Error("apple_no_token") };
@@ -117,21 +130,41 @@ export async function exchangeCliniflyJwtFromOAuthSession(opts: {
 }): Promise<
   { ok: true; payload: CliniflyOAuthPayload } | { ok: false; status: number; code: string; message: string }
 > {
-  const res = await fetch(`${API_BASE}/api/patient/auth/oauth`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({
-      provider: opts.provider,
-      supabaseAccessToken: opts.accessToken,
-      clinicCode: opts.clinicCode?.trim() || undefined,
-    }),
-  });
-  let json: Record<string, unknown> = {};
-  try {
-    json = (await res.json()) as Record<string, unknown>;
-  } catch {
-    json = {};
+  const doFetch = async (accessToken: string) => {
+    const res = await fetch(`${API_BASE}/api/patient/auth/oauth`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        provider: opts.provider,
+        supabaseAccessToken: accessToken,
+        clinicCode: opts.clinicCode?.trim() || undefined,
+      }),
+    });
+    let json: Record<string, unknown> = {};
+    try {
+      json = (await res.json()) as Record<string, unknown>;
+    } catch {
+      json = {};
+    }
+    return { res, json };
+  };
+
+  let access = String(opts.accessToken || "").trim();
+  let { res, json } = await doFetch(access);
+
+  if ((!res.ok || json?.ok === false) && String(json?.error || "") === "invalid_oauth_token") {
+    const supa = getSupabaseAuthClient();
+    if (supa) {
+      const { data, error } = await supa.auth.refreshSession();
+      const next = data?.session?.access_token;
+      if (!error && next) {
+        emitAuthTelemetryV1("oauth_bridge_refresh_retry", { provider: opts.provider });
+        access = String(next).trim();
+        ({ res, json } = await doFetch(access));
+      }
+    }
   }
+
   if (!res.ok || json?.ok === false) {
     const code = String(json?.error || "unknown");
     const message = String(json?.message || json?.error || "Request failed");

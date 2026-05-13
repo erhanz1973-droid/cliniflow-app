@@ -1,8 +1,25 @@
 // lib/auth.tsx
-import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  type MutableRefObject,
+} from "react";
 import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
+import { router } from "expo-router";
 import { API_BASE, setAuthToken } from "./api";
+import { resetAppIconBadgeCount } from "./chatAckOpen";
+import { registerExpoPushForSession } from "./registerExpoPush";
+import { installForegroundChatNotificationEffects } from "./chatPushForegroundBehavior";
+import { SplashBootstrap } from "./splash-bootstrap";
+import { clearClinic } from "../store/useClinicStore";
+import { getSupabaseAuthClient } from "./supabaseAuthClient";
 
 /* ================= TYPES ================= */
 
@@ -32,6 +49,8 @@ type User = {
 
 type AuthContextValue = {
   user: User | null;
+  /** Monotonic session generation: bumps on successful sign-in and sign-out. Capture before `await`, then bail if `authSessionEpochRef.current !== snapshot` to avoid post-logout setState / native calls. */
+  authSessionEpochRef: MutableRefObject<number>;
   isAuthLoading: boolean;
   isAuthReady: boolean;
   isAuthed: boolean;
@@ -41,7 +60,8 @@ type AuthContextValue = {
   isOtpVerified: boolean; // 🔥 CRITICAL: OTP verification flag
   isInitialized: boolean; // 🔥 CRITICAL: Initialization state
   signIn: (input: any) => Promise<void>;
-  signOut: () => Promise<void>;
+  /** @param opts.replaceTo expo-router href; default `"/"` (index routes by saved role). */
+  signOut: (opts?: { replaceTo?: string }) => Promise<void>;
   refreshAuth: () => Promise<void>;
   patchUser: (patch: Partial<User>) => Promise<void>;
   setOtpVerified: (verified: boolean) => void;
@@ -49,10 +69,68 @@ type AuthContextValue = {
 };
 
 const AUTH_KEY = "clinifly.auth.v1";
+/** Same key as `app/access.tsx` — cleared on logout so quick-access state cannot outlive session. */
+const SECURE_QUICK_ACCESS_PATIENT_KEY = "CLINIFLOW_PATIENT_ID";
+
+const EXTRA_AUTH_CLEAR_KEYS = ["clinifly.patient.v1"] as const;
 
 /* ================= CONTEXT ================= */
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+function PushNotificationEffects() {
+  const ctx = useContext(AuthContext);
+  const user = ctx?.user ?? null;
+  const isAuthReady = ctx?.isAuthReady ?? false;
+  const authSessionEpochRef = ctx?.authSessionEpochRef;
+
+  const userRef = useRef(user);
+  userRef.current = user;
+
+  useEffect(() => {
+    if (!authSessionEpochRef || !isAuthReady || !user?.token) return;
+    const role =
+      user.type === "doctor" ? "doctor" : user.type === "patient" ? "patient" : null;
+    if (!role) return;
+
+    const ac = new AbortController();
+    const token = user.token;
+    const epochAtStart = authSessionEpochRef.current;
+    void registerExpoPushForSession({
+      role,
+      authToken: token,
+      signal: ac.signal,
+      authSessionEpochAtStart: epochAtStart,
+      authSessionEpochRef,
+    });
+
+    return () => {
+      ac.abort();
+    };
+  }, [isAuthReady, user?.token, user?.type, authSessionEpochRef]);
+
+  useEffect(() => {
+    if (!authSessionEpochRef || !isAuthReady || !user?.token) return;
+    const t = String(user.type || "").toLowerCase();
+    if (t !== "patient" && t !== "doctor") return;
+
+    const unsub = installForegroundChatNotificationEffects(() => {
+      const u = userRef.current;
+      if (!u?.token) return null;
+      const role = String(u.type || "").toLowerCase();
+      if (role === "patient") {
+        return { type: "patient", patientId: u.patientId || u.id };
+      }
+      if (role === "doctor") {
+        return { type: "doctor", doctorId: u.doctorId || u.id };
+      }
+      return null;
+    });
+    return unsub;
+  }, [isAuthReady, user?.token, user?.type, user?.id, user?.patientId, user?.doctorId, authSessionEpochRef]);
+
+  return null;
+}
 
 /* ================= HELPERS ================= */
 
@@ -189,6 +267,8 @@ function safeParseUser(raw: string | null): User | null {
 /* ================= PROVIDER ================= */
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const authSessionEpochRef = useRef(0);
+  const refreshAuthPromiseRef = useRef<Promise<void> | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isOtpVerified, setIsOtpVerified] = useState(false); // 🔥 CRITICAL: OTP verification flag
@@ -199,43 +279,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsOtpVerified(verified);
   }, []);
 
-  const refreshAuth = async () => {
-    console.log('[AuthProvider] refreshAuth called');
-    setIsAuthLoading(true);
+  const refreshAuth = useCallback(async () => {
+    if (!refreshAuthPromiseRef.current) {
+      refreshAuthPromiseRef.current = (async () => {
+        console.log('[AuthProvider] refreshAuth called');
+        setIsAuthLoading(true);
 
-    try {
-      const raw = await storageGet(AUTH_KEY);
-      console.log('[AUTH] Raw storage data:', raw ? 'exists' : 'missing');
-      const parsed = safeParseUser(raw);
-      
-      if (parsed && JSON.stringify(parsed) !== JSON.stringify(user)) {
-        setUser(parsed);
-        console.log('[AUTH] Setting token for user:', parsed.id, 'Token:', parsed.token ? 'exists' : 'missing');
-        setAuthToken(parsed.token); // 🔥 CRITICAL: Sync token with API layer
-        console.log('[AUTH] Token set to API layer');
-      }
+        try {
+          const raw = await storageGet(AUTH_KEY);
+          console.log('[AUTH] Raw storage data:', raw ? 'exists' : 'missing');
+          const parsed = safeParseUser(raw);
 
-      if (!parsed) {
-        await storageSet(AUTH_KEY, null);
-        setUser(null);
-        setAuthToken(null); // 🔥 CRITICAL: Clear token from API layer
-        console.log('[AUTH] No user found, token cleared');
-      }
+          if (parsed) {
+            setUser(parsed);
+            console.log('[AUTH] Setting token for user:', parsed.id, 'Token:', parsed.token ? 'exists' : 'missing');
+            setAuthToken(parsed.token); // 🔥 CRITICAL: Sync token with API layer
+            console.log('[AUTH] Token set to API layer');
+          }
 
-      console.log('[AuthProvider] Auth data loaded:', parsed ? 'User found' : 'No user');
-    } catch (error) {
-      console.error("[AUTH] Error loading auth:", error);
-      await storageSet(AUTH_KEY, null);
-      setUser(null);
-      setAuthToken(null); // 🔥 CRITICAL: Clear token from API layer
-    } finally {
-      setIsAuthLoading(false);
-      setIsInitialized(true); // 🔥 CRITICAL: Mark as initialized
-      console.log('[AuthProvider] refreshAuth complete');
+          if (!parsed) {
+            await storageSet(AUTH_KEY, null);
+            setUser(null);
+            setAuthToken(null); // 🔥 CRITICAL: Clear token from API layer
+            console.log('[AUTH] No user found, token cleared');
+          }
+
+          console.log('[AuthProvider] Auth data loaded:', parsed ? 'User found' : 'No user');
+        } catch (error) {
+          console.error("[AUTH] Error loading auth:", error);
+          await storageSet(AUTH_KEY, null);
+          setUser(null);
+          setAuthToken(null); // 🔥 CRITICAL: Clear token from API layer
+        } finally {
+          setIsAuthLoading(false);
+          setIsInitialized(true); // 🔥 CRITICAL: Mark as initialized
+          console.log('[AuthProvider] refreshAuth complete');
+          refreshAuthPromiseRef.current = null;
+        }
+      })();
     }
-  };
+    await refreshAuthPromiseRef.current;
+  }, []);
 
-  const signIn = async (input: any) => {
+  const signIn = useCallback(async (input: any) => {
     //  EKSTRA: Doctor signIn security log
     if (input.type === "doctor") {
       console.log("[AUTH] Doctor signIn without OTP allowed");
@@ -313,45 +399,88 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     
+    authSessionEpochRef.current += 1;
     setUser(next);
     await storageSet(AUTH_KEY, JSON.stringify(next));
     setAuthToken(token); // 🔥 CRITICAL: Sync token with API layer
     console.log('[AUTH] User signed in:', type, 'ID:', id);
-  };
+  }, [user]);
 
-  const signOut = async () => {
+  const signOut = useCallback(async (opts?: { replaceTo?: string }) => {
+    authSessionEpochRef.current += 1;
+    try {
+      await getSupabaseAuthClient()?.auth.signOut();
+    } catch {
+      /* ignore */
+    }
+    clearClinic();
     setUser(null);
     setAuthToken(null);
+    setIsOtpVerified(false);
     await storageSet(AUTH_KEY, null);
-    console.log('[AUTH] User signed out');
-  };
+    try {
+      await AsyncStorage.multiRemove([...EXTRA_AUTH_CLEAR_KEYS]).catch(() => {});
+    } catch {
+      /* ignore */
+    }
+    try {
+      await SecureStore.deleteItemAsync(SECURE_QUICK_ACCESS_PATIENT_KEY);
+    } catch {
+      /* not set or unsupported */
+    }
+    try {
+      await resetAppIconBadgeCount();
+    } catch {
+      /* expo-notifications may be unavailable */
+    }
+    console.log("[AUTH] User signed out");
 
-  const patchUser = async (patch: Partial<User>) => {
+    const dest = opts?.replaceTo?.trim() || "/";
+
+    /* Defer navigation to the next frame so push/socket effects can clean up without racing native calls. */
+    requestAnimationFrame(() => {
+      try {
+        /* dismissAll triggers POP_TO_TOP on a single-route stack → dev warnings / loops */
+        if (typeof router.canDismiss === "function" && router.canDismiss()) {
+          router.dismissAll?.();
+        }
+      } catch (e) {
+        console.warn("[AUTH] dismissAll:", e);
+      }
+      try {
+        router.replace(dest as any);
+      } catch (e) {
+        console.warn("[AUTH] Post-signOut navigation:", e);
+      }
+    });
+  }, []);
+
+  const patchUser = useCallback(async (patch: Partial<User>) => {
     setUser((prev) => {
       if (!prev) return prev;
       const next = { ...prev, ...patch };
       storageSet(AUTH_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
-  };
+  }, []);
 
   useEffect(() => {
     console.log('[AuthProvider] Starting auth initialization...');
-    (async () => {
+    void (async () => {
       try {
         await refreshAuth();
       } catch (error) {
         console.error('[AuthProvider] Auth initialization error:', error);
-        // Ensure loading is false even on error
         setIsAuthLoading(false);
         console.log('[AuthProvider] Auth initialization failed but loading false');
       }
     })();
-  }, []); // Empty dependency array - run once on mount only
+  }, [refreshAuth]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
+      authSessionEpochRef,
       isAuthLoading,
       isAuthReady: !isAuthLoading, // 🔥 FIX: Ready when loading is false, regardless of user
       isAuthed: !!user?.token,
@@ -407,11 +536,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [user, isAuthLoading, isOtpVerified, isInitialized, signIn, signOut, refreshAuth, patchUser, handleSetOtpVerified]
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      <SplashBootstrap />
+      <PushNotificationEffects />
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
   return ctx;
+}
+
+/** @returns true if logout/login happened since `epochSnapshot`. */
+export function isAuthSessionStale(epochSnapshot: number, epochRef: MutableRefObject<number>): boolean {
+  return epochRef.current !== epochSnapshot;
 }
