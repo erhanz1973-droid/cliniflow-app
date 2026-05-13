@@ -66,9 +66,15 @@ export function installForegroundChatNotificationEffects(getViewer: () => ChatNo
         const data = event.request.content.data as Record<string, unknown> | undefined;
         if (data?.type !== "chat_message") return;
 
+        const viewer = getViewer();
+        const vt = String(viewer?.type || "").toLowerCase();
+        if (vt !== "patient" && vt !== "doctor") {
+          /* Logged out or unknown viewer — avoid TurboModule calls (badge/vibrate). */
+          return;
+        }
+
         recordForegroundRemoteChatPushPlayback();
 
-        const viewer = getViewer();
         await applyBadgeFromPayload(Notifications, event.request.content, data);
 
         if (isComposerSelfEcho(data, viewer)) return;
@@ -76,7 +82,11 @@ export function installForegroundChatNotificationEffects(getViewer: () => ChatNo
         const now = Date.now();
         if (now - lastForegroundChatVibrateAt < FG_VIBRATE_DEBOUNCE_MS) return;
         lastForegroundChatVibrateAt = now;
-        Vibration.vibrate(FG_VIBRATE_MS);
+        try {
+          Vibration.vibrate(FG_VIBRATE_MS);
+        } catch {
+          /* native vibrate unavailable */
+        }
       })();
     });
     unsub = () => sub.remove();

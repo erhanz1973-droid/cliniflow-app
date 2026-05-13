@@ -14,8 +14,9 @@ export async function playInAppNewMessageSound(): Promise<void> {
       volume: 0.78,
       isLooping: false,
     });
-    sound.setOnPlaybackStatusUpdate((st: { didJustFinish?: boolean }) => {
-      if (st?.didJustFinish) sound.unloadAsync().catch(() => {});
+    sound.setOnPlaybackStatusUpdate((st) => {
+      if (typeof st !== "object" || !("isLoaded" in st)) return;
+      if (st.isLoaded && "didJustFinish" in st && st.didJustFinish) sound.unloadAsync().catch(() => {});
     });
   } catch {
     /* optional: haptics can be added by caller */

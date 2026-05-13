@@ -1,14 +1,12 @@
 /**
- * Hasta ↔ klinik chat — TEK KAYNAK: `public.messages` + Supabase Realtime.
- *
- * ❌ Railway / fetch('/api/patient/me/messages') — bu hook aktifken kullanma.
- * ❌ Socket.IO onNewMessage — bu hook aktifken kullanma.
+ * Hasta ↔ klinik chat — `public.patient_messages` + `public.messages` + Supabase Realtime.
+ * Backend `fetchMessagesFromSupabase` ile aynı mantık: her iki tablo da `patient_id` ile yüklenir
+ * (doktor satırları çoğu zaman `messages.message` veya yalnızca `messages` tablosunda).
  *
  * `ready`: initial select TAMAM **ve** SUBSCRIBED status geldi → iki koşul birden.
  * `timedOut`: 8 sn içinde SUBSCRIBED gelmedi → ekran Railway fallback'e düşer.
  *
  * useEffect deps: [patientId, clinicId, configured] — SADECE BUNLAR.
- * ❌ messages, state, function, object ekleme.
  */
 import { useEffect, useRef, useState } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
@@ -32,10 +30,15 @@ type MessagesRow = Record<string, unknown> & {
   /** patient_messages uses message_id as the logical key */
   message_id?: string | null;
   created_at: string;
+  /** messages tablosunda gövde çoğunlukla burada */
+  message?: string | null;
   message_text?: string | null;
   text?: string | null;
   content?: string | null;
   body?: string | null;
+  msg?: string | null;
+  payload?: unknown;
+  data?: unknown;
   /** messages table */
   sender_type?: string | null;
   /** patient_messages table */
@@ -46,10 +49,56 @@ type MessagesRow = Record<string, unknown> & {
   thread_id?: string | null;
 };
 
+function extractRowBodyText(row: MessagesRow): string {
+  const keys = [
+    'text',
+    'message',
+    'content',
+    'message_text',
+    'body',
+    'msg',
+  ] as const;
+  for (const k of keys) {
+    const v = row[k];
+    if (v == null) continue;
+    const s = typeof v === 'string' ? v.trim() : String(v).trim();
+    if (s !== '') return s;
+  }
+  if (row.payload != null) {
+    try {
+      const p =
+        typeof row.payload === 'string' ? JSON.parse(row.payload) : (row.payload as Record<string, unknown>);
+      if (p && typeof p === 'object') {
+        for (const k of ['text', 'message', 'body', 'content'] as const) {
+          const v = p[k];
+          if (v != null && String(v).trim() !== '') return String(v).trim();
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  if (row.data != null) {
+    try {
+      const d =
+        typeof row.data === 'string' ? JSON.parse(row.data) : (row.data as Record<string, unknown>);
+      if (d && typeof d === 'object') {
+        for (const k of ['text', 'message', 'body', 'content'] as const) {
+          const v = d[k];
+          if (v != null && String(v).trim() !== '') return String(v).trim();
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return '';
+}
+
 function rowToMessage(row: MessagesRow): SupabasePatientMessage {
   // patient_messages uses from_role; messages uses sender_type
   const senderType = String(row.from_role ?? row.sender_type ?? '').toLowerCase();
-  const text = String(row.text ?? row.message_text ?? row.content ?? row.body ?? '');
+  const text = extractRowBodyText(row);
   // patient_messages uses message_id as logical key; messages uses id
   const id = String(row.message_id || row.id || '');
 
@@ -90,9 +139,13 @@ export type UseSupabaseMessagesResult = {
 export function useSupabaseMessages({
   patientId,
   clinicId,
+  /** false: no Supabase load/subscribe (e.g. doctor tab viewing a patient — hook must still run). */
+  enabled = true,
 }: {
   patientId: string;
-  clinicId: string;
+  /** Opsiyonel; realtime kanal adını ayırt etmek için. Birleşik akış `patient_id` ile yüklenir — `messages` clinicId ile filtrelenmez (backend ile aynı). */
+  clinicId?: string;
+  enabled?: boolean;
 }): UseSupabaseMessagesResult {
   const [messages, setMessages] = useState<SupabasePatientMessage[]>([]);
   const [ready, setReady] = useState(false);
@@ -101,12 +154,21 @@ export function useSupabaseMessages({
   const configured = isSupabaseRealtimeConfigured();
 
   useEffect(() => {
-    if (!configured || !patientId || !clinicId) {
+    if (!enabled) {
       setMessages([]);
       setReady(false);
       setTimedOut(false);
       return;
     }
+
+    if (!configured || !patientId) {
+      setMessages([]);
+      setReady(false);
+      setTimedOut(false);
+      return;
+    }
+
+    const clinicScope = String(clinicId || '').trim();
 
     const sb = getSupabaseClient();
     if (!sb) {
@@ -139,26 +201,42 @@ export function useSupabaseMessages({
       }
     }, SUBSCRIBED_TIMEOUT_MS);
 
-    // İlk yükleme (select)
-    void sb
-      .from('messages')
-      .select('*')
-      .eq('patient_id', patientId)
-      .eq('clinic_id', clinicId)
-      .order('created_at', { ascending: true })
-      .limit(50)
-      .then(({ data, error }) => {
-        if (disposed) return;
-        if (error && __DEV__) console.log('[useSupabaseMessages] SELECT error:', error.message);
-        if (data) {
-          setMessages(sortAndDedupe((data as MessagesRow[]).map(rowToMessage)));
-        }
-        selectDone = true;
-        maybeSetReady();
-      });
+    // İlk yükleme: `patient_messages` + `messages` (patient_id — backend ile aynı birleşik akış)
+    void (async () => {
+      const rows: MessagesRow[] = [];
+      try {
+        const pm = await sb
+          .from('patient_messages')
+          .select('*')
+          .eq('patient_id', patientId)
+          .order('created_at', { ascending: true })
+          .limit(80);
+        if (pm.error && __DEV__) console.log('[useSupabaseMessages] patient_messages SELECT:', pm.error.message);
+        if (Array.isArray(pm.data)) rows.push(...(pm.data as MessagesRow[]));
+      } catch (e) {
+        if (__DEV__) console.warn('[useSupabaseMessages] patient_messages load:', e);
+      }
+      try {
+        const res = await sb
+          .from('messages')
+          .select('*')
+          .eq('patient_id', patientId)
+          .order('created_at', { ascending: true })
+          .limit(120);
+        if (res.error && __DEV__) console.log('[useSupabaseMessages] messages SELECT:', res.error.message);
+        if (Array.isArray(res.data)) rows.push(...(res.data as MessagesRow[]));
+      } catch (e) {
+        if (__DEV__) console.warn('[useSupabaseMessages] messages load:', e);
+      }
+      if (!disposed) {
+        setMessages(sortAndDedupe(rows.map(rowToMessage)));
+      }
+      selectDone = true;
+      maybeSetReady();
+    })();
 
     // Realtime — server-side filter: sadece bu hasta'nın olayları gelir
-    const topic = `messages-${patientId}-${clinicId}`;
+    const topic = `messages-${patientId}-${clinicScope || 'noclinic'}`;
 
     function handleInsertRow(raw: MessagesRow, tableHint: string) {
       const rowId = String(raw?.message_id || raw?.id || '');
@@ -197,26 +275,38 @@ export function useSupabaseMessages({
         if (__DEV__) console.log('🔥 RT STATUS messages:', status);
         if (status === 'SUBSCRIBED' && !disposed) {
           subscribed = true;
-          // Catch-up SELECT: subscribe kurulurken gelen mesajları kaçırmamak için
-          void sb
-            .from('messages')
-            .select('*')
-            .eq('patient_id', patientId)
-            .eq('clinic_id', clinicId)
-            .order('created_at', { ascending: true })
-            .limit(50)
-            .then(({ data }) => {
-              if (disposed || !data) return;
-              // Filter ÖNCE map SONRA → sadece yeni satırlar map edilir
-              setMessages(prev => {
-                const freshRows = (data as MessagesRow[]).filter(
-                  r => !prev.some(p => p.id === r.id),
-                );
-                if (freshRows.length === 0) return prev;
-                if (__DEV__) console.log('[useSupabaseMessages] catch-up +', freshRows.length, 'new rows');
-                return sortAndDedupe([...prev, ...freshRows.map(rowToMessage)]);
-              });
+          // Catch-up: subscribe sırasında kaçan satırlar (canonical id = rowToMessage id)
+          void (async () => {
+            const rows: MessagesRow[] = [];
+            try {
+              const pm = await sb
+                .from('patient_messages')
+                .select('*')
+                .eq('patient_id', patientId)
+                .order('created_at', { ascending: true })
+                .limit(80);
+              if (Array.isArray(pm.data)) rows.push(...(pm.data as MessagesRow[]));
+            } catch (_) { /* noop */ }
+            try {
+              const res = await sb
+                .from('messages')
+                .select('*')
+                .eq('patient_id', patientId)
+                .order('created_at', { ascending: true })
+                .limit(120);
+              if (Array.isArray(res.data)) rows.push(...(res.data as MessagesRow[]));
+            } catch (_) { /* noop */ }
+            if (disposed || rows.length === 0) return;
+            setMessages(prev => {
+              const seen = new Set(prev.map((m) => String(m.id)));
+              const appended = rows
+                .map(rowToMessage)
+                .filter((m) => m.id && !seen.has(String(m.id)));
+              if (appended.length === 0) return prev;
+              if (__DEV__) console.log('[useSupabaseMessages] catch-up +', appended.length);
+              return sortAndDedupe([...prev, ...appended]);
             });
+          })();
           maybeSetReady();
         }
         if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') && !disposed) {
@@ -235,7 +325,7 @@ export function useSupabaseMessages({
         channelRef.current = null;
       }
     };
-  }, [patientId, clinicId, configured]); // ✅ SADECE BUNLAR — messages/state/function ekleme
+  }, [patientId, clinicId, configured, enabled]); // ✅ SADECE BUNLAR — messages/state/function ekleme
 
   return { messages, ready, configured, timedOut };
 }
