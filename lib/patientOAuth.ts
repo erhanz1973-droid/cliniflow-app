@@ -3,6 +3,7 @@
  */
 import { type Session } from "@supabase/supabase-js";
 import * as AppleAuthentication from "expo-apple-authentication";
+import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as Crypto from "expo-crypto";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
@@ -14,6 +15,29 @@ import { getSupabaseAuthClient, isSupabaseAuthConfigured } from "./supabaseAuthC
 WebBrowser.maybeCompleteAuthSession();
 
 export type OAuthProvider = "google" | "apple";
+
+function resolveExpoAuthScheme(): string {
+  const s = Constants.expoConfig?.scheme;
+  if (typeof s === "string" && s.trim()) return s.trim();
+  if (Array.isArray(s) && typeof s[0] === "string" && s[0].trim()) return s[0].trim();
+  return "clinifly";
+}
+
+/**
+ * Redirect URI sent to Supabase `signInWithOAuth` — must match Auth → URL Configuration allow list.
+ * Avoid `Linking.createURL` on dev builds: it can inject Metro `localhost` / LAN host into `redirect_uri`.
+ * Expo Go: keep `createURL` so `exp://…` (or dev host) can be allow-listed for testing.
+ */
+export function createOAuthRedirectTo(): string {
+  if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
+    return Linking.createURL("auth-callback");
+  }
+  if (Platform.OS === "web") {
+    return Linking.createURL("auth-callback");
+  }
+  const scheme = resolveExpoAuthScheme();
+  return `${scheme}://auth-callback`;
+}
 
 function parseImplicitTokensFromUrl(url: string): { access_token?: string; refresh_token?: string } {
   try {
@@ -42,13 +66,18 @@ function parseImplicitTokensFromUrl(url: string): { access_token?: string; refre
  * Dashboard: Authentication → Providers → Google (Web client ID + secret).
  * Google Cloud: Authorized redirect URIs must include `https://<project>.supabase.co/auth/v1/callback`.
  * Supabase: Authentication → URL Configuration → add this app’s redirect, e.g. `clinifly://auth-callback`
- * (same value as `Linking.createURL("auth-callback")` in production builds).
+ * (from `createOAuthRedirectTo()` — not raw `Linking.createURL`, which can embed Metro localhost).
  */
 export async function signInWithGoogle(): Promise<{ session: Session | null; error: Error | null }> {
   const supabase = getSupabaseAuthClient();
   if (!supabase) return { session: null, error: new Error("oauth_not_configured") };
 
-  const redirectTo = Linking.createURL("auth-callback");
+  const redirectTo = createOAuthRedirectTo();
+  console.log("[google-oauth]", {
+    redirectTo,
+    executionEnvironment: Constants.executionEnvironment,
+    schemeFromConfig: resolveExpoAuthScheme(),
+  });
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
