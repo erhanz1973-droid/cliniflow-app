@@ -6,6 +6,8 @@
     "node": ">=20.0.0 <23"
   },
   "scripts": {
+    "release:hygiene": "bash scripts/release-hygiene.sh",
+    "release:build-report": "bash scripts/release-build-report.sh",
     "start": "npx expo start",
     "start:dev": "npx expo start --dev-client",
     "start:clean": "npx expo start -c",

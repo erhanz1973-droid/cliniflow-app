@@ -1,0 +1,65 @@
+# --- OS / IDE ---
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# --- Expo / Metro ---
+.expo/
+dist/
+web-build/
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# --- Node ---
+node_modules/
+
+# --- Env & secrets (never commit) ---
+.env
+.env.*
+!.env.example
+!.env*.example
+*.pem
+*.p12
+*.jks
+*.keystore
+*.mobileprovision
+*.p8
+*credentials*.json
+*service-account*.json
+GoogleService-Info.plist
+google-services.json
+.upload-keystore.pass
+upload-keystore.creds
+upload-keystore.jks
+upload_certificate.pem
+clinifly-*.jks
+@*.jks
+
+# --- Accidental nested clone of this repo (broken gitlink without .gitmodules) ---
+cliniflow-app/
+
+# --- EAS local ---
+.eas/
+
+# --- iOS local overrides ---
+ios/.xcode.env.local
+ios/Pods/
+ios/build/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# --- Android ---
+android/.gradle/
+android/app/build/
+android/build/
+local.properties
+*.apk
+*.aab
+
+# --- Testing / coverage ---
+coverage/
