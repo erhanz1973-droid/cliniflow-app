@@ -1,9 +1,7 @@
 /**
  * Client auth/OAuth telemetry — same logical events as backend AUTH_TELEMETRY_V1 for log correlation.
- * Production: single JSON line (Metro / device logs). Optional ingest via EXPO_PUBLIC_TELEMETRY_URL later.
+ * Single JSON line per event (Metro / device logs). Optional ingest via EXPO_PUBLIC_TELEMETRY_URL later.
  */
-
-const IS_DEV = typeof __DEV__ !== "undefined" && __DEV__;
 
 export type AuthTelemetryEvent =
   | "oauth_login_success"
@@ -29,6 +27,5 @@ export function emitAuthTelemetryV1(
     ...fields,
   };
   const line = JSON.stringify(payload);
-  if (IS_DEV) console.log("[auth-telemetry]", line);
-  else console.log(line);
+  console.log(line);
 }

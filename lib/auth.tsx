@@ -19,6 +19,7 @@ import { registerExpoPushForSession } from "./registerExpoPush";
 import { installForegroundChatNotificationEffects } from "./chatPushForegroundBehavior";
 import { SplashBootstrap } from "./splash-bootstrap";
 import { clearClinic } from "../store/useClinicStore";
+import { emitAuthTelemetryV1 } from "./authTelemetry";
 import { getSupabaseAuthClient } from "./supabaseAuthClient";
 
 /* ================= TYPES ================= */
@@ -240,6 +241,14 @@ function decodeJwtPayload(token: string): Record<string, any> | null {
   }
 }
 
+/** Client-side JWT `exp` check (server still authorizes). `skewMs` avoids edge clock skew. */
+function isCliniflyJwtLikelyExpired(token: string, skewMs = 120_000): boolean {
+  const p = decodeJwtPayload(token);
+  const exp = p && typeof p.exp === "number" ? p.exp : null;
+  if (exp == null) return false;
+  return exp * 1000 < Date.now() + skewMs;
+}
+
 function safeParseUser(raw: string | null): User | null {
   if (!raw) return null;
   try {
@@ -286,15 +295,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsAuthLoading(true);
 
         try {
-          const raw = await storageGet(AUTH_KEY);
+          let raw: string | null = null;
+          try {
+            raw = await storageGet(AUTH_KEY);
+          } catch {
+            emitAuthTelemetryV1("session_restore_fail", { reason: "storage_read" });
+            raw = null;
+          }
           console.log('[AUTH] Raw storage data:', raw ? 'exists' : 'missing');
-          const parsed = safeParseUser(raw);
+          let parsed = safeParseUser(raw);
 
-          if (parsed) {
+          if (raw && !parsed) {
+            emitAuthTelemetryV1("session_restore_cleared_invalid", { reason: "corrupt_json" });
+            await storageSet(AUTH_KEY, null);
+            setUser(null);
+            setAuthToken(null);
+            console.log('[AUTH] Cleared corrupt auth storage');
+          } else if (parsed?.token && isCliniflyJwtLikelyExpired(parsed.token)) {
+            emitAuthTelemetryV1("session_restore_cleared_expired", { userType: parsed.type });
+            await storageSet(AUTH_KEY, null);
+            setUser(null);
+            setAuthToken(null);
+            parsed = null;
+            console.log('[AUTH] Cleared expired JWT from storage');
+          } else if (parsed) {
             setUser(parsed);
             console.log('[AUTH] Setting token for user:', parsed.id, 'Token:', parsed.token ? 'exists' : 'missing');
             setAuthToken(parsed.token); // 🔥 CRITICAL: Sync token with API layer
             console.log('[AUTH] Token set to API layer');
+            emitAuthTelemetryV1("session_restore_ok", { userType: parsed.type });
+            if (parsed.type === "patient") {
+              try {
+                const supa = getSupabaseAuthClient();
+                if (supa) {
+                  const { error } = await supa.auth.getSession();
+                  if (error)
+                    emitAuthTelemetryV1("supabase_session_error", {
+                      message: String(error.message || error).slice(0, 160),
+                    });
+                }
+              } catch (e) {
+                emitAuthTelemetryV1("supabase_session_error", {
+                  message: String(e instanceof Error ? e.message : e).slice(0, 160),
+                });
+              }
+            }
           }
 
           if (!parsed) {
