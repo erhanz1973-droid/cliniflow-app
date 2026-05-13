@@ -10,6 +10,10 @@
 .expo/
 dist/
 web-build/
+*.hbc
+
+# --- Mobile store binaries (never commit) ---
+*.aab
 *.log
 npm-debug.*
 yarn-debug.*
@@ -59,7 +63,6 @@ android/app/build/
 android/build/
 local.properties
 *.apk
-*.aab
 
 # --- Testing / coverage ---
 coverage/

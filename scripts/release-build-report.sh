@@ -28,7 +28,7 @@ log ""
 
 log "== expo doctor =="
 set +e
-npx expo-doctor >>"$REPORT" 2>&1
+npx --yes expo-doctor >>"$REPORT" 2>&1
 doc=$?
 set -e
 if [[ $doc -eq 0 ]]; then
