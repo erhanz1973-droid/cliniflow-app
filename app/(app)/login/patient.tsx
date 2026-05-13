@@ -26,6 +26,7 @@ import {
   exchangeCliniflyJwtFromOAuthSession,
   type OAuthProvider,
 } from "../../../lib/patientOAuth";
+import { emitAuthTelemetryV1 } from "../../../lib/authTelemetry";
 
 const WARMUP_TIMEOUT_MS = 30_000;
 const LOGIN_TIMEOUT_MS = 15_000;
@@ -120,7 +121,10 @@ export default function PatientLoginScreen() {
         provider === "google" ? await signInWithGoogle() : await signInWithApple();
       if (oauthErr) {
         const m = oauthErr.message;
-        if (m === "oauth_cancelled") throw new Error(t("login.oauthCancelled"));
+        if (m === "oauth_cancelled") {
+          emitAuthTelemetryV1("oauth_login_cancel", { provider });
+          throw new Error(t("login.oauthCancelled"));
+        }
         if (m === "apple_ios_only" || m === "apple_unavailable") throw new Error(t("login.appleNotAvailable"));
         if (m === "apple_credential_invalid") throw new Error(t("login.appleCredentialInvalid"));
         if (m === "oauth_not_configured") throw new Error(t("login.oauthNotConfigured"));
@@ -148,6 +152,7 @@ export default function PatientLoginScreen() {
           return;
         }
         if (bridge.code === "oauth_provider_mismatch") {
+          emitAuthTelemetryV1("oauth_provider_mismatch", { provider, surface: "client" });
           Alert.alert(t("login.error"), t("login.oauthProviderMismatch"));
           return;
         }
@@ -157,11 +162,17 @@ export default function PatientLoginScreen() {
         throw new Error(bridge.message || t("login.loginFailed"));
       }
       await applyCliniflySession(bridge.payload, "");
+      emitAuthTelemetryV1("oauth_login_success", { provider, surface: "client" });
       return;
     } catch (error: unknown) {
       clearWarmup();
       const err = error as { name?: string; message?: string };
       const isTimeout = err?.name === "AbortError" || String(err?.message || "").includes("timeout");
+      emitAuthTelemetryV1("oauth_login_fail", {
+        provider,
+        reason: isTimeout ? "timeout" : "exception",
+        message: String(err?.message || "").slice(0, 160),
+      });
       setErrorMsg(isTimeout ? t("login.timeout") : err?.message || t("login.loginFailed"));
     } finally {
       clearWarmup();
