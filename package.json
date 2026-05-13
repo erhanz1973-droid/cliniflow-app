@@ -11,6 +11,7 @@
     "start": "npx expo start",
     "start:dev": "npx expo start --dev-client",
     "start:clean": "npx expo start -c",
+    "pod:install": "bash scripts/ios-pod-install.sh",
     "android": "npx expo run:android",
     "ios": "npx expo run:ios",
     "web": "npx expo start --web"
@@ -28,6 +29,7 @@
     "expo-camera": "~17.0.10",
     "expo-clipboard": "~8.0.8",
     "expo-constants": "~18.0.13",
+    "expo-crypto": "~15.0.8",
     "expo-dev-client": "~6.0.20",
     "expo-document-picker": "~14.0.8",
     "expo-file-system": "~19.0.21",
