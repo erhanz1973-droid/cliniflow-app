@@ -3,11 +3,11 @@
     "scheme": "clinifly",
     "name": "Cliniflow",
     "slug": "clinifly-new",
-    "version": "123",
+    "version": "123.1",
     "owner": "erhanzorlu",
     "ios": {
       "bundleIdentifier": "net.clinifly.mobile",
-      "buildNumber": "43",
+      "buildNumber": "44",
       "usesAppleSignIn": true,
       "infoPlist": {
         "UIBackgroundModes": [
@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.clinifly.mobile",
-      "versionCode": 51,
+      "versionCode": 52,
       "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
