@@ -96,36 +96,6 @@ function getOAuthProviderErrorFromUrl(url: string): { error: string; description
   return null;
 }
 
-/** Safe callback diagnostics (no secrets). */
-function logGoogleOAuthCallback(url: string, label: string) {
-  try {
-    const u = new URL(url);
-    const hashRaw = (u.hash || "").replace(/^#/, "");
-    const hashSp = new URLSearchParams(hashRaw);
-    const qKeys = [...u.searchParams.keys()].sort();
-    const hKeys = [...hashSp.keys()].sort();
-    const implicit = parseImplicitTokensFromUrl(url);
-    const code = getAuthCodeFromCallbackUrl(url);
-    const provErr = getOAuthProviderErrorFromUrl(url);
-    console.log(`[google-oauth][${label}]`, {
-      urlLength: url.length,
-      host: u.host,
-      pathname: u.pathname,
-      searchParamKeys: qKeys,
-      hashParamKeys: hKeys,
-      hasAccessToken: Boolean(implicit.access_token),
-      accessTokenLen: implicit.access_token?.length ?? 0,
-      hasRefreshToken: Boolean(implicit.refresh_token),
-      hasAuthCode: Boolean(code),
-      authCodeLen: code?.length ?? 0,
-      providerError: provErr?.error ?? null,
-      providerErrorDescLen: provErr?.description?.length ?? 0,
-    });
-  } catch (e) {
-    console.log(`[google-oauth][${label}]`, { parseFailed: true, message: String((e as Error)?.message || e) });
-  }
-}
-
 /**
  * Supabase-hosted Google OAuth (in-app browser).
  * Dashboard: Authentication → Providers → Google (Web client ID + secret).
@@ -138,13 +108,6 @@ export async function signInWithGoogle(): Promise<{ session: Session | null; err
   if (!supabase) return { session: null, error: new Error("oauth_not_configured") };
 
   const redirectTo = createOAuthRedirectTo();
-  if (__DEV__) {
-    console.log("[google-oauth]", {
-      redirectTo,
-      executionEnvironment: Constants.executionEnvironment,
-      schemeFromConfig: resolveExpoAuthScheme(),
-    });
-  }
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
@@ -159,27 +122,16 @@ export async function signInWithGoogle(): Promise<{ session: Session | null; err
     preferEphemeralSession: true,
   });
 
-  if (__DEV__) {
-    console.log("[google-oauth][auth-result]", result);
-  } else {
-    console.log("[google-oauth][auth-result]", {
-      type: result.type,
-      hasUrl: result.type === "success" && "url" in result && Boolean((result as { url?: string }).url),
-    });
-  }
-
   if (result.type !== "success" || !("url" in result) || !result.url) {
     const code = result.type === "cancel" ? "oauth_cancelled" : "oauth_failed";
     return { session: null, error: new Error(code) };
   }
 
   const callbackUrl = result.url;
-  logGoogleOAuthCallback(callbackUrl, "callback-url");
 
   const provErr = getOAuthProviderErrorFromUrl(callbackUrl);
   if (provErr) {
     const msg = provErr.description || provErr.error || "oauth_provider_error";
-    console.log("[google-oauth][provider-error]", { error: provErr.error, msgLen: msg.length });
     return { session: null, error: new Error(msg) };
   }
 
@@ -187,40 +139,25 @@ export async function signInWithGoogle(): Promise<{ session: Session | null; err
 
   const implicit = parseImplicitTokensFromUrl(callbackUrl);
   if (implicit.access_token) {
-    console.log("[google-oauth][path]", "implicit_setSession");
     const { data: setData, error: setErr } = await supabase.auth.setSession({
       access_token: implicit.access_token,
       refresh_token: implicit.refresh_token || "",
     });
     if (!setErr && setData?.session) {
-      const { data: sessSnap } = await supabase.auth.getSession();
-      console.log("[google-oauth][session-after-set]", {
-        hasSession: Boolean(sessSnap.session),
-        userIdPrefix: sessSnap.session?.user?.id?.slice(0, 8) ?? null,
-      });
       return { session: setData.session, error: null };
     }
-    console.log("[google-oauth][implicit-fail]", { setErr: setErr?.message });
     return { session: null, error: setErr || new Error("oauth_implicit_set_session_failed") };
   }
 
   const authCode = getAuthCodeFromCallbackUrl(callbackUrl);
   if (authCode) {
-    console.log("[google-oauth][path]", "exchangeCodeForSession");
     const { data: exchanged, error: exErr } = await supabase.auth.exchangeCodeForSession(callbackUrl);
     if (!exErr && exchanged?.session) {
-      const { data: sessSnap } = await supabase.auth.getSession();
-      console.log("[google-oauth][session-after-exchange]", {
-        hasSession: Boolean(sessSnap.session),
-        userIdPrefix: sessSnap.session?.user?.id?.slice(0, 8) ?? null,
-      });
       return { session: exchanged.session, error: null };
     }
-    console.log("[google-oauth][exchange-fail]", { exErr: exErr?.message });
     return { session: null, error: exErr || new Error("oauth_exchange_failed") };
   }
 
-  console.log("[google-oauth][path]", "no_token_no_code");
   return { session: null, error: new Error("oauth_callback_unrecognized") };
 }
 

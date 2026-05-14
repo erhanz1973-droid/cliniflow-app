@@ -4,8 +4,8 @@ import * as WebBrowser from "expo-web-browser";
 
 /**
  * Return URL for `signInWithOAuth` (`createOAuthRedirectTo()`).
- * `openAuthSessionAsync` usually resolves before this screen mounts; this completes any pending session handoff.
- * (Also called in `signInWithGoogle` immediately before `exchangeCodeForSession` to avoid races.)
+ * `openAuthSessionAsync` usually resolves before this screen mounts; completes pending auth session handoff.
+ * `signInWithGoogle` also calls `maybeCompleteAuthSession` before `setSession` / `exchangeCodeForSession`.
  */
 export default function AuthCallbackScreen() {
   useEffect(() => {
