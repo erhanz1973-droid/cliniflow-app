@@ -73,11 +73,13 @@ export async function signInWithGoogle(): Promise<{ session: Session | null; err
   if (!supabase) return { session: null, error: new Error("oauth_not_configured") };
 
   const redirectTo = createOAuthRedirectTo();
-  console.log("[google-oauth]", {
-    redirectTo,
-    executionEnvironment: Constants.executionEnvironment,
-    schemeFromConfig: resolveExpoAuthScheme(),
-  });
+  if (__DEV__) {
+    console.log("[google-oauth]", {
+      redirectTo,
+      executionEnvironment: Constants.executionEnvironment,
+      schemeFromConfig: resolveExpoAuthScheme(),
+    });
+  }
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
@@ -96,6 +98,8 @@ export async function signInWithGoogle(): Promise<{ session: Session | null; err
     const code = result.type === "cancel" ? "oauth_cancelled" : "oauth_failed";
     return { session: null, error: new Error(code) };
   }
+
+  WebBrowser.maybeCompleteAuthSession();
 
   const { data: exchanged, error: exErr } = await supabase.auth.exchangeCodeForSession(result.url);
   if (!exErr && exchanged?.session) return { session: exchanged.session, error: null };

@@ -25,8 +25,11 @@ export function getSupabaseAuthClient(): SupabaseClient | null {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: false,
-        /** Required for mobile `signInWithOAuth` + `exchangeCodeForSession` (Google / Apple bridge). */
-        flowType: "pkce",
+        /**
+         * Do not force `flowType: "pkce"` here: RN dev client / tunnel often lacks WebCrypto;
+         * GoTrue then falls back to plain PKCE and `exchangeCodeForSession` can throw
+         * "invalid flow state, no valid flow state found". Use library default for OAuth.
+         */
       },
     });
   }
