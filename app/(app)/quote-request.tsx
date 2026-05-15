@@ -10,6 +10,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
+import {
+  ensureCameraAccess,
+  ensureMediaLibraryAccessForPicker,
+  launchImageLibraryPlayStoreSafe,
+} from '../../lib/mediaPicker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -19,6 +24,9 @@ import { useLanguage } from '../../lib/language-context';
 import { API_BASE } from '../../lib/api';
 import { QUOTE_REQUEST_PREFILL_IMAGE_KEY } from '../../lib/quotePrefill';
 import { saveSelectedChatClinic } from '../../lib/selectedChatClinic';
+import { useDeviceGuidanceOptional } from '../../lib/deviceGuidanceContext';
+import { isLowStorageLikeError } from '../../lib/lowStorageError';
+import { trackEvent } from '../../lib/analytics/trackEvent';
 
 // Guided intraoral photo steps (same as messages.tsx and offer-chat.tsx)
 const PHOTO_STEP_KEYS = [
@@ -50,6 +58,7 @@ export default function QuoteRequestScreen() {
   const router  = useRouter();
   const { user } = useAuth();
   const { t }   = useLanguage();
+  const dg = useDeviceGuidanceOptional();
   const params  = useLocalSearchParams<{ clinics?: string }>();
 
   // Guard: if t() returns the key itself (stale bundle bug), use fallback instead
@@ -126,26 +135,17 @@ export default function QuoteRequestScreen() {
     // Let the attach modal fully close before opening the system picker (Android/iOS).
     await new Promise((r) => setTimeout(r, Platform.OS === 'android' ? 400 : 250));
     try {
-      const { status, canAskAgain } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert(
-          safeT('common.error', 'Error'),
-          safeT(
-            'quoteRequest.photoPermission',
-            'Photo library access is required. You can enable it in Settings.',
-          ),
-          [
-            { text: safeT('common.cancel', 'Cancel'), style: 'cancel' },
-            ...(canAskAgain !== false
-              ? [{ text: safeT('common.retry', 'Try again'), onPress: () => void pickPhoto() }]
-              : []),
-            { text: safeT('quoteRequest.openSettings', 'Settings'), onPress: () => Linking.openSettings() },
-          ],
-        );
+      if (!(await ensureMediaLibraryAccessForPicker({
+        deniedTitle: safeT('common.error', 'Error'),
+        deniedMessage: safeT(
+          'quoteRequest.photoPermission',
+          'Photo library access is required. You can enable it in Settings.',
+        ),
+        settingsLabel: safeT('quoteRequest.openSettings', 'Settings'),
+      }))) {
         return;
       }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+      const result = await launchImageLibraryPlayStoreSafe({
         quality: 0.85,
         allowsEditing: false,
       });
@@ -158,7 +158,7 @@ export default function QuoteRequestScreen() {
         'image',
       );
     } catch (e: any) {
-      console.warn('[quote-request] pickPhoto', e);
+      if (isLowStorageLikeError(e)) dg?.reportLowStorageLikeError(e, { operation: 'gallery_pick' });
       Alert.alert(safeT('common.error', 'Error'), e?.message || 'Could not open photo library');
     }
   };
@@ -173,9 +173,10 @@ export default function QuoteRequestScreen() {
 
   // ── Capture one step inside guided modal ──────────────────────────────────
   const captureIntraoralStep = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(safeT('common.error', 'Error'), 'Camera permission required');
+    if (!(await ensureCameraAccess({
+      deniedTitle: safeT('common.error', 'Error'),
+      deniedMessage: 'Camera permission required',
+    }))) {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
@@ -198,6 +199,23 @@ export default function QuoteRequestScreen() {
     setUploading(true);
     // Clear previous single attachment
     setAttachment(null);
+    const prep = await dg?.prepareHeavyFileOp?.({
+      operation: 'attachment_upload_batch',
+      reserveBytes: 160 * 1024 * 1024,
+    });
+    if (prep && !prep.proceed) {
+      trackEvent('attachment_upload_blocked', { category: 'attachment_', reason: 'proactive_disk' });
+      setUploading(false);
+      Alert.alert(
+        safeT('deviceGuidance.lowStorageTitleBlocked', 'Not enough storage'),
+        safeT('deviceGuidance.lowStorageBodyBlocked', 'Free space on your device is too low for this upload.'),
+        [
+          { text: safeT('common.cancel', 'Cancel'), style: 'cancel' },
+          { text: safeT('deviceGuidance.openSettings', 'Open Settings'), onPress: () => void Linking.openSettings() },
+        ],
+      );
+      return;
+    }
     try {
       const urls: string[] = [];
       for (const [key, asset] of entries) {
@@ -217,6 +235,7 @@ export default function QuoteRequestScreen() {
         name: `${entries.length} intraoral photos`,
       });
     } catch (e: any) {
+      if (isLowStorageLikeError(e)) dg?.reportLowStorageLikeError(e, { operation: 'intraoral_batch_upload' });
       Alert.alert(safeT('common.error', 'Error'), e.message || 'Upload failed');
     } finally {
       setUploading(false);
@@ -226,25 +245,49 @@ export default function QuoteRequestScreen() {
   // ── Pick document / x-ray ─────────────────────────────────────────────────
   const pickFile = async () => {
     setAttachMenu(false);
-    const result = await DocumentPicker.getDocumentAsync({
-      type: ['image/*', 'application/pdf'],
-      copyToCacheDirectory: true,
-    });
-    if (result.canceled || !result.assets?.length) return;
-    const asset = result.assets[0];
-    const mime  = asset.mimeType || 'application/octet-stream';
-    const type: 'image' | 'document' = mime.startsWith('image/') ? 'image' : 'document';
-    await doUpload(asset.uri, mime, asset.name || `file_${Date.now()}`, type);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['image/*', 'application/pdf'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      const asset = result.assets[0];
+      const mime  = asset.mimeType || 'application/octet-stream';
+      const type: 'image' | 'document' = mime.startsWith('image/') ? 'image' : 'document';
+      await doUpload(asset.uri, mime, asset.name || `file_${Date.now()}`, type);
+    } catch (e: any) {
+      if (isLowStorageLikeError(e)) dg?.reportLowStorageLikeError(e, { operation: 'document_pick' });
+    }
   };
 
   // ── Common upload + state setter ───────────────────────────────────────────
   const doUpload = async (uri: string, mime: string, name: string, type: 'image' | 'document') => {
     if (!user?.token) return;
+    const mt = mime.toLowerCase();
+    const fn = name.toLowerCase();
+    const isZip = mt.includes('zip') || fn.endsWith('.zip');
+    const prep = await dg?.prepareHeavyFileOp?.({
+      operation: 'attachment_upload',
+      reserveBytes: isZip ? 120 * 1024 * 1024 : 80 * 1024 * 1024,
+    });
+    if (prep && !prep.proceed) {
+      trackEvent('attachment_upload_blocked', { category: 'attachment_', reason: 'proactive_disk' });
+      Alert.alert(
+        safeT('deviceGuidance.lowStorageTitleBlocked', 'Not enough storage'),
+        safeT('deviceGuidance.lowStorageBodyBlocked', 'Free space on your device is too low for this upload.'),
+        [
+          { text: safeT('common.cancel', 'Cancel'), style: 'cancel' },
+          { text: safeT('deviceGuidance.openSettings', 'Open Settings'), onPress: () => void Linking.openSettings() },
+        ],
+      );
+      return;
+    }
     setUploading(true);
     try {
       const url = await uploadFile(uri, mime, name);
       setAttachment({ uri, url, type, name });
     } catch (e: any) {
+      if (isLowStorageLikeError(e)) dg?.reportLowStorageLikeError(e, { operation: 'attachment_upload' });
       Alert.alert(safeT('common.error', 'Error'), e.message || 'Upload failed');
     } finally {
       setUploading(false);
@@ -267,6 +310,14 @@ export default function QuoteRequestScreen() {
         const ext = remote.match(/\.(jpe?g|png|webp)(?:\?|$)/i)?.[1]?.toLowerCase() || 'jpg';
         const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
         const dest = `${FileSystem.cacheDirectory}quote_prefill_${Date.now()}.${ext}`;
+        const prePrep = await dg?.prepareHeavyFileOp?.({
+          operation: 'attachment_download',
+          reserveBytes: 80 * 1024 * 1024,
+        });
+        if (prePrep && !prePrep.proceed) {
+          trackEvent('attachment_download_blocked', { category: 'attachment_', reason: 'proactive_disk' });
+          return;
+        }
         const dl = await FileSystem.downloadAsync(remote, dest);
         if (cancelled) return;
         setUploading(true);
@@ -280,6 +331,7 @@ export default function QuoteRequestScreen() {
           name: safeT('quoteRequest.prefillPhotoName', 'Analysis photo'),
         });
       } catch (e) {
+        if (isLowStorageLikeError(e)) dg?.reportLowStorageLikeError(e, { operation: 'quote_prefill_download' });
         console.warn('[quote-request] prefill from analysis URL failed', e);
       } finally {
         if (!cancelled) setUploading(false);

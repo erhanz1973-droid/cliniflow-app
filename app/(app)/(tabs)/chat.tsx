@@ -19,6 +19,10 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { safeSetItem } from "../../../lib/asyncStorageSafe";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
+import {
+  ensureMediaLibraryAccessForPicker,
+  launchImageLibraryPlayStoreSafe,
+} from "../../../lib/mediaPicker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
@@ -29,6 +33,9 @@ import { playInAppNewMessageSoundDebouncedForThread } from "../../../lib/playInA
 import { getMessageSoundPreference } from "../../../lib/messageSoundPreference";
 import { useRoleBasedAPI } from "../../../lib/role-based-api";
 import { useLanguage } from "../../../lib/language-context";
+import { useDeviceGuidanceOptional } from "../../../lib/deviceGuidanceContext";
+import { isLowStorageLikeError } from "../../../lib/lowStorageError";
+import { trackEvent } from "../../../lib/analytics/trackEvent";
 import { useSelectedChatClinic } from "../../../lib/useSelectedChatClinic";
 import {
   subscribePrimaryChatRealtime,
@@ -127,6 +134,9 @@ export default function ChatScreen() {
     user?.type === "patient" || String(user?.role || "").toUpperCase() === "PATIENT";
   const { fetchWithRole } = useRoleBasedAPI();
   const { t } = useLanguage();
+  const deviceGuidance = useDeviceGuidanceOptional();
+  const reportLowStorage = deviceGuidance?.reportLowStorageLikeError;
+  const prepareHeavyFileOp = deviceGuidance?.prepareHeavyFileOp;
   const params = useLocalSearchParams<{
     patientId?: string;
     clinicId?: string;
@@ -797,19 +807,17 @@ export default function ChatScreen() {
     }
 
     try {
-      // Request permissions
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("İzin Gerekli", "Fotoğraf seçmek için izin gerekiyor.");
+      if (!(await ensureMediaLibraryAccessForPicker({
+        deniedTitle: "İzin Gerekli",
+        deniedMessage: "Fotoğraf seçmek için izin gerekiyor.",
+      }))) {
         return;
       }
 
-      // Pick image with specific formats
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: "images",
+      const result = await launchImageLibraryPlayStoreSafe({
         allowsMultipleSelection: false,
         quality: 0.85,
-        exif: false, // Disable EXIF data
+        exif: false,
       });
 
       if (!result.canceled && result.assets[0]) {
@@ -1243,6 +1251,27 @@ export default function ChatScreen() {
     console.log("[CHAT] Platform:", Platform.OS);
     
     try {
+      const mt = String(mimeType || "").toLowerCase();
+      const fn = String(filename || "").toLowerCase();
+      const isZip = mt.includes("zip") || fn.endsWith(".zip");
+      const reserveBytes = isZip ? 120 * 1024 * 1024 : 80 * 1024 * 1024;
+      const prep = await prepareHeavyFileOp?.({ operation: "attachment_download", reserveBytes });
+      if (prep && !prep.proceed) {
+        trackEvent("attachment_download_blocked", {
+          category: "attachment_",
+          reason: "proactive_disk",
+        });
+        Alert.alert(t("deviceGuidance.lowStorageTitleBlocked"), t("deviceGuidance.lowStorageBodyBlocked"), [
+          { text: t("common.cancel"), style: "cancel" },
+          { text: t("deviceGuidance.openSettings"), onPress: () => void Linking.openSettings() },
+          {
+            text: t("common.retry"),
+            onPress: () => void downloadAndOpenFile(url, filename, mimeType),
+          },
+        ]);
+        return;
+      }
+
       // Ensure URL is absolute and correct
       let finalUrl = url;
       if (!finalUrl.startsWith("http")) {
@@ -1351,6 +1380,7 @@ export default function ChatScreen() {
                 }
               } catch (e: any) {
                 console.error("[CHAT] Sharing error:", e);
+                if (isLowStorageLikeError(e)) reportLowStorage?.(e, { operation: "attachment_download" });
                 Alert.alert(t("common.info"), `${t("chat.fileDownloadSuccess")}\n${t("common.sharingFailed")}`);
               }
             },
@@ -1358,6 +1388,11 @@ export default function ChatScreen() {
         ]
       );
     } catch (error: any) {
+      if (isLowStorageLikeError(error)) reportLowStorage?.(error, { operation: "attachment_download" });
+      trackEvent("attachment_download_failed", {
+        category: "attachment_",
+        storage_related: isLowStorageLikeError(error),
+      });
       console.error("[CHAT] ===== Download error =====");
       console.error("[CHAT] Error type:", error?.name);
       console.error("[CHAT] Error message:", error?.message);
@@ -1396,28 +1431,38 @@ export default function ChatScreen() {
       console.error("[CHAT] Full error object:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
       
       // Show error with retry options
+      const buttons: {
+        text: string;
+        style?: "cancel" | "default" | "destructive";
+        onPress?: () => void | Promise<void>;
+      }[] = [
+        { text: t("common.cancel"), style: "cancel" },
+        {
+          text: t("common.retry"),
+          onPress: async () => {
+            try {
+              console.log("[CHAT] Retrying download...");
+              await downloadAndOpenFile(url, filename, mimeType);
+            } catch (retryError: any) {
+              console.error("[CHAT] Retry failed:", retryError);
+              Alert.alert(t("common.error"), `${t("common.retryFailed")}: ${retryError?.message || t("common.unknownError")}`);
+            }
+          },
+        },
+      ];
+      if (isLowStorageLikeError(error)) {
+        buttons.push({
+          text: t("deviceGuidance.openSettings"),
+          onPress: () => void Linking.openSettings(),
+        });
+      }
       Alert.alert(
         t("chat.fileDownloadFailed"),
         `${userFriendlyMessage}\n\n${t("common.file")}: ${filename}\n\n${t("common.pleaseRetry")}`,
-        [
-          { text: t("common.cancel"), style: "cancel" },
-          {
-            text: t("common.retry"),
-            onPress: async () => {
-              // Retry the download
-              try {
-                console.log("[CHAT] Retrying download...");
-                await downloadAndOpenFile(url, filename, mimeType);
-              } catch (retryError: any) {
-                console.error("[CHAT] Retry failed:", retryError);
-                Alert.alert(t("common.error"), `${t("common.retryFailed")}: ${retryError?.message || t("common.unknownError")}`);
-              }
-            },
-          },
-        ]
+        buttons
       );
     }
-  }, [t]);
+  }, [t, reportLowStorage, prepareHeavyFileOp]);
 
   const renderChatMessageBubble = useCallback((message: ChatMessage) => {
     const isPatient = message.from === "PATIENT" || message.from === "patient";

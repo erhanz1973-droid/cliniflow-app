@@ -67,6 +67,29 @@ export const translations: Record<Language, Record<string, string>> = {
     "common.noPatients": "Hasta bulunamadı",
     "common.noPatientsSub": "Atanmış hastanız bulunmuyor.",
 
+    "deviceGuidance.notificationsTitle": "Bildirimler ve ses",
+    "deviceGuidance.notificationsBody":
+      "Klinik mesajlarını ve güncellemelerini anında almak için bildirimleri, sesleri ve rozetleri açın.",
+    "deviceGuidance.notificationsBulletAlerts": "Bildirimlere izin verin",
+    "deviceGuidance.notificationsBulletSound": "Sesler",
+    "deviceGuidance.notificationsBulletBadge": "Rozetler",
+    "deviceGuidance.openSettings": "Ayarları aç",
+    "deviceGuidance.dismiss": "Kapat",
+    "deviceGuidance.notificationsIosPath": "iOS: Ayarlar → Bildirimler → Clinifly",
+    "deviceGuidance.lowStorageTitle": "Depolama dolu veya dolmak üzere",
+    "deviceGuidance.lowStorageBody":
+      "Cihazınızdaki boş alan çok az. Dosya indirme, yükleme veya paylaşma başarısız olabilir.",
+    "deviceGuidance.lowStorageHintIOS": "Yer açmak için: Ayarlar → Genel → iPhone Sakın Alanı",
+    "deviceGuidance.lowStorageHintAndroid": "Yer açmak için: Ayarlar → Depolama (veya Uygulamalar → bu uygulama → Önbelleği temizle)",
+    "deviceGuidance.lowStorageTitleWarning": "Depolama alanı azalıyor",
+    "deviceGuidance.lowStorageBodyWarning":
+      "Yakında yer kalmayabilir. Büyük dosya indirme veya yükleme sorun çıkarabilir; yer açmanız önerilir.",
+    "deviceGuidance.lowStorageTitleBlocked": "Yetersiz depolama",
+    "deviceGuidance.lowStorageBodyBlocked":
+      "Bu işlem için yeterli boş alan yok. Yer açıp tekrar deneyin veya daha küçük bir dosya kullanın.",
+    "deviceGuidance.notificationsAndroidPath":
+      "Android: Ayarlar → Bildirimler → Clinifly (pil / arka plan kısıtlarını da kontrol edin)",
+
     // Auth labels (native login — use with visible labels, not placeholders)
     "auth.phone": "Telefon",
     "auth.phone_or_email": "Telefon numarası",
@@ -1070,6 +1093,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.referralCodeHint": "Sizi davet eden biri varsa, paylaştıkları kodu girin. Bu kod yalnızca kayıt sırasında kullanılabilir. Merak etmeyin — siz de başkalarını davet edebilir ve indirimlerden yararlanabilirsiniz.",
     "register.invalidReferralCode": "Geçersiz referans kodu.",
     "register.patientSubmit": "Hasta Olarak Kayıt Ol",
+    "register.oauthCompleteBannerTitle": "Hesabınız doğrulandı — profili tamamlayın",
+    "register.oauthCompleteBannerHint":
+      "Google veya Apple ile giriş yaptınız; Clinifly hasta kaydınız henüz yok. Aşağıdaki bilgileri doldurarak kaydı tamamlayın (klinik kodunuz varsa girin).",
+    "register.oauthDivider": "veya",
+    "register.emailOauthMismatch":
+      "Kayıt e-postası, Apple/Google hesabınızdaki e-posta ile aynı olmalıdır (Hide My Email kullandıysanız relay adresini aynen girin).",
     "register.isDoctor": "Doktor mu kayıt olacaksınız?",
     "otp.title": "Email Doğrulama",
     "otp.sentTo": "{email} adresine gönderilen 6 haneli kodu girin.",
@@ -1555,6 +1584,29 @@ export const translations: Record<Language, Record<string, string>> = {
     "common.noDiagnosesSub": "No saved diagnoses found for this patient.",
     "common.noPatients": "No patients found",
     "common.noPatientsSub": "You have no assigned patients.",
+
+    "deviceGuidance.notificationsTitle": "Notifications & sound",
+    "deviceGuidance.notificationsBody":
+      "Enable notifications and sounds to instantly receive clinic messages and updates.",
+    "deviceGuidance.notificationsBulletAlerts": "Allow Notifications",
+    "deviceGuidance.notificationsBulletSound": "Sounds",
+    "deviceGuidance.notificationsBulletBadge": "Badges",
+    "deviceGuidance.openSettings": "Open Settings",
+    "deviceGuidance.dismiss": "Dismiss",
+    "deviceGuidance.notificationsIosPath": "iOS: Settings → Notifications → Clinifly",
+    "deviceGuidance.lowStorageTitle": "Storage almost full",
+    "deviceGuidance.lowStorageBody":
+      "Your device storage is almost full. File uploads and downloads may not work correctly until space is available.",
+    "deviceGuidance.lowStorageHintIOS": "Free space: Settings → General → iPhone Storage",
+    "deviceGuidance.lowStorageHintAndroid": "Free space: Settings → Storage (or Apps → this app → clear cache)",
+    "deviceGuidance.lowStorageTitleWarning": "Running low on storage",
+    "deviceGuidance.lowStorageBodyWarning":
+      "Free space is getting low. Large downloads or uploads may fail — we recommend freeing space first.",
+    "deviceGuidance.lowStorageTitleBlocked": "Not enough storage",
+    "deviceGuidance.lowStorageBodyBlocked":
+      "There is not enough free space to start this operation. Free space, then retry, or use a smaller file.",
+    "deviceGuidance.notificationsAndroidPath":
+      "Android: Settings → Notifications → Clinifly (also check battery and background restrictions)",
 
     // Auth labels (native login — use with visible labels, not placeholders)
     "auth.phone": "Phone",
@@ -2570,6 +2622,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.referralCodeHint": "If someone invited you, enter the code they shared with you. This code can only be entered during registration. Don't worry — you can still invite others and enjoy discounts.",
     "register.invalidReferralCode": "Invalid referral code.",
     "register.patientSubmit": "Register as Patient",
+    "register.oauthCompleteBannerTitle": "You're signed in — complete your Clinifly profile",
+    "register.oauthCompleteBannerHint":
+      "Your Google or Apple account is verified, but no Clinifly patient record is linked yet. Fill in the details below to finish registration (add your clinic code if you have one).",
+    "register.oauthDivider": "or",
+    "register.emailOauthMismatch":
+      "Your registration email must match the email on your Apple/Google account (if you used Hide My Email, enter the same relay address).",
     "register.isDoctor": "Are you a doctor?",
     "otp.title": "Email Verification",
     "otp.sentTo": "Enter the 6-digit code sent to {email}.",
@@ -3059,6 +3117,27 @@ export const translations: Record<Language, Record<string, string>> = {
     "common.noDiagnosesSub": "ამ პაციენტისთვის შენახული დიაგნოზები ვერ მოიძებნა.",
     "common.noPatients": "პაციენტები ვერ მოიძებნა",
     "common.noPatientsSub": "თქვენ არ გყავთ მინიჭებული პაციენტები.",
+
+    "deviceGuidance.notificationsTitle": "შეტყობინებები და ხმა",
+    "deviceGuidance.notificationsBody":
+      "კლინიკის შეტყობინებებისა და განახლებებისთვის ჩართეთ შეტყობინებები, ხმა და ბეჯები.",
+    "deviceGuidance.notificationsBulletAlerts": "შეტყობინებების დაშვება",
+    "deviceGuidance.notificationsBulletSound": "ხმები",
+    "deviceGuidance.notificationsBulletBadge": "ბეჯები",
+    "deviceGuidance.openSettings": "პარამეტრების გახსნა",
+    "deviceGuidance.dismiss": "დახურვა",
+    "deviceGuidance.notificationsIosPath": "iOS: პარამეტრები → შეტყობინებები → Clinifly",
+    "deviceGuidance.lowStorageTitle": "მეხსიერება თითქმის სავსეა",
+    "deviceGuidance.lowStorageBody":
+      "მოწყობილობაში თავისუფალი ადგილი ძალიან ცოტაა. ფაილის ჩამოტვირთვა/ატვირთვა შეიძლება ვერ მუშაობდეს.",
+    "deviceGuidance.lowStorageHintIOS": "ადგილის გასათავისუფლებლად: პარამეტრები → ზოგადი → iPhone-ის საცავი",
+    "deviceGuidance.lowStorageHintAndroid": "ადგილის გასათავისუფლებლად: პარამეტრები → საცავი (ან აპები → ეს აპი → ქეშის გასუფთავება)",
+    "deviceGuidance.lowStorageTitleWarning": "მეხსიერება იწურება",
+    "deviceGuidance.lowStorageBodyWarning": "თავისუფალი ადგილი ცოტაა. დიდი ფაილის ჩამოტვირთვა/ატვირთვა შეიძლება ვერ მოხერხდეს.",
+    "deviceGuidance.lowStorageTitleBlocked": "არასაკმარისი მეხსიერება",
+    "deviceGuidance.lowStorageBodyBlocked": "ამ ოპერაციისთვის ადგილი საკმარისი არაა. გაათავისუფლეთ ადგილი და სცადეთ თავიდან.",
+    "deviceGuidance.notificationsAndroidPath":
+      "Android: პარამეტრები → შეტყობინებები → Clinifly (ასევე შეამოწმეთ ბატარეა/ფონი)",
 
     // Auth labels (native login)
     "auth.phone": "ტელეფონი",
@@ -3825,6 +3904,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.referralCodeHint": "თუ ვინმეს მოგიწვიათ, შეიყვანეთ მათ მიერ გაზიარებული კოდი. ეს კოდი მხოლოდ რეგისტრაციისას შეიძლება გამოიყენოთ. ნუ ინერვიულებთ — თქვენც შეგიძლიათ სხვების მოწვევა და ფასდაკლებების მიღება.",
     "register.invalidReferralCode": "რეფერალის კოდი არასწორია.",
     "register.patientSubmit": "პაციენტად რეგისტრაცია",
+    "register.oauthCompleteBannerTitle": "ანგარიში დადასტურებულია — დაასრულეთ პროფილი",
+    "register.oauthCompleteBannerHint":
+      "Google ან Apple-ით შეხვედით; Clinifly პაციენტის ჩანაწერი ჯერ არ არის. შეავსეთ ველები რეგისტრაციის დასასრულებლად (კლინიკის კოდი თუ გაქვთ).",
+    "register.oauthDivider": "ან",
+    "register.emailOauthMismatch":
+      "რეგისტრაციის ელ-ფოსტა უნდა ემთხვეოდეს Apple/Google ანგარიშის ელ-ფოსტას.",
     "register.isDoctor": "ექიმი ხართ?",
     "otp.title": "ელ-ფოსტის დადასტურება",
     "otp.sentTo": "{email}-ზე გაგზავნილი 6-ნიშნა კოდი შეიყვანეთ.",
@@ -4539,6 +4624,29 @@ export const translations: Record<Language, Record<string, string>> = {
     "common.noDiagnosesSub": "Для этого пациента не найдено сохранённых диагнозов.",
     "common.noPatients": "Пациенты не найдены",
     "common.noPatientsSub": "У вас нет назначенных пациентов.",
+
+    "deviceGuidance.notificationsTitle": "Уведомления и звук",
+    "deviceGuidance.notificationsBody":
+      "Включите уведомления и звуки, чтобы сразу получать сообщения клиники и обновления.",
+    "deviceGuidance.notificationsBulletAlerts": "Разрешить уведомления",
+    "deviceGuidance.notificationsBulletSound": "Звуки",
+    "deviceGuidance.notificationsBulletBadge": "Значки",
+    "deviceGuidance.openSettings": "Открыть настройки",
+    "deviceGuidance.dismiss": "Скрыть",
+    "deviceGuidance.notificationsIosPath": "iOS: Настройки → Уведомления → Clinifly",
+    "deviceGuidance.lowStorageTitle": "Память почти заполнена",
+    "deviceGuidance.lowStorageBody":
+      "На устройстве почти нет свободного места. Загрузка и скачивание файлов могут не работать.",
+    "deviceGuidance.lowStorageHintIOS": "Освободить место: Настройки → Основные → Хранилище iPhone",
+    "deviceGuidance.lowStorageHintAndroid": "Освободить место: Настройки → Память (или Приложения → это приложение → очистить кэш)",
+    "deviceGuidance.lowStorageTitleWarning": "Мало места",
+    "deviceGuidance.lowStorageBodyWarning":
+      "Свободного места мало. Большие загрузки или выгрузки могут не сработать — освободите память.",
+    "deviceGuidance.lowStorageTitleBlocked": "Недостаточно памяти",
+    "deviceGuidance.lowStorageBodyBlocked":
+      "Недостаточно свободного места для этой операции. Освободите память и повторите или выберите меньший файл.",
+    "deviceGuidance.notificationsAndroidPath":
+      "Android: Настройки → Уведомления → Clinifly (проверьте энергосбережение и фон)",
 
     // Auth labels (native login)
     "auth.phone": "Телефон",

@@ -2,6 +2,7 @@ import { Slot } from "expo-router";
 import { memo } from "react";
 import { LanguageProvider } from "../../lib/language-context";
 import { AuthProvider } from "../../lib/auth";
+import { DeviceGuidanceProvider } from "../../lib/deviceGuidanceContext";
 import { ClinicBootstrap } from "../../components/ClinicBootstrap";
 
 const AppOutlet = memo(function AppOutlet() {
@@ -13,8 +14,10 @@ export default function AppShellLayout() {
   return (
     <LanguageProvider>
       <AuthProvider>
-        <ClinicBootstrap />
-        <AppOutlet />
+        <DeviceGuidanceProvider>
+          <ClinicBootstrap />
+          <AppOutlet />
+        </DeviceGuidanceProvider>
       </AuthProvider>
     </LanguageProvider>
   );

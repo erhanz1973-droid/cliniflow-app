@@ -20,6 +20,11 @@ import {
   type ListRenderItemInfo,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import {
+  ensureCameraAccess,
+  ensureMediaLibraryAccessForPicker,
+  launchImageLibraryPlayStoreSafe,
+} from "../../../lib/mediaPicker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as DocumentPicker from "expo-document-picker";
 import { safeGetItem, safeRemoveItem, safeSetItem } from "../../../lib/asyncStorageSafe";
@@ -29,6 +34,9 @@ import { onIntraoralPhotoReady } from "../../../lib/photoCallbacks";
 import { useDateLocale } from "../../../lib/date-locale";
 import { useUnreadMessages } from "../../../lib/useUnreadMessages";
 import { useLanguage } from "../../../lib/language-context";
+import { useDeviceGuidanceOptional } from "../../../lib/deviceGuidanceContext";
+import { isLowStorageLikeError } from "../../../lib/lowStorageError";
+import { trackEvent } from "../../../lib/analytics/trackEvent";
 import { useSelectedChatClinic } from "../../../lib/useSelectedChatClinic";
 import { runSmileSimulationWithImageUrl } from "../../../lib/smileSimulation";
 import { QUOTE_REQUEST_PREFILL_IMAGE_KEY } from "../../../lib/quotePrefill";
@@ -269,6 +277,7 @@ function socketLegacyToPatientMessage(raw: Record<string, unknown>): Message | n
 export default function MessagesScreen() {
   const { user } = useAuth();
   const { t, currentLanguage } = useLanguage();
+  const deviceGuidance = useDeviceGuidanceOptional();
   const locale = useDateLocale();
   const router = useRouter();
   const navigation = useNavigation();
@@ -868,9 +877,11 @@ export default function MessagesScreen() {
   ): Promise<string | null> => {
     // ── Pre-flight: read file size ───────────────────────────────────
     let sizeKB = 0;
+    let fileSizeBytes = 0;
     try {
       const info = await FileSystem.getInfoAsync(uri, { size: true } as Parameters<typeof FileSystem.getInfoAsync>[1]);
       const size = info.exists && "size" in info ? (info as any).size as number : 0;
+      fileSizeBytes = typeof size === "number" ? size : 0;
       sizeKB = Math.round(size / 1024);
       if (size === 0) {
         console.error("[UPLOAD ERROR] File is 0 bytes, aborting upload:", uri);
@@ -889,6 +900,26 @@ export default function MessagesScreen() {
     }
     if (!selectedClinic?.id?.trim()) {
       Alert.alert(t("common.error"), t("messages.chatRequiresClinic"));
+      return null;
+    }
+
+    const mt = mimeType.toLowerCase();
+    const fn = name.toLowerCase();
+    const isZip = mt.includes("zip") || fn.endsWith(".zip");
+    const reserveBytes =
+      fileSizeBytes > 0
+        ? Math.min(Math.ceil(fileSizeBytes * 1.25), 200 * 1024 * 1024)
+        : isZip
+          ? 120 * 1024 * 1024
+          : 80 * 1024 * 1024;
+    const prep = await deviceGuidance?.prepareHeavyFileOp?.({ operation: "attachment_upload", reserveBytes });
+    if (prep && !prep.proceed) {
+      trackEvent("attachment_upload_blocked", { category: "attachment_", reason: "proactive_disk" });
+      Alert.alert(t("deviceGuidance.lowStorageTitleBlocked"), t("deviceGuidance.lowStorageBodyBlocked"), [
+        { text: t("common.cancel"), style: "cancel" },
+        { text: t("deviceGuidance.openSettings"), onPress: () => void Linking.openSettings() },
+        { text: t("common.retry") ?? "Retry", onPress: () => void uploadFile(uri, name, mimeType) },
+      ]);
       return null;
     }
 
@@ -925,6 +956,10 @@ export default function MessagesScreen() {
       try { json = JSON.parse(rawText); } catch { /* non-JSON response already logged */ }
 
       if (!res.ok) {
+        trackEvent("attachment_upload_failed", {
+          category: "attachment_",
+          http_status: res.status,
+        });
         Alert.alert(t("chat.uploadError"), json.message || json.error || t("messages.uploadFailed"), [
           { text: t("common.cancel"), style: "cancel" },
           { text: t("common.retry") ?? "Retry", onPress: () => uploadFile(uri, name, mimeType) },
@@ -934,11 +969,23 @@ export default function MessagesScreen() {
       return json.files?.[0]?.url ?? null;
     } catch (uploadErr) {
       const err = uploadErr as Error;
+      if (isLowStorageLikeError(err)) deviceGuidance?.reportLowStorageLikeError(err, { operation: "attachment_upload" });
+      trackEvent("attachment_upload_failed", {
+        category: "attachment_",
+        storage_related: isLowStorageLikeError(err),
+      });
       console.error("[UPLOAD ERROR FULL]:", { message: err?.message, stack: err?.stack });
-      Alert.alert(t("common.error"), t("messages.uploadFailed"), [
+      const buttons: Parameters<typeof Alert.alert>[2] = [
         { text: t("common.cancel"), style: "cancel" },
-        { text: t("common.retry") ?? "Retry", onPress: () => uploadFile(uri, name, mimeType) },
-      ]);
+        { text: t("common.retry") ?? "Retry", onPress: () => void uploadFile(uri, name, mimeType) },
+      ];
+      if (isLowStorageLikeError(err)) {
+        buttons.push({
+          text: t("deviceGuidance.openSettings"),
+          onPress: () => void Linking.openSettings(),
+        });
+      }
+      Alert.alert(t("common.error"), t("messages.uploadFailed"), buttons);
       return null;
     } finally { setUploading(false); }
   };
@@ -1087,14 +1134,13 @@ export default function MessagesScreen() {
   const pickImage = async () => {
     if (!await checkUploadConsent()) return;
     try {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert(t("messages.permissionRequired"), t("messages.galleryPermission"));
+    if (!(await ensureMediaLibraryAccessForPicker({
+      deniedTitle: t("messages.permissionRequired"),
+      deniedMessage: t("messages.galleryPermission"),
+    }))) {
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      // Android: multi-select can fail to open on some OS versions; iOS keeps multi
+    const result = await launchImageLibraryPlayStoreSafe({
       allowsMultipleSelection: Platform.OS === "ios",
       selectionLimit: Platform.OS === "ios" ? 5 : 1,
     });
@@ -1126,9 +1172,10 @@ export default function MessagesScreen() {
   const capturePhotoForAI = async () => {
     if (!await checkUploadConsent()) return;
     try {
-    const camPerm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!camPerm.granted) {
-      Alert.alert(t("messages.permissionRequired"), t("messages.cameraPermission") || "Kamera erişimine izin verin.");
+    if (!(await ensureCameraAccess({
+      deniedTitle: t("messages.permissionRequired"),
+      deniedMessage: t("messages.cameraPermission") || "Kamera erişimine izin verin.",
+    }))) {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
@@ -1152,13 +1199,18 @@ export default function MessagesScreen() {
 
   const pickDocument = async () => {
     if (!await checkUploadConsent()) return;
-    const result = await DocumentPicker.getDocumentAsync({
-      type: ["application/pdf", "image/*"],
-      copyToCacheDirectory: true,
-    });
-    if (!result.canceled && result.assets[0]) {
-      const a = result.assets[0];
-      await uploadFile(a.uri, a.name, a.mimeType || "application/octet-stream");
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["application/pdf", "image/*"],
+        copyToCacheDirectory: true,
+      });
+      if (!result.canceled && result.assets[0]) {
+        const a = result.assets[0];
+        await uploadFile(a.uri, a.name, a.mimeType || "application/octet-stream");
+      }
+    } catch (e) {
+      if (isLowStorageLikeError(e)) deviceGuidance?.reportLowStorageLikeError(e, { operation: "document_pick" });
+      console.warn("[pickDocument]", (e as Error)?.message);
     }
   };
 
@@ -1238,12 +1290,12 @@ export default function MessagesScreen() {
 
   const captureIntraoralStep = async () => {
     if (!await checkUploadConsent()) return;
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(t("messages.permissionRequired"), t("messages.cameraPermission"));
+    if (!(await ensureCameraAccess({
+      deniedTitle: t("messages.permissionRequired"),
+      deniedMessage: t("messages.cameraPermission"),
+    }))) {
       return;
     }
-    // No quality param — compressImage() runs at upload time in submitIntraoralPhotos
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"] });
     if (!result.canceled && result.assets[0]) {
       const key = PHOTO_STEP_KEYS[intraoralStep]?.key;
