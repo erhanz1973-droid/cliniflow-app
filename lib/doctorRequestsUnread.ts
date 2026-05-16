@@ -11,6 +11,20 @@ export function rowOfferId(row: DoctorRequestRow): string {
   return String(row.my_offer_id || row.my_offer?.id || "").trim();
 }
 
+/** Merge server per-offer unread map into list rows (does not touch resource cache). */
+export function mergeUnreadMapIntoRows(
+  rows: DoctorRequestRow[],
+  byOffer: Record<string, number>,
+): DoctorRequestRow[] {
+  if (!rows.length || !byOffer || typeof byOffer !== "object") return rows;
+  return rows.map((row) => {
+    const oid = rowOfferId(row);
+    if (!oid || !(oid in byOffer)) return row;
+    if (isEnrolledSharedCareRow(row)) return { ...row, unread_count: 0 };
+    return { ...row, unread_count: Math.max(0, Number(byOffer[oid]) || 0) };
+  });
+}
+
 function isEnrolledSharedCareRow(row: DoctorRequestRow): boolean {
   return row.lead_thread_is_lead === false;
 }
@@ -67,14 +81,7 @@ export function applyDoctorRequestUnreadMap(
   byOffer: Record<string, number>,
 ): DoctorRequestRow[] | null {
   if (!byOffer || typeof byOffer !== "object") return null;
-  return patchCachedRequests((rows) =>
-    rows.map((row) => {
-      const oid = rowOfferId(row);
-      if (!oid || !(oid in byOffer)) return row;
-      if (isEnrolledSharedCareRow(row)) return { ...row, unread_count: 0 };
-      return { ...row, unread_count: Math.max(0, Number(byOffer[oid]) || 0) };
-    }),
-  );
+  return patchCachedRequests((rows) => mergeUnreadMapIntoRows(rows, byOffer));
 }
 
 /** Unread / recent activity first — within same tier, newest request first. */
@@ -125,13 +132,21 @@ export async function fetchDoctorOfferUnreadMap(token: string): Promise<Record<s
   return offerUnreadMapInflight;
 }
 
-export async function syncDoctorRequestUnreadFromServer(token: string): Promise<DoctorRequestRow[] | null> {
+export async function syncDoctorRequestUnreadFromServer(
+  token: string,
+  currentRows?: DoctorRequestRow[] | null,
+): Promise<DoctorRequestRow[] | null> {
   const map = await fetchDoctorOfferUnreadMap(token);
-  const next = applyDoctorRequestUnreadMap(map);
-  if (next) {
-    emitOfferUnreadEvent({ type: "offer_realtime_update", recipient: "doctor" });
+  const base =
+    currentRows?.length
+      ? currentRows
+      : peekCachedResource<DoctorRequestRow[]>(DOCTOR_REQUESTS_LIST_CACHE_KEY);
+  if (base?.length) {
+    const merged = sortDoctorRequestsForInbox(mergeUnreadMapIntoRows(base, map));
+    setCachedResource(DOCTOR_REQUESTS_LIST_CACHE_KEY, merged);
+    return merged;
   }
-  return next;
+  return applyDoctorRequestUnreadMap(map);
 }
 
 /** Patient message on offer thread — patch list unless doctor is already in that offer chat. */
@@ -147,9 +162,12 @@ export function notifyDoctorOfferInboundMessage(
   if (opts?.skipIfOfferChatOpen && active && active === oid) return;
 
   const next = bumpDoctorRequestUnreadByOfferId(oid, 1);
-  if (!next) return;
   invalidateDoctorUnreadCacheOnly();
-  emitOfferUnreadEvent({ type: "offer_realtime_update", offerId: oid, recipient: "doctor" });
+  if (next) {
+    emitOfferUnreadEvent({ type: "offer_realtime_update", offerId: oid, recipient: "doctor" });
+  } else {
+    emitOfferUnreadEvent({ type: "offer_activity", offerId: oid, recipient: "doctor" });
+  }
 }
 
 /** Read patched cache for UI refresh (bump/clear happens before emit). */

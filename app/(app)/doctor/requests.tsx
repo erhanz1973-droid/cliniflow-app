@@ -31,7 +31,9 @@ import {
 import { subscribeOfferUnreadEvents } from '../../../lib/offerUnreadEvents';
 import {
   clearDoctorRequestUnreadByOfferId,
+  fetchDoctorOfferUnreadMap,
   handleDoctorOfferUnreadEvent,
+  mergeUnreadMapIntoRows,
   sortDoctorRequestsForInbox,
   syncDoctorRequestUnreadFromServer,
 } from '../../../lib/doctorRequestsUnread';
@@ -496,7 +498,8 @@ const RequestCard = memo(function RequestCard({
         ? [{ url: fallbackPhotoUrl, type: 'image' }]
         : [];
 
-  const hasUnread = !enrolledShared && hasMyOffer && (req.unread_count ?? 0) > 0;
+  const unreadN = Math.max(0, Number(req.unread_count) || 0);
+  const hasUnread = !enrolledShared && hasMyOffer && unreadN > 0;
 
   return (
     <View style={[
@@ -532,9 +535,9 @@ const RequestCard = memo(function RequestCard({
                 {t('doctor.inbox.enrolledStatusLine')}
               </Text>
             </View>
-          ) : req.unread_count > 0 ? (
+          ) : unreadN > 0 ? (
             <View style={cs.unreadBadge}>
-              <Text style={cs.unreadBadgeText}>{req.unread_count > 99 ? '99+' : req.unread_count}</Text>
+              <Text style={cs.unreadBadgeText}>{unreadN > 99 ? '99+' : unreadN}</Text>
             </View>
           ) : (
             <View style={[cs.statusDot, isPending ? cs.statusDotPending : cs.statusDotAnswered]} />
@@ -590,6 +593,15 @@ const RequestCard = memo(function RequestCard({
 
       {/* Metadata chips */}
       <View style={cs.metaRow}>
+        {hasUnread && (
+          <View style={cs.metaChipUnread}>
+            <Text style={cs.metaChipUnreadText}>
+              {t('requests.card.newMessageChip') !== 'requests.card.newMessageChip'
+                ? t('requests.card.newMessageChip').replace('{n}', String(unreadN))
+                : `💬 ${unreadN} new message${unreadN === 1 ? '' : 's'}`}
+            </Text>
+          </View>
+        )}
         {req.preferred_treatment && (
           <View style={cs.metaChip}>
             <Text style={cs.metaChipText}>🦷 {t(`treatmentPlan.proc.${req.preferred_treatment}`) || req.preferred_treatment}</Text>
@@ -682,7 +694,7 @@ const RequestCard = memo(function RequestCard({
         isChatsFilter ? (
           <>
             <TouchableOpacity
-              style={[cs.chatBtnFull, req.unread_count > 0 && cs.chatBtnFullUnread]}
+              style={[cs.chatBtnFull, unreadN > 0 && cs.chatBtnFullUnread]}
               onPress={() => onLeadOfferChat(req.my_offer_id, req)}
               disabled={startingChat}
               activeOpacity={0.85}
@@ -691,7 +703,7 @@ const RequestCard = memo(function RequestCard({
                 💬 {t('requests.card.startMessaging') !== 'requests.card.startMessaging'
                   ? t('requests.card.startMessaging')
                   : (t('requests.card.openChat') || 'Open Conversation')}
-                {req.unread_count > 0 ? `  •  ${req.unread_count} ${t('requests.card.newMessages') || 'new'}` : ''}
+                {unreadN > 0 ? `  •  ${unreadN} ${t('requests.card.newMessages') || 'new'}` : ''}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity style={cs.offerDetailLink} onPress={() => setOfferDetailOpen(true)} activeOpacity={0.75}>
@@ -718,7 +730,7 @@ const RequestCard = memo(function RequestCard({
                 {t('requests.card.startMessaging') !== 'requests.card.startMessaging'
                   ? `💬 ${t('requests.card.startMessaging')}`
                   : (t('requests.card.messages') || '💬 Messages')}
-                {hasUnread ? ` (${req.unread_count > 99 ? '99+' : req.unread_count})` : ''}
+                {hasUnread ? ` (${unreadN > 99 ? '99+' : unreadN})` : ''}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity style={cs.resendBtn} onPress={openFull}>
@@ -770,6 +782,8 @@ export default function DoctorRequestsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterKey>('all');
   const [startingChatRequestId, setStartingChatRequestId] = useState<string | null>(null);
+  const requestsRef = useRef(requests);
+  requestsRef.current = requests;
 
   const markFirstPaint = useCallback((source: string) => {
     if (firstPaintMarkedRef.current) return;
@@ -791,9 +805,11 @@ export default function DoctorRequestsScreen() {
         });
         const data = await res.json();
         if (!data?.ok) throw new Error(data?.error || 'error');
-        const rows = sortDoctorRequestsForInbox(
-          normalizeDoctorRequests(Array.isArray(data.requests) ? data.requests : []),
+        const normalized = normalizeDoctorRequests(
+          Array.isArray(data.requests) ? data.requests : [],
         );
+        const byOffer = await fetchDoctorOfferUnreadMap(token);
+        const rows = sortDoctorRequestsForInbox(mergeUnreadMapIntoRows(normalized, byOffer));
 
         const applyRows = (next: DoctorRequestRow[]) => {
           setRequests(sortDoctorRequestsForInbox(next));
@@ -843,27 +859,30 @@ export default function DoctorRequestsScreen() {
     { enabled: !!token, minIntervalMs: 55_000 }
   );
 
+  const applyUnreadSync = useCallback(
+    (next: DoctorRequestRow[] | null) => {
+      if (next) setRequests(next);
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!token) return;
     return subscribeOfferUnreadEvents((ev) => {
       if (ev.recipient !== "doctor") return;
-      if (ev.type === "offer_activity") {
-        void syncDoctorRequestUnreadFromServer(token).then((next) => {
-          if (next?.length) setRequests(next);
-        });
+      if (ev.type === "offer_activity" || ev.type === "offer_realtime_update") {
+        void syncDoctorRequestUnreadFromServer(token, requestsRef.current).then(applyUnreadSync);
         return;
       }
       const next = handleDoctorOfferUnreadEvent(ev);
-      if (next?.length) setRequests(next);
+      if (next) applyUnreadSync(next);
     });
-  }, [token]);
+  }, [token, applyUnreadSync]);
 
   useEffect(() => {
     if (!token) return;
-    void syncDoctorRequestUnreadFromServer(token).then((next) => {
-      if (next?.length) setRequests(next);
-    });
-  }, [token]);
+    void syncDoctorRequestUnreadFromServer(token, requestsRef.current).then(applyUnreadSync);
+  }, [token, applyUnreadSync]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -1191,6 +1210,15 @@ const cs = StyleSheet.create({
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
   metaChip: { backgroundColor: '#F3F4F6', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   metaChipGray: { backgroundColor: '#E5E7EB' },
+  metaChipUnread: {
+    backgroundColor: '#FEE2E2',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+  },
+  metaChipUnreadText: { fontSize: 11, color: '#B91C1C', fontWeight: '800' },
   metaChipText: { fontSize: 11, color: '#374151', fontWeight: '500' },
 
   quickRow: { flexDirection: 'row', gap: 6 },
