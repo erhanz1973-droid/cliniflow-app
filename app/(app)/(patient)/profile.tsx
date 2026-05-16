@@ -4,6 +4,12 @@ import {
   Alert, Image, ActivityIndicator, Platform, Modal, Linking, TextInput, Switch,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import {
+  ensureCameraAccess,
+  ensureMediaLibraryAccessForPicker,
+  launchImageLibraryPlayStoreSafe,
+  PLAY_STORE_IMAGE_LIBRARY_OPTIONS,
+} from "../../../lib/mediaPicker";
 import { useAuth } from "../../../lib/auth";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { API_BASE } from "../../../lib/api";
@@ -44,7 +50,7 @@ function toDisplayPhotoUrl(pathOrUrl: string | null | undefined): string | null 
 }
 
 const pickerImageOptions: ImagePicker.ImagePickerOptions = {
-  mediaTypes: ["images"],
+  ...PLAY_STORE_IMAGE_LIBRARY_OPTIONS,
   allowsEditing: true,
   aspect: [1, 1],
   quality: 0.85,
@@ -220,20 +226,22 @@ export default function ProfileScreen() {
   };
 
   const openGallery = async () => {
-    const { status: permStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (permStatus !== "granted") {
-      Alert.alert(t("profile.permissionRequired"), t("profile.galleryPermission"));
+    if (!(await ensureMediaLibraryAccessForPicker({
+      deniedTitle: t("profile.permissionRequired"),
+      deniedMessage: t("profile.galleryPermission"),
+    }))) {
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync(pickerImageOptions);
+    const result = await launchImageLibraryPlayStoreSafe(pickerImageOptions);
     if (result.canceled || !result.assets?.[0]) return;
     await runPicker(result.assets[0]);
   };
 
   const openCamera = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(t("profile.permissionRequired"), t("profile.cameraPermission"));
+    if (!(await ensureCameraAccess({
+      deniedTitle: t("profile.permissionRequired"),
+      deniedMessage: t("profile.cameraPermission"),
+    }))) {
       return;
     }
     const result = await ImagePicker.launchCameraAsync(pickerImageOptions);

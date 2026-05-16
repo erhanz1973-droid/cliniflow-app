@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, Image, Alert, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import {
+  ensureMediaLibraryAccessForPicker,
+  launchImageLibraryPlayStoreSafe,
+} from '../../lib/mediaPicker';
 import { useAuth } from '../../lib/auth';
 import { API_BASE } from '../../lib/api';
 
@@ -12,8 +16,8 @@ export default function DoctorPhotoUpload() {
 
   const pickImage = async (type: 'profile' | 'diploma') => {
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: "images",
+      if (!(await ensureMediaLibraryAccessForPicker())) return;
+      const result = await launchImageLibraryPlayStoreSafe({
         allowsEditing: true,
         quality: 0.8,
       });

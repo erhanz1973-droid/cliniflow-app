@@ -5,6 +5,11 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import {
+  ensureCameraAccess,
+  ensureMediaLibraryAccessForPicker,
+  launchImageLibraryPlayStoreSafe,
+} from '../../../lib/mediaPicker';
 import { useAuth } from '../../../lib/auth';
 import { useLanguage } from '../../../lib/language-context';
 import { apiGet, apiPut, API_BASE } from '../../../lib/api';
@@ -152,12 +157,10 @@ export default function DoctorProfileScreen() {
   };
 
   const handleChangePhoto = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(
-        t('common.permissionRequired') || 'İzin Gerekli',
-        'Fotoğraf seçmek için galeri izni gerekiyor.',
-      );
+    if (!(await ensureMediaLibraryAccessForPicker({
+      deniedTitle: t('common.permissionRequired') || 'İzin Gerekli',
+      deniedMessage: 'Fotoğraf seçmek için galeri izni gerekiyor.',
+    }))) {
       return;
     }
 
@@ -168,8 +171,7 @@ export default function DoctorProfileScreen() {
         {
           text: t('doctor.profile.takePhoto') || 'Kamera',
           onPress: async () => {
-            const cam = await ImagePicker.requestCameraPermissionsAsync();
-            if (cam.status !== 'granted') return;
+            if (!(await ensureCameraAccess())) return;
             const result = await ImagePicker.launchCameraAsync({
               mediaTypes: ['images'],
               allowsEditing: true,
@@ -182,8 +184,7 @@ export default function DoctorProfileScreen() {
         {
           text: t('doctor.profile.chooseFromGallery') || 'Galeriden Seç',
           onPress: async () => {
-            const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ['images'],
+            const result = await launchImageLibraryPlayStoreSafe({
               allowsEditing: true,
               aspect: [1, 1],
               quality: 0.8,

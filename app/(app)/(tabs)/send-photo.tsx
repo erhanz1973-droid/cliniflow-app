@@ -14,6 +14,11 @@ import {
   TextInput,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import {
+  ensureCameraAccess,
+  ensureMediaLibraryAccessForPicker,
+  launchImageLibraryPlayStoreSafe,
+} from "../../../lib/mediaPicker";
 import { useRouter } from "expo-router";
 import { useAuth } from "../../../lib/auth";
 import { API_BASE } from "../../../lib/api";
@@ -45,8 +50,13 @@ export default function SendPhotoScreen() {
 
   const pickImage = async () => {
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: "images",
+      if (!(await ensureMediaLibraryAccessForPicker({
+        deniedTitle: "Hata",
+        deniedMessage: "Galeri erişimine izin verin.",
+      }))) {
+        return;
+      }
+      const result = await launchImageLibraryPlayStoreSafe({
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
@@ -63,6 +73,9 @@ export default function SendPhotoScreen() {
 
   const takePhoto = async () => {
     try {
+      if (!(await ensureCameraAccess({ deniedTitle: "Hata", deniedMessage: "Kamera izni gerekiyor." }))) {
+        return;
+      }
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         aspect: [4, 3],

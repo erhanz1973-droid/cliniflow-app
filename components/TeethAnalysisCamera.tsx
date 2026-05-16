@@ -23,6 +23,11 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
+import {
+  ensureCameraAccess,
+  ensureMediaLibraryAccessForPicker,
+  launchImageLibraryPlayStoreSafe,
+} from "../lib/mediaPicker";
 import { mapTeethToFDI } from "../lib/mapTeethToFDI";
 import { getTreatmentSuggestions } from "../lib/treatmentSuggestions";
 import {
@@ -202,10 +207,12 @@ export function TeethAnalysisCamera({ onClose }: Props) {
     setError(null);
     setResult(null);
 
-    const perm = useCamera
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
+    if (useCamera) {
+      if (!(await ensureCameraAccess())) {
+        setError("Camera or photo library permission is required.");
+        return;
+      }
+    } else if (!(await ensureMediaLibraryAccessForPicker())) {
       setError("Camera or photo library permission is required.");
       return;
     }
@@ -216,8 +223,7 @@ export function TeethAnalysisCamera({ onClose }: Props) {
           quality: 0.92,
           base64: true,
         })
-      : await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ["images"],
+      : await launchImageLibraryPlayStoreSafe({
           quality: 0.92,
           base64: true,
         });

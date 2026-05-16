@@ -7,6 +7,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
+import {
+  ensureCameraAccess,
+  ensureMediaLibraryAccessForPicker,
+  launchImageLibraryPlayStoreSafe,
+} from '../../lib/mediaPicker';
 import * as DocumentPicker from 'expo-document-picker';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { safeSetItem } from '../../lib/asyncStorageSafe';
@@ -739,13 +744,13 @@ export default function OfferChatScreen() {
   const pickIntraoral = async () => {
     if (isDoctorEnrolledOfferReadonly) return;
     if (sending) return;
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(t('common.error'), 'Photo library permission required');
+    if (!(await ensureMediaLibraryAccessForPicker({
+      deniedTitle: t('common.error'),
+      deniedMessage: 'Photo library permission required',
+    }))) {
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: "images",
+    const result = await launchImageLibraryPlayStoreSafe({
       quality: 0.8,
       allowsEditing: false,
     });
@@ -776,9 +781,10 @@ export default function OfferChatScreen() {
 
   // Capture one step inside the guided modal
   const captureIntraoralStep = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(t('common.error'), 'Camera permission required');
+    if (!(await ensureCameraAccess({
+      deniedTitle: t('common.error'),
+      deniedMessage: 'Camera permission required',
+    }))) {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({

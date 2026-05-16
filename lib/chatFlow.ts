@@ -1,5 +1,8 @@
 import type { Router } from "expo-router";
-import * as ImagePicker from "expo-image-picker";
+import {
+  ensureMediaLibraryAccessForPicker,
+  launchImageLibraryPlayStoreSafe,
+} from "./mediaPicker";
 
 export type GoToChatParams = {
   clinicId: string;
@@ -39,10 +42,8 @@ export async function openFilePicker(opts: {
   type: "image";
 }): Promise<PickedImage | null> {
   if (opts.type !== "image") return null;
-  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!perm.granted) return null;
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+  if (!(await ensureMediaLibraryAccessForPicker())) return null;
+  const result = await launchImageLibraryPlayStoreSafe({
     allowsMultipleSelection: false,
   });
   if (result.canceled || !result.assets?.[0]) return null;

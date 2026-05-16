@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
+import { ensureCameraAccess } from "../../../lib/mediaPicker";
 import { useRouter } from "expo-router";
 import { useLanguage } from "../../../lib/language-context";
 import { goToAnalysis } from "../../../lib/dentalPhotoNavigation";
@@ -41,12 +42,10 @@ export default function DentalCameraScreen() {
   );
 
   const openCamera = useCallback(async () => {
-    const camPerm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!camPerm.granted) {
-      Alert.alert(
-        t("messages.permissionRequired"),
-        t("messages.cameraPermission") || "Kamera erişimine izin verin."
-      );
+    if (!(await ensureCameraAccess({
+      deniedTitle: t("messages.permissionRequired"),
+      deniedMessage: t("messages.cameraPermission") || "Kamera erişimine izin verin.",
+    }))) {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
