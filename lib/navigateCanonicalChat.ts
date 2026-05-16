@@ -7,7 +7,7 @@ import {
   type ResolveCanonicalChatInput,
 } from "./canonicalChatTarget";
 import { logCanonicalChatDiag } from "./canonicalChatDiagnostics";
-import { doctorPatientPrimaryKey } from "./doctorPatientId";
+import { resolveDoctorPatientRouteId } from "./doctorPatientId";
 
 const ENROLLED_TITLE = "Patient joined clinic";
 const ENROLLED_BODY =
@@ -114,7 +114,12 @@ export function openDoctorPatientChat(
   input: OpenDoctorPatientChatInput,
   opts?: NavigateCanonicalChatOptions,
 ): CanonicalChatTarget {
-  const patientId = doctorPatientPrimaryKey({ id: input.patientId ?? undefined }) || String(input.patientId || "").trim();
+  const patientId =
+    resolveDoctorPatientRouteId({
+      patientId: input.patientId,
+      patient_id: input.patientId,
+      id: input.patientId,
+    }) || String(input.patientId || "").trim();
   const forceEnrolled =
     input.enrolled === true ||
     isEnrolledSharedCare({

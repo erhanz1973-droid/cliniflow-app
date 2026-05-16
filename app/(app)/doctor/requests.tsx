@@ -13,6 +13,7 @@ import { API_BASE, setAuthToken } from '../../../lib/api';
 import { isEnrolledSharedCare } from '../../../lib/canonicalChatTarget';
 import { startIncomingRequestChat } from '../../../lib/incomingRequestStartChat';
 import { openDoctorPatientChat } from '../../../lib/navigateCanonicalChat';
+import { fetchRequestMessagingMeta } from '../../../lib/offerMessagingMeta';
 import { invalidateDoctorThreadSummaryCacheOnly } from '../../../lib/doctorMessaging';
 import { doctorPatientPrimaryKey } from '../../../lib/doctorPatientId';
 import {
@@ -893,20 +894,29 @@ export default function DoctorRequestsScreen() {
   const openEnrolledPatientMessaging = useCallback(
     (req: Request) => {
       invalidateDoctorThreadSummaryCacheOnly();
-      openDoctorPatientChat(
-        router,
-        {
-          patientId: req.patient_id,
-          patientName: req.patient_name || 'Patient',
-          offerId: req.my_offer_id,
-          requestId: req.id,
-          leadThreadIsLead: false,
-          enrolled: true,
-        },
-        { source: 'doctor/requests-enrolled' },
-      );
+      const openWithPatientId = (patientId: string | null | undefined) => {
+        openDoctorPatientChat(
+          router,
+          {
+            patientId,
+            patientName: req.patient_name || 'Patient',
+            offerId: req.my_offer_id,
+            requestId: req.id,
+            leadThreadIsLead: false,
+            enrolled: true,
+          },
+          { source: 'doctor/requests-enrolled' },
+        );
+      };
+      if (!token) {
+        openWithPatientId(req.patient_id);
+        return;
+      }
+      void fetchRequestMessagingMeta(token, req.id).then((meta) => {
+        openWithPatientId(meta?.patient_id || req.patient_id);
+      });
     },
-    [router],
+    [router, token],
   );
 
   const handleLeadOfferChatPress = useCallback(

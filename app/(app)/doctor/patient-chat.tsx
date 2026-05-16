@@ -116,7 +116,7 @@ export default function DoctorPatientChatScreen() {
       setAuthToken(token);
       try {
         const res = await fetch(
-          `${API_BASE}/api/doctor/patient/${encodeURIComponent(patientId)}/messages?limit=180`,
+          `${API_BASE}/api/doctor/patient/${encodeURIComponent(patientId)}/messages?limit=250`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -131,8 +131,17 @@ export default function DoctorPatientChatScreen() {
           );
         }
 
+        const canonicalPid = String(json.canonicalPatientId || patientId || '').trim();
+
         if (json.ok && Array.isArray(json.messages)) {
           const slice = mapApiMessages(json.messages as Record<string, unknown>[]);
+          if (__DEV__ && json.unifiedThread) {
+            console.log('[DR-CHAT] unified thread', {
+              canonicalPatientId: canonicalPid.slice(0, 12),
+              offerArchiveCount: json.offerArchiveCount,
+              total: slice.length,
+            });
+          }
           setMessages(slice);
           hasDisplayedContentRef.current = slice.length > 0 || hasDisplayedContentRef.current;
           persistSnapshot({
@@ -460,38 +469,18 @@ export default function DoctorPatientChatScreen() {
         </View>
       </View>
 
-      {archivedOfferId ? (
+      {(archivedOfferId || enrolledSharedCare) ? (
         <View style={styles.enrolledBanner} accessibilityRole="text">
           <Text style={styles.enrolledBannerTitle}>
-            {t('doctor.chat.fromTreatmentRequestTitle') !== 'doctor.chat.fromTreatmentRequestTitle'
-              ? t('doctor.chat.fromTreatmentRequestTitle')
-              : 'Conversation started from treatment request'}
+            {t('doctor.chat.unifiedThreadTitle') !== 'doctor.chat.unifiedThreadTitle'
+              ? t('doctor.chat.unifiedThreadTitle')
+              : 'Tek mesaj kutusu'}
           </Text>
-          <TouchableOpacity
-            onPress={() =>
-              router.push({
-                pathname: '/offer-chat',
-                params: {
-                  offerId: archivedOfferId,
-                  otherName: encodeURIComponent(displayName),
-                  enrolledSharedCare: '1',
-                  patientChatPatientId: patientKey,
-                },
-              } as never)
-            }
-            activeOpacity={0.85}
-          >
-            <Text style={styles.archivedOfferLink}>
-              {t('doctor.chat.viewArchivedRequestChat') !== 'doctor.chat.viewArchivedRequestChat'
-                ? t('doctor.chat.viewArchivedRequestChat')
-                : 'View archived request chat (read-only)'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      ) : enrolledSharedCare ? (
-        <View style={styles.enrolledBanner} accessibilityRole="text">
-          <Text style={styles.enrolledBannerTitle}>{t('doctor.chat.enrolledBannerTitle')}</Text>
-          <Text style={styles.enrolledBannerBody}>{t('doctor.chat.enrolledContinuityBanner')}</Text>
+          <Text style={styles.enrolledBannerBody}>
+            {t('doctor.chat.unifiedThreadBody') !== 'doctor.chat.unifiedThreadBody'
+              ? t('doctor.chat.unifiedThreadBody')
+              : 'Talep dönemindeki ve klinik mesajlar burada birlikte görünür.'}
+          </Text>
         </View>
       ) : null}
 

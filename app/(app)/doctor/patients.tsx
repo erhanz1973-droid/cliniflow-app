@@ -10,7 +10,7 @@ import { useAuth, useAuthToken } from '../../../lib/auth';
 import { useLanguage } from '../../../lib/language-context';
 import { apiGet, classifyApiError, TIMEOUT_GET_LONG } from '../../../lib/api';
 import { ErrorScreen } from '../../../components/ScreenFeedback';
-import { doctorPatientPrimaryKey } from '../../../lib/doctorPatientId';
+import { doctorPatientPrimaryKey, resolveDoctorPatientRouteId } from '../../../lib/doctorPatientId';
 import { fetchDoctorThreadSummary } from '../../../lib/doctorMessaging';
 import { useDeferredFocusRefresh } from '../../../hooks/use-deferred-focus-refresh';
 import { focusPerfStart } from '../../../lib/perfFocus';
@@ -391,11 +391,15 @@ export default function DoctorPatientsScreen() {
 
   const openChat = useCallback(
     (p: Patient) => {
-      const patientId = doctorPatientPrimaryKey(p);
+      const patientId = resolveDoctorPatientRouteId({
+        id: p.id,
+        patient_id: p.patient_id,
+        patientId: p.patientId,
+      }) || doctorPatientPrimaryKey(p);
       markPatientChatNav('press', { patientId: patientId.slice(0, 12) });
       openDoctorPatientChat(router, {
         patientId,
-        patientName: p.name || 'Patient',
+        patientName: patientDisplayName(p),
       }, { source: 'doctor/patients' });
       markPatientChatNav('router_called', { patientId: patientId.slice(0, 12) });
     },
