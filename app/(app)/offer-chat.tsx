@@ -349,6 +349,10 @@ export default function OfferChatScreen() {
 
   const canSendOfferMessages = user?.type !== 'doctor' || offerWriteGate === 'writable';
 
+  /** Doctors: no RT/poll until server confirms lead-phase offer thread. */
+  const doctorOfferRealtimeEnabled =
+    user?.type !== 'doctor' || offerWriteGate === 'writable';
+
   const enrolledRedirectDoneRef = useRef(false);
 
   /** After enrollment, offer-chat is archived — probe server, block sends, redirect to patient-chat. */
@@ -381,7 +385,7 @@ export default function OfferChatScreen() {
     }
 
     if (!user?.token) {
-      setOfferWriteGate('writable');
+      setOfferWriteGate('pending');
       return;
     }
 
@@ -395,7 +399,11 @@ export default function OfferChatScreen() {
         if (pid) redirectToPatientChat(pid);
         return;
       }
-      setOfferWriteGate('writable');
+      if (meta?.ok) {
+        setOfferWriteGate('writable');
+        return;
+      }
+      setOfferWriteGate('pending');
     });
 
     return () => {
@@ -410,6 +418,44 @@ export default function OfferChatScreen() {
     otherName,
     router,
   ]);
+
+  /** Re-check enrollment when doctor returns to this screen (patient may have joined clinic). */
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.type !== 'doctor' || !offerIdStr || !user?.token) return;
+      if (paramSaysArchived && patientChatPatientIdParam) return;
+      let cancelled = false;
+      void fetchOfferMessagingMeta(user.token, offerIdStr).then((meta) => {
+        if (cancelled || !meta?.enrolled) return;
+        setOfferWriteGate('archived');
+        const pid = String(meta.patient_id || patientChatPatientIdParam || '').trim();
+        if (!pid || enrolledRedirectDoneRef.current) return;
+        enrolledRedirectDoneRef.current = true;
+        openDoctorPatientChat(
+          router,
+          {
+            patientId: pid,
+            patientName: otherName || 'Patient',
+            offerId: offerIdStr,
+            leadThreadIsLead: false,
+            enrolled: true,
+          },
+          { source: 'offer-chat-focus-enrolled', useReplace: true },
+        );
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [
+      user?.type,
+      user?.token,
+      offerIdStr,
+      paramSaysArchived,
+      patientChatPatientIdParam,
+      otherName,
+      router,
+    ]),
+  );
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -438,7 +484,11 @@ export default function OfferChatScreen() {
     configured: sbOfferConfigured,
     timedOut: sbOfferTimedOut,
     refresh: sbOfferRefresh,
-  } = useSupabaseOfferMessages({ offerId: offerIdStr, token: user?.token });
+  } = useSupabaseOfferMessages({
+    offerId: offerIdStr,
+    token: user?.token,
+    enabled: doctorOfferRealtimeEnabled,
+  });
 
   // Supabase offer mesajlarını state'e additif olarak sync et.
   // opt_* → gerçek UUID geçişi FlatList'te flash yaratmaması için IN-PLACE replace kullanır:
@@ -449,7 +499,7 @@ export default function OfferChatScreen() {
   // sbOfferReady beklersek bu mesajlar offer-chat state'ine hiç geçmez.
   // Sadece sbOfferConfigured=false ise veya sbMsgs tamamen boşsa atla.
   useEffect(() => {
-    if (!sbOfferConfigured) return;
+    if (!sbOfferConfigured || !doctorOfferRealtimeEnabled) return;
     const sbMsgs = sbOfferMessages as unknown as Message[];
     // Hook henüz hiç mesaj almadıysa (SELECT tamamlanmadı, Socket.IO da yok) — atla
     if (sbMsgs.length === 0) return;
@@ -603,6 +653,10 @@ export default function OfferChatScreen() {
         if (!silent) setLoading(false);
         return;
       }
+      if (user?.type === 'doctor' && !doctorOfferRealtimeEnabled) {
+        if (!silent) setLoading(false);
+        return;
+      }
 
       // Supabase aktifse offer REST GET'i atla — Supabase Realtime devralır.
       if (sbOfferConfigured) {
@@ -679,7 +733,7 @@ export default function OfferChatScreen() {
         }
       }
     },
-    [currentOfferId, user?.token, t, sbOfferConfigured, sbOfferReady, sbOfferTimedOut]
+    [currentOfferId, user?.token, user?.type, doctorOfferRealtimeEnabled, t, sbOfferConfigured, sbOfferReady, sbOfferTimedOut]
   );
 
   useEffect(() => {
@@ -720,7 +774,7 @@ export default function OfferChatScreen() {
           setGlobalOfferChatOpen(false);
         };
       }
-      if (!isDoctorEnrolledOfferReadonly) {
+      if (doctorOfferRealtimeEnabled) {
         void markAsRead();
         if (user?.token) void fetchMessages();
         sbOfferRefresh();
@@ -732,8 +786,6 @@ export default function OfferChatScreen() {
           clearInterval(pollId);
         };
       }
-      if (user?.token) void fetchMessages();
-      sbOfferRefresh();
       return () => {
         setGlobalOfferChatOpen(false);
       };
@@ -743,7 +795,7 @@ export default function OfferChatScreen() {
       user?.token,
       fetchMessages,
       sbOfferRefresh,
-      isDoctorEnrolledOfferReadonly,
+      doctorOfferRealtimeEnabled,
     ]),
   );
 
@@ -1067,7 +1119,8 @@ export default function OfferChatScreen() {
         style={{ flex: 1 }}
         keyboardVerticalOffset={0}
       >
-        {loading && !isDoctorEnrolledOfferReadonly ? (
+        {(loading && doctorOfferRealtimeEnabled) ||
+        (user?.type === 'doctor' && offerWriteGate === 'pending' && !isDoctorEnrolledOfferReadonly) ? (
           <View style={styles.center}>
             <ActivityIndicator size="large" color="#2563EB" />
           </View>

@@ -30,6 +30,7 @@ import {
 } from "../../../lib/doctorMessaging";
 import { doctorPatientPrimaryKey } from "../../../lib/doctorPatientId";
 import { navigateCanonicalChat } from "../../../lib/navigateCanonicalChat";
+import { navigateDoctorOfferOrPatientChat } from "../../../lib/offerMessagingMeta";
 import { subscribeOfferUnreadEvents } from "../../../lib/offerUnreadEvents";
 
 function fmtPreviewTime(createdAt: number | null | undefined): string {
@@ -143,14 +144,34 @@ export default function DoctorInboxScreen() {
       patient_id: row.patientLegacyId,
       patientId: row.patientPublicId,
     });
+    const patientId = pk || row.patientDbId;
+    const patientName = row.patientName || "Patient";
+
+    if (row.threadKind === "offer" && row.offerId && token) {
+      void navigateDoctorOfferOrPatientChat(router, {
+        token,
+        offerId: String(row.offerId),
+        patientId,
+        patientName,
+        treatmentType: row.treatmentType,
+        source: "doctor/inbox",
+      }).then((kind) => {
+        if (kind === "patient_chat" && patientId) {
+          markPatientChatNav("press", { patientId: patientId.slice(0, 12), source: "inbox" });
+          markPatientChatNav("router_called", { patientId: patientId.slice(0, 12), source: "inbox" });
+        }
+      });
+      return;
+    }
+
     const target = navigateCanonicalChat(
       router,
       {
         viewerRole: "doctor",
         threadKind: row.threadKind === "offer" ? "offer" : "patient",
         offerId: row.offerId,
-        patientId: pk || row.patientDbId,
-        patientName: row.patientName || "Patient",
+        patientId,
+        patientName,
         leadThreadIsLead: row.leadPrimaryResponder?.threadIsLead,
         treatmentType: row.treatmentType,
       },

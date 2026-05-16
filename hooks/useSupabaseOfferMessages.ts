@@ -116,10 +116,13 @@ export type UseSupabaseOfferMessagesResult = {
 export function useSupabaseOfferMessages({
   offerId,
   token,
+  enabled = true,
 }: {
   offerId: string;
   /** JWT token for Socket.IO auth — enables instant push when Supabase Realtime is not configured */
   token?: string;
+  /** When false, no SELECT/subscribe/poll/socket — archived offer threads for enrolled patients. */
+  enabled?: boolean;
 }): UseSupabaseOfferMessagesResult {
   const [messages, setMessages] = useState<SupabaseOfferMessage[]>([]);
   const [ready, setReady] = useState(false);
@@ -129,10 +132,15 @@ export function useSupabaseOfferMessages({
   const configured = isSupabaseRealtimeConfigured();
 
   useEffect(() => {
-    if (!configured || !offerId?.trim()) {
+    if (!enabled || !configured || !offerId?.trim()) {
       setMessages([]);
       setReady(false);
       setTimedOut(false);
+      const sbOff = getSupabaseClient();
+      if (channelRef.current && sbOff) {
+        void sbOff.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
       return;
     }
 
@@ -276,10 +284,20 @@ export function useSupabaseOfferMessages({
         channelRef.current = null;
       }
     };
-  }, [offerId, configured]); // ✅ SADECE BUNLAR — messages/state/function ekleme
+  }, [offerId, configured, enabled]); // ✅ SADECE BUNLAR — messages/state/function ekleme
 
   // Socket.IO subscription — instant delivery when Supabase Realtime publication is not configured
   useEffect(() => {
+    if (!enabled) {
+      if (socketRef.current) {
+        try {
+          socketRef.current.removeAllListeners();
+          socketRef.current.disconnect();
+        } catch { /* ignore */ }
+        socketRef.current = null;
+      }
+      return;
+    }
     const tok = String(token || '').trim();
     const oid = String(offerId || '').trim();
     if (!tok || !oid) return;
@@ -333,10 +351,11 @@ export function useSupabaseOfferMessages({
       } catch { /* ignore */ }
       socketRef.current = null;
     };
-  }, [offerId, token]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [offerId, token, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Manuel refresh: Supabase Realtime veya Socket.IO teslim edemediyse focus/pull anında yakalar
   const refresh = useCallback(() => {
+    if (!enabled) return;
     const oid = String(offerId || '').trim();
     if (!oid || !configured) return;
     const sb = getSupabaseClient();
@@ -358,7 +377,7 @@ export function useSupabaseOfferMessages({
           return sortAndDedupe([...prev, ...freshRows.map(r => offerRowToMessage(r, oid))]);
         });
       });
-  }, [offerId, configured]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [offerId, configured, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { messages, ready, configured, timedOut, refresh };
 }

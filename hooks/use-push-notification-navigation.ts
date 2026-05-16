@@ -5,6 +5,7 @@ import { useRootNavigationState, useRouter } from "expo-router";
 import { useAuthSession } from "../lib/auth";
 import { pushDataToResolveInput } from "../lib/canonicalChatTarget";
 import { navigateCanonicalChat } from "../lib/navigateCanonicalChat";
+import { navigateDoctorOfferOrPatientChat } from "../lib/offerMessagingMeta";
 import { getPathFromNotificationData } from "../lib/notificationRouting";
 import { emitOfferUnreadEvent } from "../lib/offerUnreadEvents";
 import { bumpDoctorRequestUnreadByOfferId } from "../lib/doctorRequestsUnread";
@@ -63,15 +64,22 @@ export function usePushNotificationNavigation(): void {
         if (isPatient) invalidatePatientInboxUnreadCache();
       }
       if (isDoctor && (type === "offer_message" || type === "new_offer")) {
-        const target = navigateCanonicalChat(
-          router,
-          pushDataToResolveInput(data, "doctor"),
-          { source: `push:${delivery}` },
-        );
-        if (__DEV__) {
-          console.log("[push:nav]", { delivery, type, kind: target.kind, path: target.path });
+        const offerId = String(data.offerId || data.offer_id || "").trim();
+        if (offerId) {
+          const input = pushDataToResolveInput(data, "doctor");
+          void navigateDoctorOfferOrPatientChat(router, {
+            token,
+            offerId,
+            patientId: input.patientId,
+            patientName: input.patientName,
+            treatmentType: input.treatmentType,
+            requestId: input.requestId,
+            source: `push:${delivery}`,
+          }).then((kind) => {
+            if (__DEV__) console.log("[push:nav]", { delivery, type, kind });
+          });
+          return;
         }
-        return;
       }
 
       const path = getPathFromNotificationData(data, { type: viewerType ?? undefined });

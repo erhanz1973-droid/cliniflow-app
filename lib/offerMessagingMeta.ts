@@ -1,4 +1,6 @@
+import type { Router } from "expo-router";
 import { API_BASE } from "./api";
+import { navigateCanonicalChat, openDoctorPatientChat } from "./navigateCanonicalChat";
 
 export type OfferMessagingMeta = {
   ok: boolean;
@@ -79,4 +81,64 @@ export async function fetchRequestMessagingMeta(
   } catch {
     return null;
   }
+}
+
+/**
+ * Doctor navigation: server decides offer_chat vs patient_chat (never trust push payload alone).
+ */
+export async function navigateDoctorOfferOrPatientChat(
+  router: Pick<Router, "push" | "replace">,
+  opts: {
+    token: string;
+    offerId: string;
+    patientId?: string | null;
+    patientName?: string;
+    treatmentType?: string | null;
+    requestId?: string | null;
+    source: string;
+    useReplace?: boolean;
+  },
+): Promise<"patient_chat" | "offer_chat" | "blocked"> {
+  const offerId = String(opts.offerId || "").trim();
+  if (!offerId) return "blocked";
+
+  const meta = await fetchOfferMessagingMeta(opts.token, offerId);
+  const patientName = String(opts.patientName || "Patient").trim() || "Patient";
+
+  if (meta?.enrolled) {
+    const pid = String(meta.patient_id || opts.patientId || "").trim();
+    if (pid) {
+      openDoctorPatientChat(
+        router,
+        {
+          patientId: pid,
+          patientName,
+          offerId,
+          requestId: opts.requestId || undefined,
+          leadThreadIsLead: false,
+          enrolled: true,
+        },
+        { source: opts.source, useReplace: opts.useReplace },
+      );
+      return "patient_chat";
+    }
+  }
+
+  navigateCanonicalChat(
+    router,
+    {
+      viewerRole: "doctor",
+      offerId,
+      patientId: opts.patientId,
+      patientName,
+      treatmentType: opts.treatmentType,
+      requestId: opts.requestId,
+      leadThreadIsLead: meta?.lead_thread_is_lead ?? true,
+      enrolled: meta?.enrolled === true,
+      bootstrapRoute: meta?.route,
+      threadKind: "offer",
+    },
+    { source: opts.source, useReplace: opts.useReplace },
+  );
+  return "offer_chat";
 }
