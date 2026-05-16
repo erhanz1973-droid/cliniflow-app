@@ -33,6 +33,10 @@ import {
 } from '../../lib/doctorRequestsCache';
 import { formatTreatmentRequestDescription } from '../../lib/treatmentRequestDescription';
 import {
+  normalizeOfferMessageTextNullable,
+  safeOfferMessageText,
+} from '../../lib/offerChatMessageText';
+import {
   maybeAbortOfferRailwayMessagesFetch,
   setGlobalChatOpen,
   setGlobalOfferChatOpen,
@@ -76,12 +80,6 @@ function fmtDate(iso: string) {
       day: '2-digit', month: '2-digit', year: 'numeric',
     });
   } catch { return ''; }
-}
-
-/** RN Web: never render non-string / whitespace-only fragments as stray View children. */
-function safeOfferMessageText(raw: string | null | undefined): string {
-  if (raw == null) return '';
-  return typeof raw === 'string' ? raw.trim() : String(raw).trim();
 }
 
 function logOfferChatItemDev(message: Message): void {
@@ -130,8 +128,7 @@ function offerMessageRowToUI(
 
   // Normalize: message_text (DB/Supabase canonical) → text (Railway API legacy) → message (eski fallback)
   const rawText = row.message_text ?? row.text ?? row.message;
-  const text =
-    rawText == null ? null : safeOfferMessageText(String(rawText)) || null;
+  const text = normalizeOfferMessageTextNullable(rawText);
   if (__DEV__) console.log('[offerMessageRowToUI] FINAL TEXT:', JSON.stringify(text));
 
   const role = String(row.sender_role || 'patient').toLowerCase();
@@ -397,7 +394,12 @@ export default function OfferChatScreen() {
           usedSbIds.add(match.id);
           if (__DEV__) console.log('[offer-chat] ✅ opt replaced in-place:', m.id, '→', match.id);
           // _stableKey korunur → FlatList aynı hücreyi günceller, unmount/remount yok
-          return { ...match, _stableKey: m._stableKey ?? m.id };
+          return {
+            ...match,
+            text: normalizeOfferMessageTextNullable(match.text),
+            sender_name: safeOfferMessageText(match.sender_name) || match.sender_name,
+            _stableKey: m._stableKey ?? m.id,
+          };
         }
         return m;
       });
@@ -714,7 +716,7 @@ export default function OfferChatScreen() {
       sender_id: user.id || '',
       sender_role: myRole,
       sender_name: user.name || (myRole === 'doctor' ? 'Dr.' : t('offerChat.you')),
-      text: opts.text || null,
+      text: normalizeOfferMessageTextNullable(opts.text),
       attachment_url: opts.attachment_url || null,
       attachment_type: opts.attachment_type || null,
       created_at: new Date().toISOString(),

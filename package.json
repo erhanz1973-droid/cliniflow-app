@@ -15,7 +15,9 @@
     "doctor": "npx expo-doctor",
     "android": "npx expo run:android",
     "ios": "npx expo run:ios",
-    "web": "npx expo start --web"
+    "web": "npx expo start --web",
+    "test:offer-chat-text": "node --experimental-strip-types --test scripts/test-offer-chat-text.mjs",
+    "typecheck": "npx tsc --noEmit"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",

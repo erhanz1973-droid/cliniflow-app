@@ -14,6 +14,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { io, type Socket } from 'socket.io-client';
 import { getSupabaseClient, isSupabaseRealtimeConfigured } from '../lib/supabase';
 import { API_BASE } from '../lib/api';
+import { normalizeOfferMessageTextNullable } from '../lib/offerChatMessageText';
 
 const SUBSCRIBED_TIMEOUT_MS = 8_000;
 const POLL_INTERVAL_MS = 5_000;
@@ -71,7 +72,7 @@ function offerRowToMessage(row: OfferMessagesRow, fallbackOfferId = ''): Supabas
   // DB kolonu `text` olduğu kanıtlandı (Railway + Supabase RAW KEYS logları).
   // message_text fallback → schema değişikliğine karşı.
   const rawText = row.text ?? row.message_text ?? row.content ?? row.body ?? row.message ?? null;
-  const text = rawText != null ? String(rawText) : null;
+  const text = normalizeOfferMessageTextNullable(rawText);
 
   return {
     id: row.id,
