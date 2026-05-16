@@ -1272,6 +1272,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "requests.card.offerSent1": "1 teklif gönderildi",
     "requests.card.offerSentBadge": "✓ Teklif gönderildi",
     "requests.card.messages": "💬 Mesajlar",
+    "requests.card.startMessaging": "Mesajlaşmaya Başla",
+    "requests.card.openingChat": "Açılıyor…",
+    "requests.chat.openFailed": "Sohbet açılamadı: {error}",
+    "requests.chat.networkFailed": "Ağ hatası. Bağlantınızı kontrol edip tekrar deneyin.",
+    "requests.chat.missingOffer":
+      "Bu talep için teklif bulunamadı. Önce teklif gönderin, ardından mesajlaşmayı açın.",
     "requests.card.another": "+ Başka",
     "requests.offerDetail.enrolledNoPayloadHint":
       "Bu satır yalnızca geçmiş bağlam içindir. Mesajlaşmaya Hastalar → 💬 Mesajlar üzerinden devam edin.",
@@ -2801,6 +2807,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "requests.card.offerSent1": "1 offer sent",
     "requests.card.offerSentBadge": "✓ Offer sent",
     "requests.card.messages": "💬 Messages",
+    "requests.card.startMessaging": "Start Messaging",
+    "requests.card.openingChat": "Opening…",
+    "requests.chat.openFailed": "Could not open chat: {error}",
+    "requests.chat.networkFailed": "Network error. Check your connection and try again.",
+    "requests.chat.missingOffer":
+      "No offer found for this request. Send an offer first, then open messaging.",
     "requests.card.another": "+ Another",
     "requests.offerDetail.enrolledNoPayloadHint":
       "This row is historical context only. Continue messaging from Patients → Messages.",
@@ -4326,6 +4338,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "requests.card.offerSent1": "1 შეთავაზება გაიგზავნა",
     "requests.card.offerSentBadge": "✓ შეთავაზება გაიგზავნა",
     "requests.card.messages": "💬 შეტყობინებები",
+    "requests.card.startMessaging": "მესიჯინგის დაწყება",
+    "requests.chat.missingOffer":
+      "ამ მოთხოვნისთვის შეთავაზება ვერ მოიძებნა. ჯერ გაგზავნეთ შეთავაზება, შემდეგ გახსენით ჩატი.",
     "requests.card.another": "+ სხვა",
     "requests.offerDetail.enrolledNoPayloadHint":
       "ეს სტრიქონი მხოლოდ ისტორიისთვისაა. საუბარი განაგრძეთ პაციენტები → შეტყობინებები.",

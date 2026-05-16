@@ -1,21 +1,34 @@
 // app/doctor/requests.tsx — Doctor: Incoming requests dashboard with quick-offer system
-import React, { useCallback, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   SafeAreaView, ActivityIndicator, RefreshControl, Modal,
   TextInput, Alert, KeyboardAvoidingView, Platform, Image, Linking,
+  FlatList, InteractionManager,
 } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { useAuth } from '../../../lib/auth';
+import { useRouter } from 'expo-router';
+import { useAuthSession } from '../../../lib/auth';
 import { useLanguage } from '../../../lib/language-context';
-import { API_BASE } from '../../../lib/api';
-import { goToOfferChat, normalizeLeadThreadIsLead } from '../../../lib/goToOfferChat';
+import { API_BASE, setAuthToken } from '../../../lib/api';
+import { startIncomingRequestChat } from '../../../lib/incomingRequestStartChat';
 import { invalidateDoctorThreadSummaryCacheOnly } from '../../../lib/doctorMessaging';
 import { doctorPatientPrimaryKey } from '../../../lib/doctorPatientId';
 import {
   formatTreatmentRequestDescription,
   extractPhotoUrlFromDescription,
 } from '../../../lib/treatmentRequestDescription';
+import { useDeferredFocusRefresh } from '../../../hooks/use-deferred-focus-refresh';
+import { focusPerfMark, focusPerfStart } from '../../../lib/perfFocus';
+import { peekCachedResource, setCachedResource } from '../../../lib/resourceCache';
+import {
+  DOCTOR_REQUESTS_LIST_CACHE_KEY,
+  type DoctorRequestRow,
+  type MyOfferSummary,
+  type RequestPhoto,
+  normalizeDoctorRequests,
+  stripRequestPhotosForPaint,
+} from '../../../lib/doctorRequestsCache';
+import { subscribeOfferUnreadEvents } from '../../../lib/offerUnreadEvents';
 
 // ── Quick treatment presets ───────────────────────────────────────────────────
 const QUICK = [
@@ -51,63 +64,7 @@ function fmtTs(iso: string, t: (k: string) => string) {
   } catch { return iso; }
 }
 
-type RequestPhoto = { url: string; type: string };
-
-type MyOfferSummary = {
-  id: string;
-  treatment_type: string | null;
-  price_range: string | null;
-  price_text: string | null;
-  duration: string | null;
-  note: string | null;
-  created_at: string | null;
-};
-
-type Request = {
-  id: string;
-  patient_name: string;
-  /** `patients.id` when known (from treatment_requests.patient_id). */
-  patient_id?: string | null;
-  /**
-   * Resolved `patient_chat_threads.is_lead` for this clinic+patient (prefer graduated row).
-   * `false` = enrolled / shared-care — do not open deprecated offer chat.
-   */
-  lead_thread_is_lead?: boolean | null;
-  /** API duplicate / camelCase alias of `lead_thread_is_lead` (optional). */
-  threadIsLead?: boolean | null;
-  description: string;
-  budget: string | null;
-  preferred_treatment: string | null;
-  status: 'pending' | 'answered' | 'closed';
-  created_at: string;
-  offer_count: number;
-  my_offer_id: string | null;
-  /** Server: this doctor's offer summary (for detail sheet). */
-  my_offer: MyOfferSummary | null;
-  unread_count: number;
-  is_assigned_to_me: boolean;
-  photos: RequestPhoto[] | null;
-};
-
-/** API may return photos as string[] or {url,type}[] — normalize for Image uri. */
-function normalizeRequestPhotos(raw: unknown): RequestPhoto[] | null {
-  if (raw == null) return null;
-  if (!Array.isArray(raw) || raw.length === 0) return null;
-  const out: RequestPhoto[] = [];
-  for (const item of raw) {
-    if (typeof item === 'string') {
-      const u = item.trim();
-      if (u) out.push({ url: u, type: 'image' });
-      continue;
-    }
-    if (item && typeof item === 'object') {
-      const o = item as { url?: unknown; type?: unknown };
-      const u = typeof o.url === 'string' ? o.url.trim() : '';
-      if (u) out.push({ url: u, type: typeof o.type === 'string' ? o.type : 'image' });
-    }
-  }
-  return out.length ? out : null;
-}
+type Request = DoctorRequestRow;
 
 const ps = StyleSheet.create({
   backdrop: {
@@ -260,7 +217,7 @@ function QuickOfferModal({
   preset: typeof QUICK[0] | null;
   token?: string;
   onClose: () => void;
-  onSent: () => void;
+  onSent: (offerId?: string) => void;
 }) {
   const { t } = useLanguage();
 
@@ -304,7 +261,7 @@ function QuickOfferModal({
       );
       const data = await res.json();
       if (!data?.ok) throw new Error(data?.error || 'Error');
-      onSent();
+      onSent(data?.offer_id ? String(data.offer_id) : undefined);
     } catch (e: any) {
       Alert.alert(t('common.error'), e.message);
     } finally {
@@ -468,8 +425,22 @@ function QuickOfferModal({
   );
 }
 
+function RequestCardSkeleton() {
+  return (
+    <View style={[cs.card, cs.skeletonCard]}>
+      <View style={cs.skeletonLineWide} />
+      <View style={cs.skeletonLine} />
+      <View style={[cs.skeletonLine, { width: '72%' }]} />
+      <View style={cs.skeletonThumbRow}>
+        <View style={cs.skeletonThumb} />
+        <View style={cs.skeletonThumb} />
+      </View>
+    </View>
+  );
+}
+
 // ── Request Card ──────────────────────────────────────────────────────────────
-function RequestCard({
+const RequestCard = memo(function RequestCard({
   req,
   token,
   onOfferSent,
@@ -477,12 +448,14 @@ function RequestCard({
   onOpenEnrolledPatientMessaging,
   onEnrolledOfferChatInfoPress,
   isChatsFilter,
+  startingChat,
 }: {
   req: Request;
   token?: string;
-  onOfferSent: () => void;
-  /** Opens legacy offer-thread chat — only when `lead_thread_is_lead === true` (caller enforces). */
-  onLeadOfferChat: (offerId: string, request: Request) => void;
+  onOfferSent: (offerId?: string, request?: Request) => void;
+  /** Opens offer-thread chat (bootstrap + navigate). */
+  onLeadOfferChat: (offerId: string | null, request: Request) => void;
+  startingChat?: boolean;
   /** Canonical enrolled / shared-care messaging (Patients → patient-chat). */
   onOpenEnrolledPatientMessaging: (request: Request) => void;
   /** Enrolled: “Messages” affordance — Alert only; must not navigate to offer-chat. */
@@ -624,22 +597,36 @@ function RequestCard({
 
       {/* Quick action buttons — only for pending requests (not enrolled clinic patients) */}
       {isPending && !hasMyOffer && !enrolledShared && (
-        <View style={cs.quickRow}>
-          {QUICK.map(q => (
-            <TouchableOpacity
-              key={q.value}
-              style={cs.quickBtn}
-              onPress={() => openQuick(q)}
-              activeOpacity={0.75}
-            >
-              <Text style={cs.quickEmoji}>{q.emoji}</Text>
-              <Text style={cs.quickLabel}>{t(q.labelKey) || q.value}</Text>
+        <>
+          <View style={cs.quickRow}>
+            {QUICK.map(q => (
+              <TouchableOpacity
+                key={q.value}
+                style={cs.quickBtn}
+                onPress={() => openQuick(q)}
+                activeOpacity={0.75}
+              >
+                <Text style={cs.quickEmoji}>{q.emoji}</Text>
+                <Text style={cs.quickLabel}>{t(q.labelKey) || q.value}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={cs.quickBtnMore} onPress={openFull} activeOpacity={0.75}>
+              <Text style={cs.quickMoreTxt}>···</Text>
             </TouchableOpacity>
-          ))}
-          <TouchableOpacity style={cs.quickBtnMore} onPress={openFull} activeOpacity={0.75}>
-            <Text style={cs.quickMoreTxt}>···</Text>
+          </View>
+          <TouchableOpacity
+            style={cs.startMessagingPendingBtn}
+            onPress={() => onLeadOfferChat(null, req)}
+            disabled={startingChat}
+            activeOpacity={0.85}
+          >
+            <Text style={cs.startMessagingPendingTxt}>
+              {startingChat
+                ? (t('requests.card.openingChat') || 'Opening…')
+                : `💬 ${t('requests.card.startMessaging') || 'Start Messaging'}`}
+            </Text>
           </TouchableOpacity>
-        </View>
+        </>
       )}
 
       {/* After enrollment: offer thread is read-only context — canonical chat is under Patients */}
@@ -684,11 +671,14 @@ function RequestCard({
           <>
             <TouchableOpacity
               style={[cs.chatBtnFull, req.unread_count > 0 && cs.chatBtnFullUnread]}
-              onPress={() => onLeadOfferChat(req.my_offer_id!, req)}
+              onPress={() => onLeadOfferChat(req.my_offer_id, req)}
+              disabled={startingChat}
               activeOpacity={0.85}
             >
               <Text style={cs.chatBtnFullText}>
-                💬 {t('requests.card.openChat') || 'Open Conversation'}
+                💬 {t('requests.card.startMessaging') !== 'requests.card.startMessaging'
+                  ? t('requests.card.startMessaging')
+                  : (t('requests.card.openChat') || 'Open Conversation')}
                 {req.unread_count > 0 ? `  •  ${req.unread_count} ${t('requests.card.newMessages') || 'new'}` : ''}
               </Text>
             </TouchableOpacity>
@@ -709,9 +699,14 @@ function RequestCard({
             </TouchableOpacity>
             <TouchableOpacity
               style={cs.chatBtn}
-              onPress={() => onLeadOfferChat(req.my_offer_id!, req)}
+              onPress={() => onLeadOfferChat(req.my_offer_id, req)}
+              disabled={startingChat}
             >
-              <Text style={cs.chatBtnText}>{t('requests.card.messages') || '💬 Messages'}</Text>
+              <Text style={cs.chatBtnText}>
+                {t('requests.card.startMessaging') !== 'requests.card.startMessaging'
+                  ? `💬 ${t('requests.card.startMessaging')}`
+                  : (t('requests.card.messages') || '💬 Messages')}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity style={cs.resendBtn} onPress={openFull}>
               <Text style={cs.resendBtnText}>{t('requests.card.another') || '+ Another'}</Text>
@@ -726,7 +721,7 @@ function RequestCard({
           preset={preset}
           token={token}
           onClose={() => setShowModal(false)}
-          onSent={() => { setShowModal(false); onOfferSent(); }}
+          onSent={(offerId) => { setShowModal(false); onOfferSent(offerId, req); }}
         />
       )}
       <PhotoPreviewModal uri={previewUri} onClose={() => setPreviewUri(null)} />
@@ -741,55 +736,113 @@ function RequestCard({
       />
     </View>
   );
-}
+});
 
 // ── Dashboard Screen ──────────────────────────────────────────────────────────
 type FilterKey = 'all' | 'mine' | 'pending' | 'answered' | 'chats';
 
+const SKELETON_KEYS = ['sk1', 'sk2', 'sk3', 'sk4'] as const;
+
 export default function DoctorRequestsScreen() {
-  const router  = useRouter();
-  const { user } = useAuth();
-  const { t }   = useLanguage();
+  const router = useRouter();
+  const { token } = useAuthSession();
+  const { t } = useLanguage();
 
-  const [requests,   setRequests]   = useState<Request[]>([]);
-  const [loading,    setLoading]    = useState(true);
+  const cachedList = peekCachedResource<DoctorRequestRow[]>(DOCTOR_REQUESTS_LIST_CACHE_KEY);
+  const [requests, setRequests] = useState<DoctorRequestRow[]>(cachedList ?? []);
+  const [loading, setLoading] = useState(cachedList == null);
+  const hasDisplayedContentRef = useRef((cachedList?.length ?? 0) > 0);
+  const firstPaintMarkedRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [error,      setError]      = useState<string | null>(null);
-  const [filter,     setFilter]     = useState<FilterKey>('all');
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterKey>('all');
+  const [startingChatRequestId, setStartingChatRequestId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    if (!user?.token) return;
-    setError(null);
-    try {
-      const res  = await fetch(`${API_BASE}/api/doctor/treatment-requests`, {
-        headers: { Authorization: `Bearer ${user.token}` },
-      });
-      const data = await res.json();
-      if (!data?.ok) throw new Error(data?.error || 'error');
-      const rows = Array.isArray(data.requests) ? data.requests : [];
-      setRequests(
-        rows.map((r: Record<string, unknown>) => {
-          const leadRaw = r.lead_thread_is_lead ?? r.threadIsLead ?? r.thread_is_lead;
-          const lead_thread_is_lead = normalizeLeadThreadIsLead(leadRaw);
-          return {
-            ...r,
-            lead_thread_is_lead,
-            my_offer: (r.my_offer as MyOfferSummary | null | undefined) ?? null,
-            photos: normalizeRequestPhotos(r.photos),
-          };
-        }) as Request[]
-      );
-    } catch (e: any) {
-      setError(e.message || t('common.error'));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+  const markFirstPaint = useCallback((source: string) => {
+    if (firstPaintMarkedRef.current) return;
+    firstPaintMarkedRef.current = true;
+    focusPerfMark('doctor:requests:first_paint', { source });
+  }, []);
+
+  const load = useCallback(
+    async (opts?: { blocking?: boolean }) => {
+      if (!token) return;
+      const blocking = opts?.blocking === true && !hasDisplayedContentRef.current;
+      if (blocking) setLoading(true);
+      setAuthToken(token);
+      setError(null);
+      const endFetch = focusPerfStart('doctor:requests:fetch');
+      try {
+        const res = await fetch(`${API_BASE}/api/doctor/treatment-requests`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (!data?.ok) throw new Error(data?.error || 'error');
+        const rows = normalizeDoctorRequests(
+          Array.isArray(data.requests) ? data.requests : []
+        );
+
+        const applyRows = (next: DoctorRequestRow[]) => {
+          setRequests(next);
+          setCachedResource(DOCTOR_REQUESTS_LIST_CACHE_KEY, next);
+          hasDisplayedContentRef.current = next.length > 0 || hasDisplayedContentRef.current;
+          focusPerfMark('doctor:requests:data_ready', { count: next.length });
+        };
+
+        if (blocking && rows.length > 0) {
+          applyRows(stripRequestPhotosForPaint(rows));
+          InteractionManager.runAfterInteractions(() => {
+            applyRows(rows);
+          });
+        } else {
+          applyRows(rows);
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : t('common.error');
+        setError(msg);
+        if (!hasDisplayedContentRef.current) setRequests([]);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+        endFetch();
+      }
+    },
+    [token, t]
+  );
+
+  useEffect(() => {
+    if (cachedList?.length) {
+      focusPerfMark('doctor:requests:data_ready', { count: cachedList.length, source: 'memory' });
     }
-  }, [user?.token, t]);
+  }, [cachedList]);
 
-  useFocusEffect(useCallback(() => { setLoading(true); void load(); }, [load]));
+  useEffect(() => {
+    if (!token) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      void load({ blocking: !hasDisplayedContentRef.current });
+    });
+    return () => task.cancel?.();
+  }, [token, load]);
 
-  const onRefresh = () => { setRefreshing(true); load(); };
+  useDeferredFocusRefresh(
+    'doctor:requests:focus',
+    () => load({ blocking: false }),
+    { enabled: !!token, minIntervalMs: 55_000 }
+  );
+
+  useEffect(() => {
+    if (!token) return;
+    return subscribeOfferUnreadEvents((ev) => {
+      if (ev.recipient !== "doctor" || ev.type !== "offer_realtime_update") return;
+      const cached = peekCachedResource<DoctorRequestRow[]>(DOCTOR_REQUESTS_LIST_CACHE_KEY);
+      if (cached?.length) setRequests(cached);
+    });
+  }, [token]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    void load({ blocking: false });
+  }, [load]);
 
   /** Enrolled (`lead_thread_is_lead === false`): never open offer-chat — navigation guard + copy. */
   const alertEnrolledNoOfferChat = useCallback(() => {
@@ -823,49 +876,115 @@ export default function DoctorRequestsScreen() {
     [router],
   );
 
-  /**
-   * Offer-chat navigation — **must** pass `leadThreadIsLead` so `goToOfferChat` can block
-   * enrolled patients (`false` after normalize) before any offer socket / offer_messages work runs.
-   */
   const handleLeadOfferChatPress = useCallback(
-    (offerId: string, req: Request) => {
-      goToOfferChat(
+    (offerId: string | null, req: Request) => {
+      if (!token || startingChatRequestId) return;
+      setStartingChatRequestId(req.id);
+      void startIncomingRequestChat({
+        token,
         router,
-        {
+        t,
+        source: 'doctor/requests',
+        ctx: {
+          requestId: req.id,
+          patientId: req.patient_id,
+          patientName: req.patient_name || 'Patient',
           offerId,
-          otherNameRaw: req.patient_name || 'Patient',
-          treatmentType: req.preferred_treatment || '',
+          myOfferId: req.my_offer_id,
           leadThreadIsLead: req.lead_thread_is_lead ?? req.threadIsLead,
-          requireExplicitLeadThread: true,
+          preferredTreatment: req.preferred_treatment,
         },
-        'doctor/requests',
-      );
+      }).finally(() => {
+        setStartingChatRequestId(null);
+      });
     },
-    [router],
+    [token, router, t, startingChatRequestId],
   );
 
-  const filtered = requests.filter(r => {
-    if (filter === 'mine')     return !!r.my_offer_id;
-    if (filter === 'pending')  return r.status === 'pending';
-    if (filter === 'answered') return r.status === 'answered';
-    if (filter === 'chats')    return !!r.my_offer_id;
-    return true;
-  });
+  const filtered = useMemo(() => {
+    return requests.filter((r) => {
+      if (filter === 'mine') return !!r.my_offer_id;
+      if (filter === 'pending') return r.status === 'pending';
+      if (filter === 'answered') return r.status === 'answered';
+      if (filter === 'chats') return !!r.my_offer_id;
+      return true;
+    });
+  }, [requests, filter]);
 
-  const pendingCount = requests.filter(r => r.status === 'pending').length;
-  const mineCount    = requests.filter(r => !!r.my_offer_id).length;
-  const chatsCount   = requests.filter(r => !!r.my_offer_id).length;
+  const { pendingCount, mineCount, chatsCount } = useMemo(() => {
+    let pending = 0;
+    let mine = 0;
+    for (const r of requests) {
+      if (r.status === 'pending') pending += 1;
+      if (r.my_offer_id) mine += 1;
+    }
+    return { pendingCount: pending, mineCount: mine, chatsCount: mine };
+  }, [requests]);
 
-  const FILTERS: { key: FilterKey; label: string; count?: number }[] = [
-    { key: 'chats',    label: t('requests.filter.chats')    || '💬 My Chats', count: chatsCount },
-    { key: 'all',      label: t('requests.filter.all')      || 'All' },
-    { key: 'pending',  label: t('requests.filter.pending')  || 'Pending',     count: pendingCount },
-    { key: 'mine',     label: t('requests.filter.mine')     || 'Mine',        count: mineCount    },
-    { key: 'answered', label: t('requests.filter.answered') || 'Answered' },
-  ];
+  const FILTERS: { key: FilterKey; label: string; count?: number }[] = useMemo(
+    () => [
+      { key: 'chats', label: t('requests.filter.chats') || '💬 My Chats', count: chatsCount },
+      { key: 'all', label: t('requests.filter.all') || 'All' },
+      { key: 'pending', label: t('requests.filter.pending') || 'Pending', count: pendingCount },
+      { key: 'mine', label: t('requests.filter.mine') || 'Mine', count: mineCount },
+      { key: 'answered', label: t('requests.filter.answered') || 'Answered' },
+    ],
+    [t, chatsCount, pendingCount, mineCount]
+  );
+
+  const handleOfferSent = useCallback(
+    (offerId?: string, request?: Request) => {
+      void load({ blocking: false });
+      Alert.alert(
+        t('requests.offerSent.title') || '✅ Offer sent!',
+        t('requests.offerSent.msg') || 'The patient will be notified.',
+        [
+          {
+            text: t('requests.card.startMessaging') || 'Start Messaging',
+            onPress: () => {
+              if (request) void handleLeadOfferChatPress(offerId || request.my_offer_id, request);
+            },
+          },
+          { text: t('common.ok') || 'OK', style: 'cancel' },
+        ],
+      );
+    },
+    [load, t, handleLeadOfferChatPress],
+  );
+
+  const renderRequest = useCallback(
+    ({ item }: { item: DoctorRequestRow }) => (
+      <RequestCard
+        req={item}
+        token={token}
+        isChatsFilter={filter === 'chats'}
+        onOfferSent={handleOfferSent}
+        onLeadOfferChat={handleLeadOfferChatPress}
+        onOpenEnrolledPatientMessaging={openEnrolledPatientMessaging}
+        onEnrolledOfferChatInfoPress={alertEnrolledNoOfferChat}
+        startingChat={startingChatRequestId === item.id}
+      />
+    ),
+    [
+      token,
+      startingChatRequestId,
+      filter,
+      handleOfferSent,
+      handleLeadOfferChatPress,
+      openEnrolledPatientMessaging,
+      alertEnrolledNoOfferChat,
+    ]
+  );
+
+  const keyExtractor = useCallback((item: DoctorRequestRow) => item.id, []);
+
+  const showSkeleton = loading && !hasDisplayedContentRef.current && filtered.length === 0;
 
   return (
-    <SafeAreaView style={ds.safe}>
+    <SafeAreaView
+      style={ds.safe}
+      onLayout={() => markFirstPaint(hasDisplayedContentRef.current ? 'cache' : 'shell')}
+    >
 
       {/* Header */}
       <View style={ds.header}>
@@ -904,58 +1023,52 @@ export default function DoctorRequestsScreen() {
         ))}
       </ScrollView>
 
-      {loading ? (
-        <View style={ds.center}>
-          <ActivityIndicator size="large" color="#2563EB" />
-        </View>
+      {showSkeleton ? (
+        <ScrollView style={ds.scroll} contentContainerStyle={ds.content}>
+          {SKELETON_KEYS.map((k) => (
+            <RequestCardSkeleton key={k} />
+          ))}
+        </ScrollView>
       ) : (
-        <ScrollView
+        <FlatList
           style={ds.scroll}
           contentContainerStyle={ds.content}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        >
-          {error && (
-            <View style={ds.errorBox}>
-              <Text style={ds.errorTxt}>⚠️ {error}</Text>
-              <TouchableOpacity onPress={() => { setLoading(true); load(); }}>
-                <Text style={ds.retryTxt}>{t('requests.retry') || 'Retry'}</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {!error && filtered.length === 0 && (
-            <View style={ds.emptyBox}>
-              <Text style={ds.emptyIcon}>📭</Text>
-              <Text style={ds.emptyTitle}>{t('requests.empty.title') || 'No requests here'}</Text>
-              <Text style={ds.emptySub}>
-                {filter === 'mine'
-                  ? (t('requests.empty.myOffers') || 'You have not sent any offers yet. Use Pending to reply to requests.')
-                  : (t('requests.empty.pull') || 'Pull down to refresh.')}
-              </Text>
-            </View>
-          )}
-
-          {filtered.map(req => (
-            <RequestCard
-              key={req.id}
-              req={req}
-              token={user?.token}
-              isChatsFilter={filter === 'chats'}
-              onOfferSent={() => {
-                load();
-                Alert.alert(
-                  t('requests.offerSent.title') || '✅ Offer sent!',
-                  t('requests.offerSent.msg')   || 'The patient will be notified.'
-                );
-              }}
-              onLeadOfferChat={handleLeadOfferChatPress}
-              onOpenEnrolledPatientMessaging={openEnrolledPatientMessaging}
-              onEnrolledOfferChatInfoPress={alertEnrolledNoOfferChat}
-            />
-          ))}
-
-          <View style={{ height: 40 }} />
-        </ScrollView>
+          data={filtered}
+          keyExtractor={keyExtractor}
+          renderItem={renderRequest}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2563EB" />
+          }
+          removeClippedSubviews
+          maxToRenderPerBatch={8}
+          windowSize={7}
+          initialNumToRender={6}
+          ListHeaderComponent={
+            error ? (
+              <View style={ds.errorBox}>
+                <Text style={ds.errorTxt}>⚠️ {error}</Text>
+                <TouchableOpacity onPress={() => void load({ blocking: false })}>
+                  <Text style={ds.retryTxt}>{t('requests.retry') || 'Retry'}</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null
+          }
+          ListEmptyComponent={
+            !error ? (
+              <View style={ds.emptyBox}>
+                <Text style={ds.emptyIcon}>📭</Text>
+                <Text style={ds.emptyTitle}>{t('requests.empty.title') || 'No requests here'}</Text>
+                <Text style={ds.emptySub}>
+                  {filter === 'mine'
+                    ? (t('requests.empty.myOffers') ||
+                      'You have not sent any offers yet. Use Pending to reply to requests.')
+                    : (t('requests.empty.pull') || 'Pull down to refresh.')}
+                </Text>
+              </View>
+            ) : null
+          }
+          ListFooterComponent={<View style={{ height: 40 }} />}
+        />
       )}
     </SafeAreaView>
   );
@@ -1074,6 +1187,16 @@ const cs = StyleSheet.create({
   },
   chatBtnFullUnread: { backgroundColor: '#DC2626' }, // red when there are unread messages
   chatBtnFullText: { fontSize: 14, fontWeight: '800', color: '#fff', letterSpacing: 0.2 },
+  startMessagingPendingBtn: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#93C5FD',
+    paddingVertical: 11,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  startMessagingPendingTxt: { fontSize: 14, fontWeight: '800', color: '#1D4ED8' },
   // Unread message badge (top-right of card, replaces the status dot)
   unreadBadge: {
     backgroundColor: '#DC2626', borderRadius: 10, minWidth: 20, height: 20,
@@ -1133,6 +1256,28 @@ const cs = StyleSheet.create({
   },
   messagesPassivatedTxt: { fontSize: 13, fontWeight: '700', color: '#6B7280' },
   messagesPassivatedSub: { fontSize: 11, color: '#9CA3AF', marginTop: 4, textAlign: 'center' },
+  skeletonCard: { borderLeftColor: '#E5E7EB', opacity: 0.85 },
+  skeletonLineWide: {
+    height: 14,
+    borderRadius: 6,
+    backgroundColor: '#E5E7EB',
+    marginBottom: 10,
+    width: '55%',
+  },
+  skeletonLine: {
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#E5E7EB',
+    marginBottom: 8,
+    width: '90%',
+  },
+  skeletonThumbRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  skeletonThumb: {
+    width: 72,
+    height: 72,
+    borderRadius: 8,
+    backgroundColor: '#E5E7EB',
+  },
 });
 
 const ods = StyleSheet.create({

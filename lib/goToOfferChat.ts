@@ -13,8 +13,8 @@ export type GoToOfferChatParams = {
    */
   leadThreadIsLead?: unknown;
   /**
-   * Doctor Incoming Requests: only navigate when `normalizeLeadThreadIsLead(leadThreadIsLead) === true`.
-   * `false` → enrolled alert; unknown → refresh / Patients hint (never opens deprecated offer chat).
+   * Doctor Incoming Requests: block offer-chat only when lead is explicitly `false` (enrolled).
+   * `true` or unknown (`null`) → lead-phase offer chat (foreign leads often have no thread row yet).
    */
   requireExplicitLeadThread?: boolean;
 };
@@ -51,16 +51,8 @@ export function goToOfferChat(
     "This patient is now part of your clinic. Continue messaging from the Patients page.";
 
   if (p.requireExplicitLeadThread) {
-    if (leadNorm !== true) {
-      if (leadNorm === false) {
-        Alert.alert(enrolledTitle, enrolledBody, [{ text: "OK" }]);
-      } else {
-        Alert.alert(
-          "Unable to open request chat",
-          "Pull to refresh the list. If this patient already joined your clinic, open them from the Patients page.",
-          [{ text: "OK" }],
-        );
-      }
+    if (leadNorm === false) {
+      Alert.alert(enrolledTitle, enrolledBody, [{ text: "OK" }]);
       return;
     }
   } else if (leadNorm === false) {
