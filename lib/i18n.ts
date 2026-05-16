@@ -1283,6 +1283,11 @@ export const translations: Record<Language, Record<string, string>> = {
     "requests.offerDetail.enrolledNoPayloadHint":
       "Bu satır yalnızca geçmiş bağlam içindir. Mesajlaşmaya Hastalar → 💬 Mesajlar üzerinden devam edin.",
     "requests.enrolled.openPatientsList": "Hastalar sayfasını aç",
+    "requests.enrolled.convertedBadge": "Klinik hastasına dönüştü",
+    "requests.enrolled.continueFromPatientsTab":
+      "Hasta kliniğe katıldı — mesajlaşmaya yalnızca Hastalar sekmesinden devam edin.",
+    "requests.enrolled.openPatientChatSecondary": "Hasta sohbetini aç",
+    "requests.enrolled.viewArchivedOffer": "Arşivlenmiş teklifi görüntüle",
     "requests.enrolled.messagesBlockedTitle": "Hasta kliniğe katıldı",
     "requests.enrolled.messagesBlockedBody": "Bu hasta artık kliniğinizin bir parçasıdır. Mesajlaşmaya Hastalar sayfasından devam edin.",
     "requests.enrolled.messagesPassivatedHint": "Eski talep sohbeti kapalı — bilgi için dokunun",
@@ -1353,7 +1358,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "doctor.inbox.enrolledThreadHint": "Klinik üyesi — paylaşımlı bakış: Hastalar → 💬 Mesajlar.",
     "doctor.inbox.enrolledStatusLine": "Klinik hastası — aynı konuşma Hastalar → Mesajlar ile sürer.",
     "doctor.inbox.enrolledRequestsRibbon":
-      "Hasta kliniğe katıldı. Mesajlaşmaya Hastalar bölümünden devam edin; talep üzerindeki Mesajlar kapalıdır.",
+      "Klinik hastasına dönüştü — yazışma yalnızca Hastalar → Mesajlar üzerinden.",
     "doctor.inbox.enrolledNoticeTitle": "Hasta kliniğe katıldı",
     "doctor.inbox.enrolledNoticeBody": "Bu hasta kliniğinize katıldı. Yazışmaya Hastalar sayfasındaki satırdaki 💬 Mesajlar düğmesinden devam edin. Konuşma kaybolmadı; paylaşımlı bakış için giriş noktası oraya taşındı.",
     "doctor.inbox.openPatientChatCta": "Hasta sohbetini aç",
@@ -2823,6 +2828,11 @@ export const translations: Record<Language, Record<string, string>> = {
     "requests.offerDetail.enrolledNoPayloadHint":
       "This row is historical context only. Continue messaging from Patients → Messages.",
     "requests.enrolled.openPatientsList": "Open Patients",
+    "requests.enrolled.convertedBadge": "Converted to patient",
+    "requests.enrolled.continueFromPatientsTab":
+      "Patient joined your clinic — continue messaging only from the Patients tab.",
+    "requests.enrolled.openPatientChatSecondary": "Open patient chat",
+    "requests.enrolled.viewArchivedOffer": "View archived offer",
     "requests.enrolled.messagesBlockedTitle": "Patient joined clinic",
     "requests.enrolled.messagesBlockedBody": "This patient is now part of your clinic. Continue messaging from the Patients page.",
     "requests.enrolled.messagesPassivatedHint": "Request chat is closed — tap for info",
@@ -2893,7 +2903,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "doctor.inbox.enrolledThreadHint": "Clinic member — shared care: Patients → 💬 Messages.",
     "doctor.inbox.enrolledStatusLine": "Clinic patient — same conversation continues under Patients",
     "doctor.inbox.enrolledRequestsRibbon":
-      "This patient joined your clinic. Continue under Patients; Messages on this request is disabled.",
+      "Converted to clinic patient — reply only from Patients → Messages.",
     "doctor.inbox.enrolledNoticeTitle": "This patient joined your clinic",
     "doctor.inbox.enrolledNoticeBody": "This patient has joined your clinic. Continue messaging from the Messages button on your Patients page. The conversation did not disappear — it graduated into the patient workspace on the same thread.",
     "doctor.inbox.openPatientChatCta": "Open patient chat",
@@ -4356,6 +4366,11 @@ export const translations: Record<Language, Record<string, string>> = {
     "requests.offerDetail.enrolledNoPayloadHint":
       "ეს სტრიქონი მხოლოდ ისტორიისთვისაა. საუბარი განაგრძეთ პაციენტები → შეტყობინებები.",
     "requests.enrolled.openPatientsList": "პაციენტების გვერდი",
+    "requests.enrolled.convertedBadge": "კლინიკის პაციენტად გადაყვანილი",
+    "requests.enrolled.continueFromPatientsTab":
+      "პაციენტი შეუერთდა კლინიკას — საუბარი მხოლოდ პაციენტების ჩანართიდან განაგრძეთ.",
+    "requests.enrolled.openPatientChatSecondary": "პაციენტის ჩატის გახსნა",
+    "requests.enrolled.viewArchivedOffer": "დაარქივებული შეთავაზების ნახვა",
     "requests.enrolled.messagesBlockedTitle": "პაციენტი შეუერთდა კლინიკას",
     "requests.enrolled.messagesBlockedBody": "ეს პაციენტი უკვე თქვენი კლინიკის ნაწილია. საუბარი განაგრძეთ პაციენტების გვერდიდან.",
     "requests.enrolled.messagesPassivatedHint": "მოთხოვნის ჩატი დახურულია — ინფოზე შეეხეთ",

@@ -172,28 +172,34 @@ function OfferDetailModal({
             {o?.note ? line(t('requests.offerDetail.note') || 'Note', o.note) : null}
             {enrolled ? (
               <View style={ods.enrolledBox}>
-                <Text style={ods.enrolledTitle}>{t('doctor.inbox.enrolledNoticeTitle')}</Text>
-                <Text style={ods.enrolledBody}>{t('doctor.inbox.enrolledNoticeBody')}</Text>
+                <View style={ods.convertedBadge}>
+                  <Text style={ods.convertedBadgeTxt}>
+                    {t('requests.enrolled.convertedBadge')}
+                  </Text>
+                </View>
+                <Text style={ods.enrolledGuidance}>{t('requests.enrolled.continueFromPatientsTab')}</Text>
                 <TouchableOpacity
                   style={ods.primaryBtn}
-                  onPress={() => {
-                    onClose();
-                    onOpenEnrolledPatientMessaging();
-                  }}
-                  activeOpacity={0.85}
-                >
-                  <Text style={ods.primaryBtnTxt}>{t('doctor.inbox.openPatientChatCta')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={ods.secondaryBtn}
                   onPress={() => {
                     onClose();
                     router.push('/doctor/patients');
                   }}
                   activeOpacity={0.85}
                 >
-                  <Text style={ods.secondaryBtnTxt}>
+                  <Text style={ods.primaryBtnTxt}>
                     {t('requests.enrolled.openPatientsList') || 'Open Patients'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={ods.secondaryBtn}
+                  onPress={() => {
+                    onClose();
+                    onOpenEnrolledPatientMessaging();
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={ods.secondaryBtnTxt}>
+                    {t('requests.enrolled.openPatientChatSecondary')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -470,6 +476,7 @@ const RequestCard = memo(function RequestCard({
   isChatsFilter?: boolean;
 }) {
   const { t } = useLanguage();
+  const router = useRouter();
 
   const [preset, setPreset] = useState<typeof QUICK[0] | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -503,37 +510,34 @@ const RequestCard = memo(function RequestCard({
   return (
     <View style={[
       cs.card,
-      isPending && !hasMyOffer && cs.cardUrgent,
+      enrolledShared && cs.cardEnrolled,
+      isPending && !hasMyOffer && !enrolledShared && cs.cardUrgent,
       hasUnread && cs.cardUnread,
     ]}>
       {enrolledShared && (
         <View style={cs.enrolledRibbon} accessibilityRole="text">
-          <Text style={cs.enrolledRibbonText}>
-            {t('doctor.inbox.enrolledRequestsRibbon') !== 'doctor.inbox.enrolledRequestsRibbon'
-              ? t('doctor.inbox.enrolledRequestsRibbon')
-              : `${t('doctor.inbox.enrolledNoticeTitle')}. ${t('doctor.inbox.enrolledNoticeBody')}`}
-          </Text>
+          <Text style={cs.enrolledRibbonText}>{t('doctor.inbox.enrolledRequestsRibbon')}</Text>
         </View>
       )}
 
       {/* Top row */}
       <View style={cs.topRow}>
         <View style={cs.topLeft}>
-          {req.is_assigned_to_me && (
+          {enrolledShared ? (
+            <View style={cs.convertedBadge}>
+              <Text style={cs.convertedBadgeTxt}>{t('requests.enrolled.convertedBadge')}</Text>
+            </View>
+          ) : req.is_assigned_to_me ? (
             <View style={cs.assignedBadge}>
               <Text style={cs.assignedText}>{t('requests.card.assignedToMe') || '📌 Assigned to me'}</Text>
             </View>
-          )}
+          ) : null}
           <Text style={cs.patientName}>👤 {req.patient_name}</Text>
         </View>
         <View style={cs.topRight}>
           <Text style={cs.ts}>{fmtTs(req.created_at, t)}</Text>
           {enrolledShared ? (
-            <View style={cs.enrolledTopChip}>
-              <Text style={cs.enrolledTopChipTxt} numberOfLines={2}>
-                {t('doctor.inbox.enrolledStatusLine')}
-              </Text>
-            </View>
+            <View style={cs.convertedStatusDot} accessibilityLabel={t('requests.enrolled.convertedBadge')} />
           ) : unreadN > 0 ? (
             <View style={cs.unreadBadge}>
               <Text style={cs.unreadBadgeText}>{unreadN > 99 ? '99+' : unreadN}</Text>
@@ -652,39 +656,37 @@ const RequestCard = memo(function RequestCard({
         </>
       )}
 
-      {/* After enrollment: offer thread is read-only context — canonical chat is under Patients */}
-      {hasMyOffer && enrolledShared && (
+      {/* After enrollment: no request-thread messaging — Patients tab is the only home */}
+      {enrolledShared && (
         <View style={cs.enrolledBanner}>
-          <Text style={cs.enrolledBannerTitle}>{t('doctor.inbox.enrolledNoticeTitle')}</Text>
-          <Text style={cs.enrolledBannerBody}>{t('doctor.inbox.enrolledNoticeBody')}</Text>
+          <Text style={cs.enrolledGuidance}>{t('requests.enrolled.continueFromPatientsTab')}</Text>
           <TouchableOpacity
-            style={cs.enrolledPrimaryBtn}
-            onPress={() => onOpenEnrolledPatientMessaging(req)}
+            style={cs.enrolledPatientsBtn}
+            onPress={() => router.push('/doctor/patients')}
             activeOpacity={0.85}
           >
-            <Text style={cs.enrolledPrimaryBtnTxt}>{t('doctor.inbox.openPatientChatCta')}</Text>
+            <Text style={cs.enrolledPatientsBtnTxt}>
+              {t('requests.enrolled.openPatientsList') || 'Open Patients'}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={cs.messagesPassivatedBtn}
+            style={cs.enrolledSecondaryLink}
             onPress={() => onOpenEnrolledPatientMessaging(req)}
             activeOpacity={0.75}
             accessibilityRole="button"
-            accessibilityLabel={t('requests.card.messages') || 'Messages'}
+            accessibilityLabel={t('requests.enrolled.openPatientChatSecondary')}
           >
-            <Text style={cs.messagesPassivatedTxt}>
-              💬 {t('requests.card.messages') || 'Messages'}
-            </Text>
-            <Text style={cs.messagesPassivatedSub}>
-              {t('requests.card.startMessaging') !== 'requests.card.startMessaging'
-                ? t('requests.card.startMessaging')
-                : 'Mesajlaşmaya Başla'}
+            <Text style={cs.enrolledSecondaryLinkTxt}>
+              {t('requests.enrolled.openPatientChatSecondary')}
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity style={cs.offerDetailLink} onPress={() => setOfferDetailOpen(true)} activeOpacity={0.75}>
-            <Text style={cs.offerDetailLinkText}>
-              📋 {t('requests.card.viewMyOffer') || 'View my offer'}
-            </Text>
-          </TouchableOpacity>
+          {hasMyOffer ? (
+            <TouchableOpacity style={cs.archivedOfferLink} onPress={() => setOfferDetailOpen(true)} activeOpacity={0.75}>
+              <Text style={cs.archivedOfferLinkText}>
+                📋 {t('requests.enrolled.viewArchivedOffer')}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       )}
 
@@ -943,10 +945,11 @@ export default function DoctorRequestsScreen() {
 
   const filtered = useMemo(() => {
     const rows = requests.filter((r) => {
+      const enrolled = isEnrolledSharedCare({ leadThreadIsLead: r.lead_thread_is_lead });
       if (filter === 'mine') return !!r.my_offer_id;
       if (filter === 'pending') return r.status === 'pending';
       if (filter === 'answered') return r.status === 'answered';
-      if (filter === 'chats') return !!r.my_offer_id;
+      if (filter === 'chats') return !!r.my_offer_id && !enrolled;
       return true;
     });
     return sortDoctorRequestsForInbox(rows);
@@ -955,15 +958,25 @@ export default function DoctorRequestsScreen() {
   const { pendingCount, mineCount, chatsCount, chatsUnreadCount } = useMemo(() => {
     let pending = 0;
     let mine = 0;
+    let activeChats = 0;
     let chatsUnread = 0;
     for (const r of requests) {
+      const enrolled = isEnrolledSharedCare({ leadThreadIsLead: r.lead_thread_is_lead });
       if (r.status === 'pending') pending += 1;
       if (r.my_offer_id) {
         mine += 1;
-        if ((r.unread_count ?? 0) > 0) chatsUnread += 1;
+        if (!enrolled) {
+          activeChats += 1;
+          if ((r.unread_count ?? 0) > 0) chatsUnread += 1;
+        }
       }
     }
-    return { pendingCount: pending, mineCount: mine, chatsCount: mine, chatsUnreadCount: chatsUnread };
+    return {
+      pendingCount: pending,
+      mineCount: mine,
+      chatsCount: activeChats,
+      chatsUnreadCount: chatsUnread,
+    };
   }, [requests]);
 
   const FILTERS: { key: FilterKey; label: string; count?: number }[] = useMemo(
@@ -1174,6 +1187,13 @@ const cs = StyleSheet.create({
   },
   cardUrgent: { borderLeftColor: '#F59E0B' },
   cardUnread: { borderLeftColor: '#DC2626', backgroundColor: '#FFFBFB' },
+  cardEnrolled: {
+    borderLeftColor: '#7C3AED',
+    backgroundColor: '#FAFAFF',
+    borderWidth: 1,
+    borderColor: '#EDE9FE',
+    borderLeftWidth: 4,
+  },
   topRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
   topLeft: { flex: 1, gap: 3 },
   topRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -1269,23 +1289,30 @@ const cs = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 10,
     borderRadius: 10,
-    backgroundColor: '#FEF3C7',
+    backgroundColor: '#EDE9FE',
     borderWidth: 1,
-    borderColor: '#FCD34D',
-    borderLeftWidth: 4,
-    borderLeftColor: '#D97706',
+    borderColor: '#C4B5FD',
   },
-  enrolledRibbonText: { fontSize: 13, fontWeight: '700', color: '#92400E', lineHeight: 18 },
-  enrolledTopChip: {
-    maxWidth: 140,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+  enrolledRibbonText: { fontSize: 12, fontWeight: '700', color: '#5B21B6', lineHeight: 17 },
+  convertedBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#EDE9FE',
     borderRadius: 8,
-    backgroundColor: '#F5F3FF',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderWidth: 1,
+    borderColor: '#C4B5FD',
+    marginBottom: 4,
+  },
+  convertedBadgeTxt: { fontSize: 11, fontWeight: '800', color: '#5B21B6', letterSpacing: 0.2 },
+  convertedStatusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#7C3AED',
+    borderWidth: 2,
     borderColor: '#DDD6FE',
   },
-  enrolledTopChipTxt: { fontSize: 10, fontWeight: '700', color: '#5b21b6' },
   enrolledBanner: {
     marginTop: 10,
     padding: 12,
@@ -1294,27 +1321,33 @@ const cs = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#DDD6FE',
   },
-  enrolledBannerTitle: { fontSize: 14, fontWeight: '800', color: '#4c1d95', marginBottom: 6 },
-  enrolledBannerBody: { fontSize: 13, lineHeight: 19, color: '#5b21b6', fontWeight: '500', marginBottom: 12 },
-  enrolledPrimaryBtn: {
-    backgroundColor: '#2563EB',
+  enrolledGuidance: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#4C1D95',
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  enrolledPatientsBtn: {
+    backgroundColor: '#7C3AED',
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
   },
-  enrolledPrimaryBtnTxt: { fontSize: 14, fontWeight: '800', color: '#fff' },
-  messagesPassivatedBtn: {
+  enrolledPatientsBtnTxt: { fontSize: 14, fontWeight: '800', color: '#fff' },
+  enrolledSecondaryLink: {
     marginTop: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    paddingVertical: 8,
     alignItems: 'center',
   },
-  messagesPassivatedTxt: { fontSize: 13, fontWeight: '700', color: '#6B7280' },
-  messagesPassivatedSub: { fontSize: 11, color: '#9CA3AF', marginTop: 4, textAlign: 'center' },
+  enrolledSecondaryLinkTxt: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2563EB',
+    textDecorationLine: 'underline',
+  },
+  archivedOfferLink: { alignItems: 'center', paddingVertical: 8, marginTop: 4 },
+  archivedOfferLinkText: { fontSize: 12, fontWeight: '600', color: '#6B7280' },
   skeletonCard: { borderLeftColor: '#E5E7EB', opacity: 0.85 },
   skeletonLineWide: {
     height: 14,
@@ -1370,8 +1403,24 @@ const ods = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#DDD6FE',
   },
-  enrolledTitle: { fontSize: 14, fontWeight: '800', color: '#4c1d95', marginBottom: 6 },
-  enrolledBody: { fontSize: 13, lineHeight: 19, color: '#5b21b6', fontWeight: '500', marginBottom: 10 },
+  convertedBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#EDE9FE',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#C4B5FD',
+    marginBottom: 10,
+  },
+  convertedBadgeTxt: { fontSize: 11, fontWeight: '800', color: '#5B21B6' },
+  enrolledGuidance: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#4C1D95',
+    fontWeight: '600',
+    marginBottom: 14,
+  },
   secondaryBtn: {
     marginTop: 8,
     borderRadius: 10,
