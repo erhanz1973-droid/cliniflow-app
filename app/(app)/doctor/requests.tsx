@@ -12,6 +12,7 @@ import { useLanguage } from '../../../lib/language-context';
 import { API_BASE, setAuthToken } from '../../../lib/api';
 import { isEnrolledSharedCare } from '../../../lib/canonicalChatTarget';
 import { startIncomingRequestChat } from '../../../lib/incomingRequestStartChat';
+import { openDoctorPatientChat } from '../../../lib/navigateCanonicalChat';
 import { invalidateDoctorThreadSummaryCacheOnly } from '../../../lib/doctorMessaging';
 import { doctorPatientPrimaryKey } from '../../../lib/doctorPatientId';
 import {
@@ -455,7 +456,6 @@ const RequestCard = memo(function RequestCard({
   onOfferSent,
   onLeadOfferChat,
   onOpenEnrolledPatientMessaging,
-  onEnrolledOfferChatInfoPress,
   isChatsFilter,
   startingChat,
 }: {
@@ -467,8 +467,6 @@ const RequestCard = memo(function RequestCard({
   startingChat?: boolean;
   /** Canonical enrolled / shared-care messaging (Patients → patient-chat). */
   onOpenEnrolledPatientMessaging: (request: Request) => void;
-  /** Enrolled: “Messages” affordance — Alert only; must not navigate to offer-chat. */
-  onEnrolledOfferChatInfoPress: () => void;
   isChatsFilter?: boolean;
 }) {
   const { t } = useLanguage();
@@ -668,7 +666,7 @@ const RequestCard = memo(function RequestCard({
           </TouchableOpacity>
           <TouchableOpacity
             style={cs.messagesPassivatedBtn}
-            onPress={onEnrolledOfferChatInfoPress}
+            onPress={() => onOpenEnrolledPatientMessaging(req)}
             activeOpacity={0.75}
             accessibilityRole="button"
             accessibilityLabel={t('requests.card.messages') || 'Messages'}
@@ -677,9 +675,9 @@ const RequestCard = memo(function RequestCard({
               💬 {t('requests.card.messages') || 'Messages'}
             </Text>
             <Text style={cs.messagesPassivatedSub}>
-              {t('requests.enrolled.messagesPassivatedHint') !== 'requests.enrolled.messagesPassivatedHint'
-                ? t('requests.enrolled.messagesPassivatedHint')
-                : 'Request chat closed — tap for info'}
+              {t('requests.card.startMessaging') !== 'requests.card.startMessaging'
+                ? t('requests.card.startMessaging')
+                : 'Mesajlaşmaya Başla'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity style={cs.offerDetailLink} onPress={() => setOfferDetailOpen(true)} activeOpacity={0.75}>
@@ -890,34 +888,21 @@ export default function DoctorRequestsScreen() {
     void load({ blocking: false });
   }, [load]);
 
-  /** Enrolled (`lead_thread_is_lead === false`): never open offer-chat — navigation guard + copy. */
-  const alertEnrolledNoOfferChat = useCallback(() => {
-    const titleKey = 'requests.enrolled.messagesBlockedTitle';
-    const bodyKey = 'requests.enrolled.messagesBlockedBody';
-    Alert.alert(
-      t(titleKey) !== titleKey ? t(titleKey) : 'Patient joined clinic',
-      t(bodyKey) !== bodyKey
-        ? t(bodyKey)
-        : 'This patient is now part of your clinic. Continue messaging from the Patients page.',
-      [{ text: t('common.ok') !== 'common.ok' ? t('common.ok') : 'OK' }],
-    );
-  }, [t]);
-
   const openEnrolledPatientMessaging = useCallback(
     (req: Request) => {
       invalidateDoctorThreadSummaryCacheOnly();
-      const pk = doctorPatientPrimaryKey({ id: req.patient_id ?? undefined });
-      if (pk) {
-        router.push({
-          pathname: '/doctor/patient-chat',
-          params: {
-            patientId: pk,
-            patientName: encodeURIComponent(req.patient_name || 'Patient'),
-          },
-        });
-      } else {
-        router.push('/doctor/patients');
-      }
+      openDoctorPatientChat(
+        router,
+        {
+          patientId: req.patient_id,
+          patientName: req.patient_name || 'Patient',
+          offerId: req.my_offer_id,
+          requestId: req.id,
+          leadThreadIsLead: false,
+          enrolled: true,
+        },
+        { source: 'doctor/requests-enrolled' },
+      );
     },
     [router],
   );
@@ -945,9 +930,13 @@ export default function DoctorRequestsScreen() {
           leadThreadIsLead: req.lead_thread_is_lead ?? req.threadIsLead,
           preferredTreatment: req.preferred_treatment,
         },
-      }).finally(() => {
-        setStartingChatRequestId(null);
-      });
+      })
+        .then((result) => {
+          if (result.cacheRows) setRequests(result.cacheRows);
+        })
+        .finally(() => {
+          setStartingChatRequestId(null);
+        });
     },
     [token, router, t, startingChatRequestId],
   );
@@ -1021,7 +1010,6 @@ export default function DoctorRequestsScreen() {
         onOfferSent={handleOfferSent}
         onLeadOfferChat={handleLeadOfferChatPress}
         onOpenEnrolledPatientMessaging={openEnrolledPatientMessaging}
-        onEnrolledOfferChatInfoPress={alertEnrolledNoOfferChat}
         startingChat={startingChatRequestId === item.id}
       />
     ),
@@ -1032,7 +1020,6 @@ export default function DoctorRequestsScreen() {
       handleOfferSent,
       handleLeadOfferChatPress,
       openEnrolledPatientMessaging,
-      alertEnrolledNoOfferChat,
     ]
   );
 

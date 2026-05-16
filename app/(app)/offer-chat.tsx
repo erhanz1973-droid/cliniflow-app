@@ -42,6 +42,9 @@ import {
   setGlobalOfferChatOpen,
 } from  '../../hooks/chatSessionGlobal';
 import { clearDoctorRequestUnreadByOfferId } from '../../lib/doctorRequestsUnread';
+import { openDoctorPatientChat } from '../../lib/navigateCanonicalChat';
+import { logCanonicalSendAttempt } from '../../lib/canonicalChatDiagnostics';
+import { fetchOfferMessagingMeta } from '../../lib/offerMessagingMeta';
 import { useSupabaseOfferMessages } from  '../../hooks/useSupabaseOfferMessages';
 import { appendMappedChatMessage, mergeSbMessages } from  '../../hooks/chatMessageUtils';
 import { playInAppNewMessageSoundDebouncedForThread } from '../../lib/playInAppMessageSound';
@@ -330,10 +333,83 @@ export default function OfferChatScreen() {
   const treatmentType = paramString(routeParams.treatmentType);
   const enrolledSharedCareParam = normalizeRouteParam(routeParams.enrolledSharedCare);
   const patientChatPatientIdParam = normalizeRouteParam(routeParams.patientChatPatientId);
+  const offerIdStr = currentOfferId == null ? '' : String(currentOfferId).trim();
 
-  const isDoctorEnrolledOfferReadonly =
+  const paramSaysArchived =
     user?.type === 'doctor' &&
     (enrolledSharedCareParam === '1' || enrolledSharedCareParam.toLowerCase() === 'true');
+
+  /** pending → probing server; archived → no writes; writable → lead-phase offer thread */
+  const [offerWriteGate, setOfferWriteGate] = useState<'pending' | 'writable' | 'archived'>(
+    paramSaysArchived ? 'archived' : user?.type === 'doctor' ? 'pending' : 'writable',
+  );
+
+  const isDoctorEnrolledOfferReadonly =
+    user?.type === 'doctor' && (paramSaysArchived || offerWriteGate === 'archived');
+
+  const canSendOfferMessages = user?.type !== 'doctor' || offerWriteGate === 'writable';
+
+  const enrolledRedirectDoneRef = useRef(false);
+
+  /** After enrollment, offer-chat is archived — probe server, block sends, redirect to patient-chat. */
+  useEffect(() => {
+    if (user?.type !== 'doctor' || !offerIdStr) {
+      if (user?.type !== 'doctor') setOfferWriteGate('writable');
+      return;
+    }
+
+    const redirectToPatientChat = (patientId: string) => {
+      if (enrolledRedirectDoneRef.current) return;
+      enrolledRedirectDoneRef.current = true;
+      setOfferWriteGate('archived');
+      openDoctorPatientChat(
+        router,
+        {
+          patientId,
+          patientName: otherName || 'Patient',
+          offerId: offerIdStr,
+          leadThreadIsLead: false,
+          enrolled: true,
+        },
+        { source: 'offer-chat-enrolled-redirect', useReplace: true },
+      );
+    };
+
+    if (paramSaysArchived && patientChatPatientIdParam) {
+      redirectToPatientChat(patientChatPatientIdParam);
+      return;
+    }
+
+    if (!user?.token) {
+      setOfferWriteGate('writable');
+      return;
+    }
+
+    let cancelled = false;
+    setOfferWriteGate('pending');
+    void fetchOfferMessagingMeta(user.token, offerIdStr).then((meta) => {
+      if (cancelled) return;
+      if (meta?.enrolled) {
+        setOfferWriteGate('archived');
+        const pid = String(meta.patient_id || patientChatPatientIdParam || '').trim();
+        if (pid) redirectToPatientChat(pid);
+        return;
+      }
+      setOfferWriteGate('writable');
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    user?.type,
+    user?.token,
+    offerIdStr,
+    paramSaysArchived,
+    patientChatPatientIdParam,
+    otherName,
+    router,
+  ]);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -356,7 +432,6 @@ export default function OfferChatScreen() {
   );
 
   // ── Supabase: TEK KAYNAK (yapılandırılmışsa REST GET atlanır) ──────────────
-  const offerIdStr = currentOfferId == null ? '' : String(currentOfferId).trim();
   const {
     messages: sbOfferMessages,
     ready: sbOfferReady,
@@ -690,7 +765,7 @@ export default function OfferChatScreen() {
     fileName: string,
     attachmentType: 'image' | 'xray' | 'document'
   ): Promise<string> => {
-    if (isDoctorEnrolledOfferReadonly) {
+    if (!canSendOfferMessages || isDoctorEnrolledOfferReadonly) {
       throw new Error('read_only');
     }
     const formData = new FormData();
@@ -714,11 +789,30 @@ export default function OfferChatScreen() {
     attachment_url?: string;
     attachment_type?: 'image' | 'xray' | 'document';
   }) => {
-    if (isDoctorEnrolledOfferReadonly) return;
+    if (!canSendOfferMessages || isDoctorEnrolledOfferReadonly) {
+      if (user?.type === 'doctor' && offerWriteGate === 'pending') {
+        Alert.alert(
+          t('common.error') || 'Error',
+          t('requests.chat.resolvingRoute') !== 'requests.chat.resolvingRoute'
+            ? t('requests.chat.resolvingRoute')
+            : 'Checking which conversation to use…',
+        );
+      }
+      return;
+    }
     if (!currentOfferId) return;
     if (!user?.token || !String(currentOfferId).trim()) return;
 
     const scope = String(currentOfferId).trim();
+    logCanonicalSendAttempt({
+      source: 'offer-chat',
+      canonical_chat_type: 'offer',
+      resolved_thread_kind: 'offer_chat',
+      resolved_patient_id: patientChatPatientIdParam || null,
+      resolved_offer_id: scope,
+      resolved_offer_archived: isDoctorEnrolledOfferReadonly,
+      lead_thread_is_lead: isDoctorEnrolledOfferReadonly ? false : true,
+    });
     const optId = `opt_${Date.now()}`;
     const optimistic: Message = {
       id: optId,
@@ -752,7 +846,32 @@ export default function OfferChatScreen() {
       });
       const data = await res.json();
       if (__DEV__) console.log('[offer-chat POST] response:', JSON.stringify(data));
-      if (!data?.ok) throw new Error(data?.error || 'error');
+      if (!data?.ok) {
+        if (data?.error === 'offer_thread_archived' && user?.type === 'doctor') {
+          setOfferWriteGate('archived');
+          const pid = String(data.patient_id || patientChatPatientIdParam || '').trim();
+          if (pid) {
+            openDoctorPatientChat(
+              router,
+              {
+                patientId: pid,
+                patientName: otherName || 'Patient',
+                offerId: scope,
+                leadThreadIsLead: false,
+                enrolled: true,
+              },
+              { source: 'offer-chat-send-blocked', useReplace: true },
+            );
+          }
+          Alert.alert(
+            t('doctor.inbox.enrolledNoticeTitle') || 'Patient joined clinic',
+            t('doctor.inbox.enrolledNoticeBody') ||
+              'Continue messaging in the patient conversation.',
+          );
+          return;
+        }
+        throw new Error(data?.error || 'error');
+      }
 
       if (sbOfferConfigured && sbOfferReady) {
         // POST onaylandı → opt_ ID'sini gerçek UUID ile değiştir.
@@ -1096,12 +1215,16 @@ export default function OfferChatScreen() {
           </TouchableOpacity>
         )}
 
-        {isDoctorEnrolledOfferReadonly ? (
+        {!canSendOfferMessages ? (
           <View style={styles.enrolledBottomBar}>
             <Text style={styles.enrolledBottomBarTxt}>
-              {t('offerChat.enrolledDoctorComposerHint') !== 'offerChat.enrolledDoctorComposerHint'
-                ? t('offerChat.enrolledDoctorComposerHint')
-                : 'Messaging continues under Patients → Messages for this patient.'}
+              {offerWriteGate === 'pending'
+                ? (t('requests.chat.resolvingRoute') !== 'requests.chat.resolvingRoute'
+                    ? t('requests.chat.resolvingRoute')
+                    : 'Checking which conversation to use…')
+                : t('offerChat.enrolledDoctorComposerHint') !== 'offerChat.enrolledDoctorComposerHint'
+                  ? t('offerChat.enrolledDoctorComposerHint')
+                  : 'Messaging continues under Patients → Messages for this patient.'}
             </Text>
           </View>
         ) : (

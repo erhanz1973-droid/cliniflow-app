@@ -12,111 +12,216 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  InteractionManager,
   type ListRenderItemInfo,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { useAuth } from '../../../lib/auth';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useDeferredFocusRefresh } from '../../../hooks/use-deferred-focus-refresh';
+import { focusPerfMark, focusPerfStart } from '../../../lib/perfFocus';
+import { useAuthSession } from '../../../lib/auth';
 import { useLanguage } from '../../../lib/language-context';
-import { API_BASE } from '../../../lib/api';
+import { API_BASE, setAuthToken } from '../../../lib/api';
 import { invalidateDoctorThreadSummaryCacheOnly } from '../../../lib/doctorMessaging';
 import { setGlobalDoctorChatPatientIdOpen } from '../../../lib/doctorChatForeground';
 import { subscribePrimaryChatRealtime, waitOnceSocketConnected } from '../../../lib/chatRealtime';
+import { markPatientChatNav } from '../../../lib/patientChatNavPerf';
+import { logCanonicalSendAttempt } from '../../../lib/canonicalChatDiagnostics';
+import {
+  type DoctorChatMessage,
+  hydratePatientChatFromDisk,
+  mapApiMessages,
+  parseLeadAssignment,
+  peekPatientChatCache,
+  persistPatientChatCache,
+} from '../../../lib/doctorPatientChatCache';
 
-interface Message {
-  id: string;
-  text: string;
-  from: 'PATIENT' | 'CLINIC' | 'DOCTOR' | string;
-  createdAt: number;
-  senderName?: string;
-  pending?: boolean;
-  thread_id?: string;
+function applySnapshot(
+  snapshot: { messages: DoctorChatMessage[]; leadThreadId: string | null; enrolledSharedCare: boolean },
+  setters: {
+    setMessages: (m: DoctorChatMessage[]) => void;
+    setLeadThreadId: (id: string | null) => void;
+    setEnrolledSharedCare: (v: boolean) => void;
+  }
+) {
+  setters.setMessages(snapshot.messages);
+  setters.setLeadThreadId(snapshot.leadThreadId);
+  setters.setEnrolledSharedCare(snapshot.enrolledSharedCare);
 }
 
 export default function DoctorPatientChatScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { token } = useAuthSession();
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
-  const { patientId, patientName } = useLocalSearchParams<{
+  const { patientId, patientName, sourceOfferId } = useLocalSearchParams<{
     patientId?: string;
     patientName?: string;
+    sourceOfferId?: string;
   }>();
+  const archivedOfferId = String(
+    Array.isArray(sourceOfferId) ? sourceOfferId[0] : sourceOfferId ?? '',
+  ).trim();
 
   const displayName = patientName ? decodeURIComponent(patientName) : 'Hasta';
+  const patientKey = String(patientId ?? '').trim();
+  const initialSnapshot = patientKey ? peekPatientChatCache(patientKey) : null;
 
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [text, setText]         = useState('');
-  const [loading, setLoading]   = useState(true);
+  const [messages, setMessages] = useState<DoctorChatMessage[]>(initialSnapshot?.messages ?? []);
+  const [text, setText] = useState('');
+  const [loading, setLoading] = useState(!(initialSnapshot?.messages?.length));
+  const [silentRefreshing, setSilentRefreshing] = useState(false);
+  const hasDisplayedContentRef = useRef((initialSnapshot?.messages?.length ?? 0) > 0);
+  const firstPaintMarkedRef = useRef(false);
+  const autoScrollEndRef = useRef(!hasDisplayedContentRef.current);
   const [sending, setSending] = useState(false);
-  const [leadThreadId, setLeadThreadId] = useState<string | null>(null);
-  /** Same thread after clinic enrollment (`patient_chat_threads.is_lead === false`). */
-  const [enrolledSharedCare, setEnrolledSharedCare] = useState(false);
+  const [leadThreadId, setLeadThreadId] = useState<string | null>(initialSnapshot?.leadThreadId ?? null);
+  const [enrolledSharedCare, setEnrolledSharedCare] = useState(
+    initialSnapshot?.enrolledSharedCare ?? false
+  );
 
   const flatRef = useRef<FlatList>(null);
   const chatSocketRef = useRef<Socket | null>(null);
-  const patientRouteKeyRef = useRef("");
+  const patientRouteKeyRef = useRef('');
 
-  // ── Fetch messages ────────────────────────────────────────────
-  const fetchMessages = useCallback(async (silent = false) => {
-    if (!user?.token || !patientId) return;
-    if (!silent) setLoading(true);
-    try {
-      const res = await fetch(
-        `${API_BASE}/api/doctor/patient/${encodeURIComponent(patientId)}/messages?limit=180`,
-        { headers: { Authorization: `Bearer ${user.token}` } },
+  const markFirstPaint = useCallback((source: string) => {
+    if (firstPaintMarkedRef.current) return;
+    firstPaintMarkedRef.current = true;
+    focusPerfMark('doctor:patient-chat:first_paint', { source });
+    markPatientChatNav('first_frame', { patientId: patientKey.slice(0, 12) });
+  }, [patientKey]);
+
+  const persistSnapshot = useCallback(
+    (next: {
+      messages: DoctorChatMessage[];
+      leadThreadId: string | null;
+      enrolledSharedCare: boolean;
+    }) => {
+      if (!patientKey) return;
+      persistPatientChatCache(patientKey, next);
+    },
+    [patientKey]
+  );
+
+  const fetchMessages = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!token || !patientId) return;
+      const silent = opts?.silent === true;
+      if (!silent && !hasDisplayedContentRef.current) setLoading(true);
+      if (silent) setSilentRefreshing(true);
+
+      const endFetch = focusPerfStart(
+        silent ? 'doctor:patient-chat:fetch-silent' : 'doctor:patient-chat:fetch'
       );
-      const json = await res.json().catch(() => ({}));
-      const laRaw = json.leadAssignment;
-      const tid =
-        laRaw && typeof laRaw === "object" && (laRaw as { threadId?: string }).threadId != null
-          ? String((laRaw as { threadId?: string }).threadId).trim()
-          : "";
-      setLeadThreadId(tid || null);
-      const laThreadIsLead =
-        laRaw && typeof laRaw === 'object'
-          ? (laRaw as { threadIsLead?: boolean }).threadIsLead
-          : undefined;
-      setEnrolledSharedCare(laThreadIsLead === false);
-      if (__DEV__) {
-        console.log(
-          "[DR-CHAT] leadAssignment.threadId (must match patient's thread — same UUID for SOCKET room chat:{tid})",
-          tid || "(none)",
+      setAuthToken(token);
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/doctor/patient/${encodeURIComponent(patientId)}/messages?limit=180`,
+          { headers: { Authorization: `Bearer ${token}` } }
         );
-      }
-      if (json.ok && Array.isArray(json.messages)) {
-        const mapped = json.messages.map((m: any) => {
-          const threadIdRaw = m.thread_id ?? m.threadId;
-          const thread_id =
-            threadIdRaw != null && String(threadIdRaw).trim() !== ""
-              ? String(threadIdRaw).trim()
-              : undefined;
-          return {
-            id:         m.id || String(m.createdAt || Math.random()),
-            text:       m.text || m.content || m.message || '',
-            from:       m.from || m.senderRole || 'CLINIC',
-            createdAt:  m.createdAt || m.created_at
-              ? new Date(m.createdAt || m.created_at).getTime()
-              : Date.now(),
-            senderName: m.senderName || m.sender_name,
-            ...(thread_id ? { thread_id } : {}),
-          };
-        });
-        const sorted = [...mapped].sort((a, b) => a.createdAt - b.createdAt);
-        setMessages(sorted.slice(-50));
-      }
-    } catch (err: any) {
-      console.error('[DR CHAT fetch]', err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.token, patientId]);
+        const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        const meta = parseLeadAssignment(json);
+        setLeadThreadId(meta.leadThreadId);
+        setEnrolledSharedCare(meta.enrolledSharedCare);
 
-  useFocusEffect(
-    useCallback(() => {
-      setGlobalDoctorChatPatientIdOpen(patientId);
-      return () => setGlobalDoctorChatPatientIdOpen(null);
-    }, [patientId]),
+        if (__DEV__) {
+          console.log(
+            '[DR-CHAT] leadAssignment.threadId',
+            meta.leadThreadId || '(none)'
+          );
+        }
+
+        if (json.ok && Array.isArray(json.messages)) {
+          const slice = mapApiMessages(json.messages as Record<string, unknown>[]);
+          setMessages(slice);
+          hasDisplayedContentRef.current = slice.length > 0 || hasDisplayedContentRef.current;
+          persistSnapshot({
+            messages: slice,
+            leadThreadId: meta.leadThreadId,
+            enrolledSharedCare: meta.enrolledSharedCare,
+          });
+          focusPerfMark('doctor:patient-chat:data_ready', { count: slice.length, silent });
+          if (!silent && slice.length > 0) autoScrollEndRef.current = true;
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[DR CHAT fetch]', msg);
+      } finally {
+        setLoading(false);
+        setSilentRefreshing(false);
+        endFetch();
+      }
+    },
+    [token, patientId, patientKey, persistSnapshot]
+  );
+
+  useEffect(() => {
+    setGlobalDoctorChatPatientIdOpen(patientId);
+    return () => setGlobalDoctorChatPatientIdOpen(null);
+  }, [patientId]);
+
+  useEffect(() => {
+    if (initialSnapshot?.messages?.length) {
+      focusPerfMark('doctor:patient-chat:data_ready', {
+        count: initialSnapshot.messages.length,
+        source: 'memory',
+      });
+    }
+  }, [initialSnapshot]);
+
+  useEffect(() => {
+    const k = String(patientId ?? '').trim();
+    if (patientRouteKeyRef.current === k) return;
+    patientRouteKeyRef.current = k;
+    firstPaintMarkedRef.current = false;
+
+    const snap = k ? peekPatientChatCache(k) : null;
+    if (snap) {
+      applySnapshot(snap, { setMessages, setLeadThreadId, setEnrolledSharedCare });
+      hasDisplayedContentRef.current = snap.messages.length > 0;
+      setLoading(false);
+      autoScrollEndRef.current = false;
+    } else {
+      setMessages([]);
+      setLeadThreadId(null);
+      setEnrolledSharedCare(false);
+      hasDisplayedContentRef.current = false;
+      setLoading(true);
+      autoScrollEndRef.current = true;
+    }
+
+    if (!k) return;
+    let cancelled = false;
+    void hydratePatientChatFromDisk(k).then((disk) => {
+      if (cancelled || !disk?.messages?.length) return;
+      if (!hasDisplayedContentRef.current) {
+        applySnapshot(disk, { setMessages, setLeadThreadId, setEnrolledSharedCare });
+        hasDisplayedContentRef.current = true;
+        setLoading(false);
+        autoScrollEndRef.current = false;
+        focusPerfMark('doctor:patient-chat:data_ready', {
+          count: disk.messages.length,
+          source: 'disk',
+        });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [patientId]);
+
+  useEffect(() => {
+    if (!token || !patientId) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      void fetchMessages({ silent: hasDisplayedContentRef.current });
+    });
+    return () => task.cancel?.();
+  }, [token, patientId, fetchMessages]);
+
+  useDeferredFocusRefresh(
+    'doctor:patient-chat:focus',
+    () => fetchMessages({ silent: true }),
+    { enabled: !!token && !!patientId, minIntervalMs: 50_000 }
   );
 
   const resolvedThreadId = useMemo(() => {
@@ -127,66 +232,48 @@ export default function DoctorPatientChatScreen() {
   }, [leadThreadId, messages]);
 
   useEffect(() => {
-    const k = String(patientId ?? "").trim();
-    if (patientRouteKeyRef.current === k) return;
-    patientRouteKeyRef.current = k;
-    setMessages([]);
-    setLeadThreadId(null);
-    setEnrolledSharedCare(false);
-  }, [patientId]);
-
-  useEffect(() => {
-    if (!user?.token || !patientId) return;
-    void fetchMessages(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- sadece token/patientId değişince ilk yükleme
-  }, [user?.token, patientId]);
-
-  useEffect(() => {
-    if (!user?.token) {
-      return () => {};
-    }
-
-    if (loading) {
-      return () => {};
-    }
+    if (!token) return () => {};
 
     const tid = resolvedThreadId.trim();
-    if (!tid) {
-      console.log('NO THREAD ID YET');
-      return () => {};
-    }
+    if (!tid) return () => {};
 
-    console.log('START REALTIME SOCKET:', tid);
     const { unsubscribe, socket } = subscribePrimaryChatRealtime({
-      token: user.token,
+      token,
       threadId: tid,
       onNewMessage: (legacy) => {
-        const id = String(legacy.id || "").trim();
+        const id = String(legacy.id || '').trim();
         if (!id) return;
         setMessages((prev) => {
           if (prev.find((m) => m.id === id)) return prev;
-          const text = String(legacy.text || '');
+          const textMsg = String(legacy.text || '');
           const withoutPending = prev.filter(
             (m) =>
-              !(m.pending && String(m.from).toUpperCase() === 'CLINIC' && m.text === text),
+              !(m.pending && String(m.from).toUpperCase() === 'CLINIC' && m.text === textMsg)
           );
-          const fromRaw = String(legacy.from || "").toUpperCase();
+          const fromRaw = String(legacy.from || '').toUpperCase();
           const from = fromRaw === 'PATIENT' ? 'PATIENT' : 'CLINIC';
           const tidLegacy = legacy.thread_id ?? legacy.threadId;
           const thread_id =
             tidLegacy != null && String(tidLegacy).trim() !== ''
               ? String(tidLegacy).trim()
               : undefined;
-          const row: Message = {
+          const row: DoctorChatMessage = {
             id,
-            text,
+            text: textMsg,
             from,
             createdAt: typeof legacy.createdAt === 'number' ? legacy.createdAt : Date.now(),
-            senderName: undefined,
             ...(thread_id ? { thread_id } : {}),
           };
-          const next = [...withoutPending, row].sort((a, b) => a.createdAt - b.createdAt);
-          return next.slice(-50);
+          const next = [...withoutPending, row].sort((a, b) => a.createdAt - b.createdAt).slice(-50);
+          if (patientKey) {
+            persistSnapshot({
+              messages: next,
+              leadThreadId: tid,
+              enrolledSharedCare,
+            });
+          }
+          autoScrollEndRef.current = true;
+          return next;
         });
       },
       onConnect: () => {},
@@ -197,32 +284,49 @@ export default function DoctorPatientChatScreen() {
       unsubscribe();
       chatSocketRef.current = null;
     };
-  }, [user?.token, loading, resolvedThreadId]);
+  }, [token, resolvedThreadId, patientKey, enrolledSharedCare, persistSnapshot]);
 
-  // Scroll to bottom (newest) when message list grows
   useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 120);
-    }
+    if (messages.length === 0 || !autoScrollEndRef.current) return;
+    const id = requestAnimationFrame(() => {
+      flatRef.current?.scrollToEnd({ animated: !hasDisplayedContentRef.current });
+      autoScrollEndRef.current = false;
+    });
+    return () => cancelAnimationFrame(id);
   }, [messages.length]);
 
-  // ── Send message ──────────────────────────────────────────────
   const handleSend = async () => {
     const trimmed = text.trim();
-    if (!trimmed || sending || !user?.token || !patientId) return;
+    if (!trimmed || sending || !token || !patientId) return;
 
     const optimisticId = `tmp-${Date.now()}`;
+    autoScrollEndRef.current = true;
     setMessages((prev) =>
-      [...prev, {
+      [
+        ...prev,
+        {
           id: optimisticId,
           text: trimmed,
           from: 'CLINIC' as const,
           createdAt: Date.now(),
           pending: true,
-      }].sort((a, b) => a.createdAt - b.createdAt).slice(-50),
+        },
+      ]
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .slice(-50)
     );
     setText('');
     setSending(true);
+
+    logCanonicalSendAttempt({
+      source: 'doctor/patient-chat',
+      canonical_chat_type: 'patient',
+      resolved_thread_kind: 'patient_chat',
+      resolved_patient_id: String(patientId),
+      resolved_offer_id: archivedOfferId || null,
+      resolved_offer_archived: Boolean(archivedOfferId),
+      enrolled: enrolledSharedCare,
+    });
 
     try {
       const s = chatSocketRef.current;
@@ -234,9 +338,9 @@ export default function DoctorPatientChatScreen() {
         `${API_BASE}/api/messages/${encodeURIComponent(patientId)}/reply`,
         {
           method: 'POST',
-          headers: { Authorization: `Bearer ${user.token}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: trimmed }),
-        },
+        }
       );
       const json = await res.json().catch(() => ({}));
       if (!json.ok) {
@@ -249,8 +353,7 @@ export default function DoctorPatientChatScreen() {
               : json.error === 'assigned_doctor_only'
                 ? 'Bu hasta artık kliniğinize üyedir ve yalnızca atanmış doktor ile mesajlaşabilir.'
                 : String(json.error || 'Mesaj gönderilemedi.');
-        const alertTitle =
-          json.error === 'assigned_doctor_only' ? 'Bilgilendirme' : 'Hata';
+        const alertTitle = json.error === 'assigned_doctor_only' ? 'Bilgilendirme' : 'Hata';
         Alert.alert(alertTitle, serverMsg);
         setText(trimmed);
       } else {
@@ -275,44 +378,60 @@ export default function DoctorPatientChatScreen() {
                 tidRaw != null && String(tidRaw).trim() !== ''
                   ? String(tidRaw).trim()
                   : undefined;
-              return [...withoutOpt, { id, text: textOut || trimmed, from, createdAt, ...(thread_id ? { thread_id } : {}) }]
+              const next = [
+                ...withoutOpt,
+                { id, text: textOut || trimmed, from, createdAt, ...(thread_id ? { thread_id } : {}) },
+              ]
                 .sort((a, b) => a.createdAt - b.createdAt)
                 .slice(-50);
+              if (patientKey) {
+                persistSnapshot({
+                  messages: next,
+                  leadThreadId,
+                  enrolledSharedCare,
+                });
+              }
+              return next;
             });
           } else {
             setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
-            void fetchMessages(true);
+            void fetchMessages({ silent: true });
           }
         } else {
           setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
-          void fetchMessages(true);
+          void fetchMessages({ silent: true });
         }
         invalidateDoctorThreadSummaryCacheOnly();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       Alert.alert('Hata', 'Ağ hatası. Lütfen tekrar deneyin.');
       setText(trimmed);
-      console.error('[DR CHAT send]', err.message);
+      console.error('[DR CHAT send]', err instanceof Error ? err.message : err);
     } finally {
       setSending(false);
     }
   };
 
   const renderDoctorMessageItem = useCallback(
-    ({ item }: ListRenderItemInfo<Message>) => <MessageItem message={item} />,
-    [],
+    ({ item }: ListRenderItemInfo<DoctorChatMessage>) => <MessageItem message={item} />,
+    []
   );
 
-  const doctorMessageKeyExtractor = useCallback((item: Message) => {
+  const doctorMessageKeyExtractor = useCallback((item: DoctorChatMessage) => {
     const id = String(item.id ?? '').trim();
     if (id !== '') return id;
     return `fb-${item.createdAt}-${item.from}`;
   }, []);
 
+  const showListSkeleton = loading && messages.length === 0;
+
   return (
-    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
-      {/* Header */}
+    <SafeAreaView
+      style={styles.root}
+      edges={['top', 'left', 'right']}
+      onLayout={() => markFirstPaint(hasDisplayedContentRef.current ? 'cache' : 'shell')}
+    >
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <Text style={styles.backText}>←</Text>
@@ -322,7 +441,9 @@ export default function DoctorPatientChatScreen() {
             <Text style={styles.avatarChar}>{displayName.charAt(0).toUpperCase()}</Text>
           </View>
           <View>
-            <Text style={styles.headerName} numberOfLines={1}>{displayName}</Text>
+            <Text style={styles.headerName} numberOfLines={1}>
+              {displayName}
+            </Text>
             <Text style={styles.headerSub}>
               {t('doctor.patientChat.headerSub') !== 'doctor.patientChat.headerSub'
                 ? t('doctor.patientChat.headerSub')
@@ -330,10 +451,44 @@ export default function DoctorPatientChatScreen() {
             </Text>
           </View>
         </View>
-        <View style={{ width: 40 }} />
+        <View style={styles.headerTrail}>
+          {silentRefreshing ? (
+            <ActivityIndicator size="small" color="#2563EB" />
+          ) : (
+            <View style={{ width: 24 }} />
+          )}
+        </View>
       </View>
 
-      {enrolledSharedCare ? (
+      {archivedOfferId ? (
+        <View style={styles.enrolledBanner} accessibilityRole="text">
+          <Text style={styles.enrolledBannerTitle}>
+            {t('doctor.chat.fromTreatmentRequestTitle') !== 'doctor.chat.fromTreatmentRequestTitle'
+              ? t('doctor.chat.fromTreatmentRequestTitle')
+              : 'Conversation started from treatment request'}
+          </Text>
+          <TouchableOpacity
+            onPress={() =>
+              router.push({
+                pathname: '/offer-chat',
+                params: {
+                  offerId: archivedOfferId,
+                  otherName: encodeURIComponent(displayName),
+                  enrolledSharedCare: '1',
+                  patientChatPatientId: patientKey,
+                },
+              } as never)
+            }
+            activeOpacity={0.85}
+          >
+            <Text style={styles.archivedOfferLink}>
+              {t('doctor.chat.viewArchivedRequestChat') !== 'doctor.chat.viewArchivedRequestChat'
+                ? t('doctor.chat.viewArchivedRequestChat')
+                : 'View archived request chat (read-only)'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : enrolledSharedCare ? (
         <View style={styles.enrolledBanner} accessibilityRole="text">
           <Text style={styles.enrolledBannerTitle}>{t('doctor.chat.enrolledBannerTitle')}</Text>
           <Text style={styles.enrolledBannerBody}>{t('doctor.chat.enrolledContinuityBanner')}</Text>
@@ -345,8 +500,12 @@ export default function DoctorPatientChatScreen() {
         style={{ flex: 1 }}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
       >
-        {loading ? (
-          <ActivityIndicator style={{ flex: 1 }} size="large" color="#2563EB" />
+        {showListSkeleton ? (
+          <View style={styles.skeletonWrap}>
+            <ChatSkeletonBubble align="left" />
+            <ChatSkeletonBubble align="right" />
+            <ChatSkeletonBubble align="left" />
+          </View>
         ) : (
           <FlatList
             ref={flatRef}
@@ -356,13 +515,15 @@ export default function DoctorPatientChatScreen() {
             renderItem={renderDoctorMessageItem}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
-            initialNumToRender={20}
-            maxToRenderPerBatch={10}
-            windowSize={5}
-            removeClippedSubviews={true}
-            onContentSizeChange={() =>
-              flatRef.current?.scrollToEnd({ animated: false })
-            }
+            initialNumToRender={12}
+            maxToRenderPerBatch={8}
+            windowSize={7}
+            removeClippedSubviews
+            onContentSizeChange={() => {
+              if (autoScrollEndRef.current) {
+                flatRef.current?.scrollToEnd({ animated: false });
+              }
+            }}
             ListEmptyComponent={
               <View style={styles.emptyBox}>
                 <Text style={styles.emptyIcon}>💬</Text>
@@ -388,10 +549,11 @@ export default function DoctorPatientChatScreen() {
             onPress={handleSend}
             disabled={!text.trim() || sending}
           >
-            {sending
-              ? <ActivityIndicator color="#fff" size="small" />
-              : <Text style={styles.sendBtnText}>Gönder</Text>
-            }
+            {sending ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.sendBtnText}>Gönder</Text>
+            )}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -399,26 +561,44 @@ export default function DoctorPatientChatScreen() {
   );
 }
 
+function ChatSkeletonBubble({ align }: { align: 'left' | 'right' }) {
+  return (
+    <View
+      style={[
+        styles.skeletonBubble,
+        align === 'right' ? styles.skeletonBubbleRight : styles.skeletonBubbleLeft,
+      ]}
+    />
+  );
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#F3F4F6' },
-
-  // Header
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 10,
-    borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
-  backBtn:  { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
+  backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
   backText: { fontSize: 22, color: '#111827' },
-  headerMid:{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerMid: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerTrail: { width: 40, alignItems: 'center', justifyContent: 'center' },
   avatarCircle: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: '#DBEAFE', justifyContent: 'center', alignItems: 'center',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#DBEAFE',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  avatarChar:  { fontSize: 16, fontWeight: '700', color: '#2563EB' },
-  headerName:  { fontSize: 15, fontWeight: '700', color: '#111827', maxWidth: 180 },
-  headerSub:   { fontSize: 11, color: '#6B7280' },
-
+  avatarChar: { fontSize: 16, fontWeight: '700', color: '#2563EB' },
+  headerName: { fontSize: 15, fontWeight: '700', color: '#111827', maxWidth: 180 },
+  headerSub: { fontSize: 11, color: '#6B7280' },
   enrolledBanner: {
     backgroundColor: '#EFF6FF',
     borderBottomWidth: 1,
@@ -432,90 +612,112 @@ const styles = StyleSheet.create({
     color: '#1E40AF',
     marginBottom: 4,
   },
-  enrolledBannerBody: {
+  enrolledBannerBody: { fontSize: 12, color: '#1E3A8A', lineHeight: 17 },
+  archivedOfferLink: {
     fontSize: 12,
-    color: '#1E3A8A',
-    lineHeight: 17,
+    fontWeight: '600',
+    color: '#2563EB',
+    textDecorationLine: 'underline',
+    marginTop: 4,
   },
-
-  // List
+  skeletonWrap: { flex: 1, padding: 14, gap: 10, justifyContent: 'flex-end' },
+  skeletonBubble: {
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: '#E5E7EB',
+    opacity: 0.7,
+    maxWidth: '72%',
+  },
+  skeletonBubbleLeft: { alignSelf: 'flex-start', width: '55%' },
+  skeletonBubbleRight: { alignSelf: 'flex-end', width: '48%' },
   listContent: { padding: 14, paddingBottom: 8, flexGrow: 1 },
-
   bubble: {
-    maxWidth: '78%', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 9,
+    maxWidth: '78%',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
     marginBottom: 8,
   },
   bubblePatient: {
-    backgroundColor: '#fff', alignSelf: 'flex-start',
+    backgroundColor: '#fff',
+    alignSelf: 'flex-start',
     borderBottomLeftRadius: 4,
     ...Platform.select({
-      ios:     { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
+      ios: {
+        shadowColor: '#000',
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        shadowOffset: { width: 0, height: 1 },
+      },
       android: { elevation: 1 },
     }),
   },
   bubbleDoctor: {
-    backgroundColor: '#2563EB', alignSelf: 'flex-end',
+    backgroundColor: '#2563EB',
+    alignSelf: 'flex-end',
     borderBottomRightRadius: 4,
   },
-  bubbleSender:    { fontSize: 11, color: '#6B7280', marginBottom: 3, fontWeight: '600' },
-  bubbleText:      { fontSize: 15, color: '#111827', lineHeight: 21 },
-  bubbleTextDoctor:{ color: '#fff' },
-  bubbleTime:      { fontSize: 10, color: '#9CA3AF', marginTop: 4, alignSelf: 'flex-end' },
-  bubbleTimeDoctor:{ color: 'rgba(255,255,255,0.65)' },
-
+  bubbleSender: { fontSize: 11, color: '#6B7280', marginBottom: 3, fontWeight: '600' },
+  bubbleText: { fontSize: 15, color: '#111827', lineHeight: 21 },
+  bubbleTextDoctor: { color: '#fff' },
+  bubbleTime: { fontSize: 10, color: '#9CA3AF', marginTop: 4, alignSelf: 'flex-end' },
+  bubbleTimeDoctor: { color: 'rgba(255,255,255,0.65)' },
   emptyBox: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 80, gap: 10 },
-  emptyIcon:{ fontSize: 48 },
-  emptyText:{ fontSize: 15, color: '#9CA3AF' },
-
-  // Input
+  emptyIcon: { fontSize: 48 },
+  emptyText: { fontSize: 15, color: '#9CA3AF' },
   inputBar: {
-    flexDirection: 'row', alignItems: 'flex-end', gap: 8,
-    backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 10,
-    borderTopWidth: 1, borderTopColor: '#E5E7EB',
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
   },
   input: {
-    flex: 1, backgroundColor: '#F9FAFB',
-    borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10,
-    fontSize: 15, color: '#111827',
-    borderWidth: 1, borderColor: '#E5E7EB',
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: '#111827',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     maxHeight: 120,
   },
-  sendBtn:         { backgroundColor: '#2563EB', borderRadius: 22, paddingHorizontal: 18, paddingVertical: 12 },
+  sendBtn: {
+    backgroundColor: '#2563EB',
+    borderRadius: 22,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
   sendBtnDisabled: { backgroundColor: '#93C5FD' },
-  sendBtnText:     { color: '#fff', fontWeight: '700', fontSize: 14 },
+  sendBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 });
 
 const MessageItem = React.memo(
-  function MessageItem({ message }: { message: Message }) {
+  function MessageItem({ message }: { message: DoctorChatMessage }) {
     const isDoctor =
-      message.from === 'CLINIC' ||
-      message.from === 'DOCTOR' ||
-      message.from === 'admin';
+      message.from === 'CLINIC' || message.from === 'DOCTOR' || message.from === 'admin';
     const timeStr = new Date(message.createdAt).toLocaleTimeString('tr-TR', {
       hour: '2-digit',
       minute: '2-digit',
     });
     return (
-      <View
-        style={[
-          styles.bubble,
-          isDoctor ? styles.bubbleDoctor : styles.bubblePatient,
-        ]}
-      >
+      <View style={[styles.bubble, isDoctor ? styles.bubbleDoctor : styles.bubblePatient]}>
         {!isDoctor && message.senderName ? (
           <Text style={styles.bubbleSender}>{message.senderName}</Text>
         ) : null}
-        <Text style={[styles.bubbleText, isDoctor && styles.bubbleTextDoctor]}>
-          {message.text}
-        </Text>
-        <Text
-          style={[styles.bubbleTime, isDoctor && styles.bubbleTimeDoctor]}
-        >
-          {timeStr}
-        </Text>
+        <Text style={[styles.bubbleText, isDoctor && styles.bubbleTextDoctor]}>{message.text}</Text>
+        <Text style={[styles.bubbleTime, isDoctor && styles.bubbleTimeDoctor]}>{timeStr}</Text>
       </View>
     );
   },
-  (prev, next) => prev.message === next.message,
+  (prev, next) =>
+    prev.message.id === next.message.id &&
+    prev.message.text === next.message.text &&
+    prev.message.pending === next.message.pending &&
+    prev.message.createdAt === next.message.createdAt
 );
-

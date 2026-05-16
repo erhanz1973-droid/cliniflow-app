@@ -53,7 +53,12 @@ export type CanonicalChatTarget =
       kind: "patient_chat";
       patientId: string;
       offerId: string | null;
-      routeParams: { patientId: string; patientName: string };
+      routeParams: {
+        patientId: string;
+        patientName: string;
+        sourceOfferId?: string;
+        sourceRequestId?: string;
+      };
       path: string;
     }
   | {
@@ -107,12 +112,39 @@ export function buildOfferChatPath(
   return `/offer-chat?${q.toString()}`;
 }
 
-export function buildPatientChatPath(patientId: string, patientName: string): string {
+export function buildPatientChatPath(
+  patientId: string,
+  patientName: string,
+  extras?: { sourceOfferId?: string; sourceRequestId?: string },
+): string {
   const q = new URLSearchParams({
     patientId,
     patientName: encodeURIComponent(patientName || "Patient"),
   });
+  if (extras?.sourceOfferId) q.set("sourceOfferId", extras.sourceOfferId);
+  if (extras?.sourceRequestId) q.set("sourceRequestId", extras.sourceRequestId);
   return `/doctor/patient-chat?${q.toString()}`;
+}
+
+function patientChatRouteParams(
+  patientPk: string,
+  patientName: string,
+  input: ResolveCanonicalChatInput,
+): { patientId: string; patientName: string; sourceOfferId?: string; sourceRequestId?: string } {
+  const routeParams: {
+    patientId: string;
+    patientName: string;
+    sourceOfferId?: string;
+    sourceRequestId?: string;
+  } = {
+    patientId: patientPk,
+    patientName: encodeURIComponent(patientName),
+  };
+  const oid = String(input.offerId || "").trim();
+  const rid = String(input.requestId || "").trim();
+  if (oid) routeParams.sourceOfferId = oid;
+  if (rid) routeParams.sourceRequestId = rid;
+  return routeParams;
 }
 
 /**
@@ -129,14 +161,17 @@ export function resolveCanonicalChatTarget(input: ResolveCanonicalChatInput): Ca
   if (viewerRole === "doctor") {
     if (enrolled) {
       if (patientPk) {
-        const routeParams = { patientId: patientPk, patientName: encodeURIComponent(patientName) };
+        const routeParams = patientChatRouteParams(patientPk, patientName, input);
         return {
           channel: "patient",
           kind: "patient_chat",
           patientId: patientPk,
           offerId: offerId || null,
           routeParams,
-          path: buildPatientChatPath(patientPk, patientName),
+          path: buildPatientChatPath(patientPk, patientName, {
+            sourceOfferId: routeParams.sourceOfferId,
+            sourceRequestId: routeParams.sourceRequestId,
+          }),
         };
       }
       return {
@@ -186,7 +221,7 @@ export function resolveCanonicalChatTarget(input: ResolveCanonicalChatInput): Ca
     }
 
     if (patientPk) {
-      const routeParams = { patientId: patientPk, patientName: encodeURIComponent(patientName) };
+      const routeParams = patientChatRouteParams(patientPk, patientName, input);
       return {
         channel: "patient",
         kind: "patient_chat",

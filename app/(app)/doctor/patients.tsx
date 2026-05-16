@@ -1,17 +1,22 @@
 // app/doctor/patients.tsx — Doctor Patients Screen
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import {
-  View, Text, ScrollView, RefreshControl, Pressable,
+  View, Text, FlatList, RefreshControl, Pressable,
   TextInput, StyleSheet, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { useAuth } from '../../../lib/auth';
+import { useRouter } from 'expo-router';
+import { useAuth, useAuthToken } from '../../../lib/auth';
 import { useLanguage } from '../../../lib/language-context';
 import { apiGet, classifyApiError, TIMEOUT_GET_LONG } from '../../../lib/api';
-import { ErrorScreen, EmptyState } from '../../../components/ScreenFeedback';
+import { ErrorScreen } from '../../../components/ScreenFeedback';
 import { doctorPatientPrimaryKey } from '../../../lib/doctorPatientId';
 import { fetchDoctorThreadSummary } from '../../../lib/doctorMessaging';
+import { useDeferredFocusRefresh } from '../../../hooks/use-deferred-focus-refresh';
+import { focusPerfStart } from '../../../lib/perfFocus';
+import { markPatientChatNav } from '../../../lib/patientChatNavPerf';
+import { openDoctorPatientChat } from '../../../lib/navigateCanonicalChat';
+import { peekCachedResource, setCachedResource } from '../../../lib/resourceCache';
 
 const PAGE_SIZE = 20;
 
@@ -103,19 +108,140 @@ function patientRowDbKey(p: Patient): string {
   return String(p.id || '').trim().toLowerCase();
 }
 
+type PatientsPageCache = {
+  patients: Patient[];
+  page: number;
+  total: number;
+  hasMore: boolean;
+};
+
+const PatientCard = memo(function PatientCard({
+  p,
+  t,
+  msgActivity,
+  onDiagnosis,
+  onFiles,
+  onChat,
+}: {
+  p: Patient;
+  t: (key: string) => string;
+  msgActivity?: { unread: number; hasClinicSideActivity: boolean; enrolledSharedThread?: boolean };
+  onDiagnosis: (p: Patient) => void;
+  onFiles: (p: Patient) => void;
+  onChat: (p: Patient) => void;
+}) {
+  const name = patientDisplayName(p);
+  const bucket = patientStatusBucket(p);
+  const statusLabel = t(patientStatusKey(p));
+  const sc = statusColor(bucket);
+  const initial = name.charAt(0).toUpperCase();
+  const shared = Boolean(msgActivity?.enrolledSharedThread);
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardTop}>
+        <View style={styles.avatarWrap}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{initial}</Text>
+          </View>
+          <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
+            <Text style={[styles.statusBadgeText, { color: sc.text }]}>{statusLabel}</Text>
+          </View>
+        </View>
+        <View style={styles.cardInfo}>
+          <View style={styles.nameRow}>
+            <Text style={styles.cardName}>{name}</Text>
+            {p.hasRisk && (
+              <View style={styles.riskBadge}>
+                <Text style={styles.riskBadgeText}>⚠️ Risk</Text>
+              </View>
+            )}
+          </View>
+          {(p.riskFlags || []).map((flag, flagIdx) => {
+            const riskKey = `risk.${flag.code}`;
+            const riskLabel = t(riskKey) !== riskKey ? t(riskKey) : flag.label;
+            return (
+              <View
+                key={`${p.id}-rf-${flagIdx}-${flag.code}`}
+                style={[styles.flagRow, flag.type === 'critical' ? styles.flagRowCritical : styles.flagRowRelevant]}
+              >
+                <Text style={[styles.flagText, flag.type === 'critical' ? styles.flagTextCritical : styles.flagTextRelevant]}>
+                  {flag.type === 'critical' ? '🚨' : '⚠️'} {riskLabel}
+                </Text>
+              </View>
+            );
+          })}
+          {p.phone ? <Text style={styles.cardSub}>📱 {p.phone}</Text> : null}
+          {p.email ? <Text style={styles.cardSub} numberOfLines={1}>✉️ {p.email}</Text> : null}
+          {(p.created_at || p.createdAt) ? (
+            <Text style={styles.cardSub}>📅 {fmtDate(p.created_at || p.createdAt)}</Text>
+          ) : null}
+        </View>
+      </View>
+      <View style={styles.cardActions}>
+        <Pressable style={[styles.actionBtn, styles.actionBtnGreen]} onPress={() => onDiagnosis(p)}>
+          <Text style={styles.actionBtnText}>{t('doctor.patients.newTreatment')}</Text>
+        </Pressable>
+        <Pressable style={[styles.actionBtn, styles.actionBtnGray]} onPress={() => onDiagnosis(p)}>
+          <Text style={[styles.actionBtnText, { color: '#fff' }]}>{t('doctor.patients.history')}</Text>
+        </Pressable>
+        <Pressable style={[styles.actionBtn, styles.actionBtnPurple]} onPress={() => onFiles(p)}>
+          <Text style={styles.actionBtnText}>{t('doctor.patients.files')}</Text>
+        </Pressable>
+        {(p.patient_id || p.patientId || p.id) ? (
+          <Pressable
+            style={[styles.actionBtn, styles.actionBtnMsg, styles.actionBtnMsgWrap, shared && styles.actionBtnMsgShared]}
+            onPress={() => onChat(p)}
+            accessibilityLabel={
+              shared
+                ? `${t('doctor.patients.messages')} — ${t('doctor.patients.sharedThreadA11y')}`
+                : t('doctor.patients.messages')
+            }
+          >
+            <View style={styles.msgBtnLabelRow}>
+              <Text style={[styles.actionBtnText, { color: '#fff' }]}>
+                💬 {t('doctor.patients.messages') || 'Messages'}
+              </Text>
+              {shared ? (
+                <Text style={styles.msgSharedInline}> · {t('doctor.patients.sharedThreadShort')}</Text>
+              ) : null}
+            </View>
+            {msgActivity && msgActivity.unread > 0 ? (
+              <View style={styles.msgUnreadBadge} accessibilityLabel={t('doctor.patients.unreadA11y')}>
+                <Text style={styles.msgUnreadBadgeTxt}>
+                  {msgActivity.unread > 99 ? '99+' : String(msgActivity.unread)}
+                </Text>
+              </View>
+            ) : null}
+            {msgActivity && msgActivity.unread === 0 && msgActivity.hasClinicSideActivity ? (
+              <View style={styles.msgActivityDot} accessibilityLabel={t('doctor.patients.activityDotA11y')} />
+            ) : null}
+            {shared && (msgActivity?.unread ?? 0) === 0 && !msgActivity?.hasClinicSideActivity ? (
+              <View style={styles.msgSharedDot} accessibilityLabel={t('doctor.patients.sharedThreadA11y')} />
+            ) : null}
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+});
+
 export default function DoctorPatientsScreen() {
   const { user } = useAuth();
+  const token = useAuthToken();
   const router = useRouter();
   const { t } = useLanguage();
 
-  const [allPatients, setAllPatients] = useState<Patient[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedPage = peekCachedResource<PatientsPageCache>('doctor:patients:page1');
+  const hasDisplayedContentRef = useRef((cachedPage?.patients?.length ?? 0) > 0);
+  const [allPatients, setAllPatients] = useState<Patient[]>(cachedPage?.patients ?? []);
+  const [loading, setLoading] = useState(!cachedPage);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(cachedPage?.page ?? 1);
+  const [hasMore, setHasMore] = useState(cachedPage?.hasMore ?? false);
+  const [total, setTotal] = useState(cachedPage?.total ?? 0);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterTab>('All');
   /** Per patient: unread patient messages + indicator when last activity is clinic/admin side. */
@@ -124,10 +250,11 @@ export default function DoctorPatientsScreen() {
   >({});
 
   const loadThreadHints = useCallback(async () => {
-    const token = user?.token?.trim();
-    if (!token) return;
+    const authToken = token.trim();
+    if (!authToken) return;
+    const endFetch = focusPerfStart('doctor:patients:thread-hints');
     try {
-      const data = await fetchDoctorThreadSummary(token, { refresh: false, onlyActive: false });
+      const data = await fetchDoctorThreadSummary(authToken, { refresh: false, onlyActive: false });
       const next: Record<
         string,
         { unread: number; hasClinicSideActivity: boolean; enrolledSharedThread?: boolean }
@@ -145,16 +272,19 @@ export default function DoctorPatientsScreen() {
       setMsgActivityByPatientId(next);
     } catch (e) {
       console.warn('[DoctorPatients] thread-summary hints:', e);
+    } finally {
+      endFetch();
     }
-  }, [user?.token]);
+  }, [token]);
 
-  useFocusEffect(
-    useCallback(() => {
-      void loadThreadHints();
-    }, [loadThreadHints]),
+  useDeferredFocusRefresh(
+    'doctor:patients:focus',
+    () => loadThreadHints(),
+    { enabled: !!token, minIntervalMs: 30_000 },
   );
 
   const fetchPage = useCallback(async (pageNum: number, append: boolean) => {
+    const endFetch = focusPerfStart(append ? 'doctor:patients:fetch-page-next' : 'doctor:patients:fetch');
     try {
       const res = await apiGet<{
         ok: boolean;
@@ -169,7 +299,19 @@ export default function DoctorPatientsScreen() {
       );
       if (res?.ok) {
         const incoming = res.patients ?? [];
-        setAllPatients((prev) => append ? [...prev, ...incoming] : incoming);
+        setAllPatients((prev) => {
+          const next = append ? [...prev, ...incoming] : incoming;
+          if (!append) {
+            setCachedResource('doctor:patients:page1', {
+              patients: next,
+              page: res.page ?? pageNum,
+              total: res.total ?? next.length,
+              hasMore: res.hasMore ?? false,
+            } satisfies PatientsPageCache);
+            hasDisplayedContentRef.current = next.length > 0;
+          }
+          return next;
+        });
         setPage(res.page ?? pageNum);
         setTotal(res.total ?? incoming.length);
         setHasMore(res.hasMore ?? false);
@@ -181,12 +323,15 @@ export default function DoctorPatientsScreen() {
       setLoading(false);
       setLoadingMore(false);
       setRefreshing(false);
+      endFetch();
     }
   }, []);
 
-  const load = useCallback(() => {
+  const load = useCallback((opts?: { blocking?: boolean }) => {
     setLoadError(null);
-    setLoading(true);
+    if (opts?.blocking !== false && !hasDisplayedContentRef.current) {
+      setLoading(true);
+    }
     fetchPage(1, false);
   }, [fetchPage]);
 
@@ -196,7 +341,16 @@ export default function DoctorPatientsScreen() {
     fetchPage(page + 1, true);
   }, [loadingMore, hasMore, page, fetchPage]);
 
-  useEffect(() => { if (user) load(); }, [user, load]);
+  const didInitialLoadRef = useRef(false);
+  useEffect(() => {
+    if (!user || didInitialLoadRef.current) return;
+    didInitialLoadRef.current = true;
+    if (hasDisplayedContentRef.current) {
+      void loadThreadHints();
+      return;
+    }
+    load({ blocking: true });
+  }, [user, load, loadThreadHints]);
   const onRefresh = () => {
     setRefreshing(true);
     void (async () => {
@@ -213,6 +367,78 @@ export default function DoctorPatientsScreen() {
     const matchFilter = filter === 'All' || bucket === filter;
     return matchSearch && matchFilter;
   });
+
+  const openDiagnosis = useCallback(
+    (p: Patient) => {
+      const pk = encodeURIComponent(doctorPatientPrimaryKey(p));
+      router.push(`/doctor/diagnosis?patientId=${pk}&patientName=${encodeURIComponent(p.name || '')}`);
+    },
+    [router],
+  );
+
+  const openFiles = useCallback(
+    (p: Patient) => {
+      router.push({
+        pathname: '/doctor/patient-files',
+        params: {
+          patientId: p.patient_id || p.patientId || p.id,
+          patientName: encodeURIComponent(p.name || ''),
+        },
+      });
+    },
+    [router],
+  );
+
+  const openChat = useCallback(
+    (p: Patient) => {
+      const patientId = doctorPatientPrimaryKey(p);
+      markPatientChatNav('press', { patientId: patientId.slice(0, 12) });
+      openDoctorPatientChat(router, {
+        patientId,
+        patientName: p.name || 'Patient',
+      }, { source: 'doctor/patients' });
+      markPatientChatNav('router_called', { patientId: patientId.slice(0, 12) });
+    },
+    [router],
+  );
+
+  const renderPatient = useCallback(
+    ({ item: p }: { item: Patient }) => (
+      <PatientCard
+        p={p}
+        t={t}
+        msgActivity={msgActivityByPatientId[patientRowDbKey(p)]}
+        onDiagnosis={openDiagnosis}
+        onFiles={openFiles}
+        onChat={openChat}
+      />
+    ),
+    [t, msgActivityByPatientId, openDiagnosis, openFiles, openChat],
+  );
+
+  const listHeader = (
+    <>
+      {total > 0 ? (
+        <Text style={styles.countLabel}>
+          {visible.length} / {total}
+        </Text>
+      ) : null}
+    </>
+  );
+
+  const listEmpty = (
+    <View style={styles.emptyBox}>
+      <Text style={styles.emptyIcon}>👥</Text>
+      <Text style={styles.emptyTitle}>
+        {search ? t('doctor.patients.noResults') : t('doctor.patients.noPatientsYet')}
+      </Text>
+      <Text style={styles.emptySub}>
+        {search ? t('doctor.patients.noResultsSub') : t('doctor.patients.noPatientsYetSub')}
+      </Text>
+    </View>
+  );
+
+  const showBlockingLoader = loading && allPatients.length === 0;
 
   return (
     <SafeAreaView style={styles.root}>
@@ -261,209 +487,44 @@ export default function DoctorPatientsScreen() {
       </View>
 
       {/* ── List ── */}
-      {loading ? (
+      {showBlockingLoader ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#2563EB" />
         </View>
       ) : loadError && !allPatients.length ? (
         <ErrorScreen
           kind={loadError}
-          onRetry={() => { setLoading(true); load(); }}
+          onRetry={() => load({ blocking: true })}
           inline
         />
       ) : (
-        <ScrollView
+        <FlatList
           style={styles.scroll}
-          contentContainerStyle={{ padding: 12 }}
+          contentContainerStyle={{ padding: 12, paddingBottom: 16 }}
+          data={visible}
+          keyExtractor={(p) => String(p.id || doctorPatientPrimaryKey(p))}
+          renderItem={renderPatient}
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={listEmpty}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Patient count */}
-          {total > 0 && (
-            <Text style={styles.countLabel}>
-              {visible.length} / {total}
-            </Text>
-          )}
-
-          {visible.length === 0 ? (
-            <View style={styles.emptyBox}>
-              <Text style={styles.emptyIcon}>👥</Text>
-              <Text style={styles.emptyTitle}>
-                {search ? t('doctor.patients.noResults') : t('doctor.patients.noPatientsYet')}
-              </Text>
-              <Text style={styles.emptySub}>
-                {search ? t('doctor.patients.noResultsSub') : t('doctor.patients.noPatientsYetSub')}
-              </Text>
-            </View>
-          ) : (
-            visible.map((p) => {
-              const name = patientDisplayName(p);
-              const bucket = patientStatusBucket(p);
-              const statusLabel = t(patientStatusKey(p));
-              const sc = statusColor(bucket);
-              const initial = name.charAt(0).toUpperCase();
-              return (
-                <View key={p.id} style={styles.card}>
-                  <View style={styles.cardTop}>
-                    {/* Avatar */}
-                    <View style={styles.avatarWrap}>
-                      <View style={styles.avatar}>
-                        <Text style={styles.avatarText}>{initial}</Text>
-                      </View>
-                      <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
-                        <Text style={[styles.statusBadgeText, { color: sc.text }]}>{statusLabel}</Text>
-                      </View>
-                    </View>
-
-                    {/* Info */}
-                    <View style={styles.cardInfo}>
-                      <View style={styles.nameRow}>
-                        <Text style={styles.cardName}>{name}</Text>
-                        {p.hasRisk && (
-                          <View style={styles.riskBadge}>
-                            <Text style={styles.riskBadgeText}>⚠️ Risk</Text>
-                          </View>
-                        )}
-                      </View>
-                      {/* Critical flags first, then relevant */}
-                      {(p.riskFlags || []).map((flag, flagIdx) => {
-                        const riskKey = `risk.${flag.code}`;
-                        const riskLabel = t(riskKey) !== riskKey ? t(riskKey) : flag.label;
-                        return (
-                          <View
-                            key={`${p.id}-rf-${flagIdx}-${flag.code}`}
-                            style={[styles.flagRow, flag.type === 'critical' ? styles.flagRowCritical : styles.flagRowRelevant]}
-                          >
-                            <Text style={[styles.flagText, flag.type === 'critical' ? styles.flagTextCritical : styles.flagTextRelevant]}>
-                              {flag.type === 'critical' ? '🚨' : '⚠️'} {riskLabel}
-                            </Text>
-                          </View>
-                        );
-                      })}
-                      {p.phone ? (
-                        <Text style={styles.cardSub}>📱 {p.phone}</Text>
-                      ) : null}
-                      {p.email ? (
-                        <Text style={styles.cardSub} numberOfLines={1}>✉️ {p.email}</Text>
-                      ) : null}
-                      {(p.created_at || p.createdAt) ? (
-                        <Text style={styles.cardSub}>📅 {fmtDate(p.created_at || p.createdAt)}</Text>
-                      ) : null}
-                    </View>
-                  </View>
-
-                  {/* Action buttons */}
-                  <View style={styles.cardActions}>
-                    <Pressable
-                      style={[styles.actionBtn, styles.actionBtnGreen]}
-                      onPress={() => {
-                        const pk = encodeURIComponent(doctorPatientPrimaryKey(p));
-                        router.push(`/doctor/diagnosis?patientId=${pk}&patientName=${encodeURIComponent(p.name || "")}`);
-                      }}
-                    >
-                      <Text style={styles.actionBtnText}>{t('doctor.patients.newTreatment')}</Text>
-                    </Pressable>
-                    <Pressable
-                      style={[styles.actionBtn, styles.actionBtnGray]}
-                      onPress={() => {
-                        const pk = encodeURIComponent(doctorPatientPrimaryKey(p));
-                        router.push(`/doctor/diagnosis?patientId=${pk}&patientName=${encodeURIComponent(p.name || "")}`);
-                      }}
-                    >
-                      <Text style={[styles.actionBtnText, { color: '#fff' }]}>{t('doctor.patients.history')}</Text>
-                    </Pressable>
-                    <Pressable
-                      style={[styles.actionBtn, styles.actionBtnPurple]}
-                      onPress={() =>
-                        router.push({
-                          pathname: '/doctor/patient-files',
-                          params: {
-                            patientId: p.patient_id || p.patientId || p.id,
-                            patientName: encodeURIComponent(p.name || ''),
-                          },
-                        })
-                      }
-                    >
-                      <Text style={styles.actionBtnText}>{t('doctor.patients.files')}</Text>
-                    </Pressable>
-                    {/* Messages button — opens doctor-specific chat (no patient tab bar) */}
-                    {(p.patient_id || p.patientId || p.id) && (() => {
-                      const act = msgActivityByPatientId[patientRowDbKey(p)];
-                      const shared = Boolean(act?.enrolledSharedThread);
-                      return (
-                      <Pressable
-                        style={[
-                          styles.actionBtn,
-                          styles.actionBtnMsg,
-                          styles.actionBtnMsgWrap,
-                          shared && styles.actionBtnMsgShared,
-                        ]}
-                        onPress={() => {
-                          router.push({
-                            pathname: '/doctor/patient-chat',
-                            params: {
-                              patientId: doctorPatientPrimaryKey(p),
-                              patientName: encodeURIComponent(p.name || ''),
-                            },
-                          });
-                        }}
-                        accessibilityLabel={
-                          shared
-                            ? `${t('doctor.patients.messages')} — ${t('doctor.patients.sharedThreadA11y')}`
-                            : t('doctor.patients.messages')
-                        }
-                      >
-                        <View style={styles.msgBtnLabelRow}>
-                          <Text style={[styles.actionBtnText, { color: '#fff' }]}>
-                            💬 {t('doctor.patients.messages') || 'Messages'}
-                          </Text>
-                          {shared ? (
-                            <Text style={styles.msgSharedInline}> · {t('doctor.patients.sharedThreadShort')}</Text>
-                          ) : null}
-                        </View>
-                        {(() => {
-                          if (!act) return null;
-                          if (act.unread > 0) {
-                            return (
-                              <View style={styles.msgUnreadBadge} accessibilityLabel={t('doctor.patients.unreadA11y')}>
-                                <Text style={styles.msgUnreadBadgeTxt}>
-                                  {act.unread > 99 ? '99+' : String(act.unread)}
-                                </Text>
-                              </View>
-                            );
-                          }
-                          if (act.hasClinicSideActivity) {
-                            return <View style={styles.msgActivityDot} accessibilityLabel={t('doctor.patients.activityDotA11y')} />;
-                          }
-                          return null;
-                        })()}
-                        {shared && (act?.unread ?? 0) === 0 && !act?.hasClinicSideActivity ? (
-                          <View style={styles.msgSharedDot} accessibilityLabel={t('doctor.patients.sharedThreadA11y')} />
-                        ) : null}
-                      </Pressable>
-                      );
-                    })()}
-                  </View>
-                </View>
-              );
-            })
-          )}
-          {/* Load More */}
-          {hasMore && !search && (
-            <Pressable
-              style={[styles.loadMoreBtn, loadingMore && styles.loadMoreBtnDisabled]}
-              onPress={loadMore}
-              disabled={loadingMore}
-            >
-              {loadingMore
-                ? <ActivityIndicator size="small" color="#fff" />
-                : <Text style={styles.loadMoreBtnText}>{t('doctor.patients.loadMore')}</Text>
-              }
-            </Pressable>
-          )}
-
-          <View style={{ height: 16 }} />
-        </ScrollView>
+          removeClippedSubviews
+          windowSize={8}
+          maxToRenderPerBatch={8}
+          initialNumToRender={10}
+          ListFooterComponent={
+            hasMore && !search ? (
+              <Pressable
+                style={[styles.loadMoreBtn, loadingMore && styles.loadMoreBtnDisabled]}
+                onPress={loadMore}
+                disabled={loadingMore}
+              >
+                {loadingMore
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.loadMoreBtnText}>{t('doctor.patients.loadMore')}</Text>}
+              </Pressable>
+            ) : null
+          }
+        />
       )}
 
       {/* ── Bottom Nav ── */}

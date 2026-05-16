@@ -1,10 +1,13 @@
 import type { Router } from "expo-router";
 import { Alert } from "react-native";
 import {
+  isEnrolledSharedCare,
   resolveCanonicalChatTarget,
   type CanonicalChatTarget,
   type ResolveCanonicalChatInput,
 } from "./canonicalChatTarget";
+import { logCanonicalChatDiag } from "./canonicalChatDiagnostics";
+import { doctorPatientPrimaryKey } from "./doctorPatientId";
 
 const ENROLLED_TITLE = "Patient joined clinic";
 const ENROLLED_BODY =
@@ -25,16 +28,35 @@ export function navigateCanonicalChat(
   input: ResolveCanonicalChatInput,
   opts?: NavigateCanonicalChatOptions,
 ): CanonicalChatTarget {
-  const target = resolveCanonicalChatTarget(input);
-  if (__DEV__) {
-    console.log("[canonical-chat:navigate]", {
-      source: opts?.source,
-      kind: target.kind,
-      channel: target.channel,
-      offerId: "offerId" in target ? target.offerId : undefined,
-      patientId: "patientId" in target ? target.patientId : undefined,
+  let target = resolveCanonicalChatTarget(input);
+  const enrolled = isEnrolledSharedCare(input);
+
+  if (input.viewerRole === "doctor" && enrolled && target.kind === "offer_chat") {
+    console.warn("[canonical-chat:invariant] navigate blocked offer_chat for enrolled patient");
+    target = resolveCanonicalChatTarget({
+      ...input,
+      enrolled: true,
+      leadThreadIsLead: false,
+      threadKind: undefined,
     });
   }
+
+  logCanonicalChatDiag("navigate", {
+    source: opts?.source ?? "unknown",
+    canonical_chat_type: target.channel === "patient" ? "patient" : target.kind === "offer_chat" ? "offer" : "patient",
+    resolved_thread_kind:
+      target.kind === "patient_chat"
+        ? "patient_chat"
+        : target.kind === "offer_chat"
+          ? "offer_chat"
+          : "unknown",
+    resolved_patient_id: "patientId" in target ? target.patientId : input.patientId,
+    resolved_offer_id: "offerId" in target ? target.offerId : input.offerId,
+    resolved_offer_archived: enrolled,
+    lead_thread_is_lead: input.leadThreadIsLead ?? null,
+    enrolled,
+    bootstrap_route: input.bootstrapRoute ?? null,
+  });
 
   const go = opts?.useReplace ? router.replace.bind(router) : router.push.bind(router);
 
@@ -72,4 +94,45 @@ export function navigateCanonicalChat(
   }
 
   return target;
+}
+
+export type OpenDoctorPatientChatInput = {
+  patientId: string | null | undefined;
+  patientName: string;
+  offerId?: string | null;
+  requestId?: string | null;
+  leadThreadIsLead?: unknown;
+  /** When true (default for enrolled entry points), force patient_chat even if offer id is present. */
+  enrolled?: boolean;
+};
+
+/**
+ * Single entry for doctor → patient-chat (Patients list, Incoming Requests after enrollment, redirects).
+ */
+export function openDoctorPatientChat(
+  router: Pick<Router, "push" | "replace">,
+  input: OpenDoctorPatientChatInput,
+  opts?: NavigateCanonicalChatOptions,
+): CanonicalChatTarget {
+  const patientId = doctorPatientPrimaryKey({ id: input.patientId ?? undefined }) || String(input.patientId || "").trim();
+  const forceEnrolled =
+    input.enrolled === true ||
+    isEnrolledSharedCare({
+      enrolled: input.enrolled,
+      leadThreadIsLead: input.leadThreadIsLead,
+    });
+
+  return navigateCanonicalChat(
+    router,
+    {
+      viewerRole: "doctor",
+      patientId: patientId || input.patientId,
+      patientName: input.patientName || "Patient",
+      offerId: input.offerId,
+      requestId: input.requestId,
+      leadThreadIsLead: forceEnrolled ? false : input.leadThreadIsLead,
+      enrolled: forceEnrolled ? true : input.enrolled,
+    },
+    opts,
+  );
 }
