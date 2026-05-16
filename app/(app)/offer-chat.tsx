@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView,
-  Platform, Alert, Image, Modal, ScrollView, Linking,
+  Platform, Alert, Image, Modal, ScrollView, Linking, BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -18,7 +18,7 @@ import { safeSetItem } from '../../lib/asyncStorageSafe';
 import { useAuth } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
 import { API_BASE } from '../../lib/api';
-import { offerChatLastStorageKey } from '../../lib/goToOfferChat';
+import { exitOfferChat, offerChatLastStorageKey } from '../../lib/goToOfferChat';
 import { normalizeRouteParam } from '../../lib/doctorPatientId';
 import {
   invalidateDoctorThreadSummaryCacheOnly,
@@ -338,6 +338,21 @@ export default function OfferChatScreen() {
   const [loading, setLoading] = useState(false);
 
   const myRole = user?.type === 'doctor' ? 'doctor' : 'patient';
+
+  const handleExitOfferChat = useCallback(() => {
+    exitOfferChat(router, myRole);
+  }, [router, myRole]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS === 'web') return undefined;
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        handleExitOfferChat();
+        return true;
+      });
+      return () => sub.remove();
+    }, [handleExitOfferChat]),
+  );
 
   // ── Supabase: TEK KAYNAK (yapılandırılmışsa REST GET atlanır) ──────────────
   const offerIdStr = currentOfferId == null ? '' : String(currentOfferId).trim();
@@ -905,7 +920,7 @@ export default function OfferChatScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={handleExitOfferChat} style={styles.backBtn}>
           <Text style={styles.backBtnText}>←</Text>
         </TouchableOpacity>
         <View style={styles.headerCenter}>

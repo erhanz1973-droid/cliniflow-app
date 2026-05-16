@@ -71,3 +71,22 @@ export function goToOfferChat(
     },
   } as any);
 }
+
+type OfferChatExitRouter = Pick<Router, "back" | "canGoBack" | "replace">;
+
+/** Avoid dev warning: GO_BACK when offer-chat is root (web refresh, push cold start). */
+export function exitOfferChat(
+  router: OfferChatExitRouter,
+  viewerRole?: "doctor" | "patient" | string | null,
+): void {
+  if (router.canGoBack?.()) {
+    router.back();
+    return;
+  }
+  const role = String(viewerRole || "").toLowerCase();
+  if (role === "doctor") {
+    router.replace("/doctor/requests" as never);
+    return;
+  }
+  router.replace("/(tabs)/home" as never);
+}
