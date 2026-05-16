@@ -3,6 +3,8 @@ import { AppState, type AppStateStatus } from "react-native";
 import Constants from "expo-constants";
 import { useRootNavigationState, useRouter } from "expo-router";
 import { useAuthSession } from "../lib/auth";
+import { pushDataToResolveInput } from "../lib/canonicalChatTarget";
+import { navigateCanonicalChat } from "../lib/navigateCanonicalChat";
 import { getPathFromNotificationData } from "../lib/notificationRouting";
 import { emitOfferUnreadEvent } from "../lib/offerUnreadEvents";
 import { bumpDoctorRequestUnreadByOfferId } from "../lib/doctorRequestsUnread";
@@ -60,6 +62,18 @@ export function usePushNotificationNavigation(): void {
         if (isDoctor) invalidateDoctorUnreadCacheOnly();
         if (isPatient) invalidatePatientInboxUnreadCache();
       }
+      if (isDoctor && (type === "offer_message" || type === "new_offer")) {
+        const target = navigateCanonicalChat(
+          router,
+          pushDataToResolveInput(data, "doctor"),
+          { source: `push:${delivery}` },
+        );
+        if (__DEV__) {
+          console.log("[push:nav]", { delivery, type, kind: target.kind, path: target.path });
+        }
+        return;
+      }
+
       const path = getPathFromNotificationData(data, { type: viewerType ?? undefined });
       if (!path) return;
       if (__DEV__) console.log("[push:nav]", { delivery, path, type });

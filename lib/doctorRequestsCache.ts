@@ -1,4 +1,4 @@
-import { normalizeLeadThreadIsLead } from "./goToOfferChat";
+import { normalizeLeadThreadIsLead } from "./canonicalChatTarget";
 
 export const DOCTOR_REQUESTS_LIST_CACHE_KEY = "doctor:requests:list";
 

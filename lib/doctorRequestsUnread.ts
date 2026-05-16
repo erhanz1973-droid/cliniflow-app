@@ -4,6 +4,7 @@ import {
   DOCTOR_REQUESTS_LIST_CACHE_KEY,
   type DoctorRequestRow,
 } from "./doctorRequestsCache";
+import { isEnrolledSharedCare } from "./canonicalChatTarget";
 import { emitOfferUnreadEvent, type OfferUnreadEvent } from "./offerUnreadEvents";
 import { peekCachedResource, setCachedResource } from "./resourceCache";
 
@@ -26,7 +27,7 @@ export function mergeUnreadMapIntoRows(
 }
 
 function isEnrolledSharedCareRow(row: DoctorRequestRow): boolean {
-  return row.lead_thread_is_lead === false;
+  return isEnrolledSharedCare({ leadThreadIsLead: row.lead_thread_is_lead });
 }
 
 function patchCachedRequests(

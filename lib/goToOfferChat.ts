@@ -1,43 +1,33 @@
 import type { Router } from "expo-router";
-import { Alert } from "react-native";
+import { normalizeLeadThreadIsLead } from "./canonicalChatTarget";
+import { navigateCanonicalChat } from "./navigateCanonicalChat";
+
+export type { ChatViewerRole } from "./canonicalChatTarget";
+export { normalizeLeadThreadIsLead, buildOfferChatPath, buildPatientChatPath } from "./canonicalChatTarget";
 
 export type GoToOfferChatParams = {
   offerId: string;
   /** Other party shown in header (patient: doctor name; doctor: patient name). */
   otherNameRaw: string;
   treatmentType?: string;
-  /**
-   * Doctor / Requests: `patient_chat_threads.is_lead` for this patient+clinic.
-   * When normalized to `false`, **navigation is blocked** (enrolled / shared-care — no offer socket, no offer-chat).
-   * Omit or leave unknown for patient flows (home → offer chat).
-   */
+  patientId?: string | null;
   leadThreadIsLead?: unknown;
-  /**
-   * Doctor Incoming Requests: block offer-chat only when lead is explicitly `false` (enrolled).
-   * `true` or unknown (`null`) → lead-phase offer chat (foreign leads often have no thread row yet).
-   */
+  /** Doctor Incoming Requests: only block when lead is explicitly `false` (enrolled). */
   requireExplicitLeadThread?: boolean;
+  viewerRole?: "doctor" | "patient";
 };
-
-/** Coerce API / JSON quirks (`"false"`, `0`) before lifecycle checks. */
-export function normalizeLeadThreadIsLead(raw: unknown): boolean | null {
-  if (raw === true || raw === "true" || raw === 1 || raw === "1") return true;
-  if (raw === false || raw === "false" || raw === 0 || raw === "0") return false;
-  return null;
-}
 
 export function offerChatLastStorageKey(patientId: string): string {
   return `offer_chat_last_${String(patientId || "").trim()}`;
 }
 
 /**
- * Single navigation entry for offer-thread chat — logs [CHAT OFFER] for wrong-thread debugging.
- * Hard guard: enrolled (`threadIsLead === false` after normalize) never pushes offer-chat.
+ * Navigation entry for offer-thread chat — delegates to resolveCanonicalChatTarget.
  */
 export function goToOfferChat(
-  router: Pick<Router, "push">,
+  router: Pick<Router, "push" | "replace">,
   p: GoToOfferChatParams,
-  source?: string
+  source?: string,
 ): void {
   const offerId = String(p.offerId ?? "").trim();
   if (!offerId) {
@@ -45,31 +35,34 @@ export function goToOfferChat(
     return;
   }
 
-  const leadNorm = normalizeLeadThreadIsLead(p.leadThreadIsLead);
-  const enrolledTitle = "Patient joined clinic";
-  const enrolledBody =
-    "This patient is now part of your clinic. Continue messaging from the Patients page.";
+  const viewerRole: "doctor" | "patient" =
+    p.viewerRole ?? (p.requireExplicitLeadThread ? "doctor" : "patient");
 
-  if (p.requireExplicitLeadThread) {
-    if (leadNorm === false) {
-      Alert.alert(enrolledTitle, enrolledBody, [{ text: "OK" }]);
-      return;
-    }
-  } else if (leadNorm === false) {
-    Alert.alert(enrolledTitle, enrolledBody, [{ text: "OK" }]);
+  const leadNorm = normalizeLeadThreadIsLead(p.leadThreadIsLead);
+  if (p.requireExplicitLeadThread && leadNorm === false && !p.patientId) {
+    navigateCanonicalChat(
+      router,
+      { viewerRole: "doctor", leadThreadIsLead: false, enrolled: true },
+      { source, alertOnEnrolledRedirect: true },
+    );
     return;
   }
 
-  const tag = source ? ` (${source})` : "";
-  if (__DEV__) console.log(`[CHAT OFFER] ${offerId}${tag}`);
-  router.push({
-    pathname: "/offer-chat",
-    params: {
+  navigateCanonicalChat(
+    router,
+    {
+      viewerRole,
       offerId,
-      otherName: encodeURIComponent(p.otherNameRaw || "Doktor"),
-      treatmentType: p.treatmentType ?? "",
+      patientId: p.patientId,
+      patientName: viewerRole === "doctor" ? p.otherNameRaw : undefined,
+      otherPartyName: p.otherNameRaw,
+      treatmentType: p.treatmentType,
+      leadThreadIsLead: p.leadThreadIsLead,
+      enrolled: leadNorm === false,
+      threadKind: "offer",
     },
-  } as any);
+    { source },
+  );
 }
 
 type OfferChatExitRouter = Pick<Router, "back" | "canGoBack" | "replace">;

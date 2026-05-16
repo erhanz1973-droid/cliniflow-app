@@ -29,7 +29,7 @@ import {
   type DoctorThreadSummaryRow,
 } from "../../../lib/doctorMessaging";
 import { doctorPatientPrimaryKey } from "../../../lib/doctorPatientId";
-import { goToOfferChat } from "../../../lib/goToOfferChat";
+import { navigateCanonicalChat } from "../../../lib/navigateCanonicalChat";
 import { subscribeOfferUnreadEvents } from "../../../lib/offerUnreadEvents";
 
 function fmtPreviewTime(createdAt: number | null | undefined): string {
@@ -138,36 +138,28 @@ export default function DoctorInboxScreen() {
   };
 
   const openRow = (row: DoctorThreadSummaryRow) => {
-    const offerId = String(row.offerId || "").trim();
-    if (row.threadKind === "offer" && offerId) {
-      goToOfferChat(
-        router,
-        {
-          offerId,
-          otherNameRaw: row.patientName || "Patient",
-          treatmentType: row.treatmentType || "",
-          leadThreadIsLead: row.leadPrimaryResponder?.threadIsLead,
-          requireExplicitLeadThread: true,
-        },
-        "doctor/inbox",
-      );
-      return;
-    }
     const pk = doctorPatientPrimaryKey({
       id: row.patientDbId,
       patient_id: row.patientLegacyId,
       patientId: row.patientPublicId,
     });
-    if (!pk) return;
-    markPatientChatNav("press", { patientId: pk.slice(0, 12), source: "inbox" });
-    router.push({
-      pathname: "/doctor/patient-chat",
-      params: {
-        patientId: pk,
-        patientName: encodeURIComponent(row.patientName || "Hasta"),
+    const target = navigateCanonicalChat(
+      router,
+      {
+        viewerRole: "doctor",
+        threadKind: row.threadKind === "offer" ? "offer" : "patient",
+        offerId: row.offerId,
+        patientId: pk || row.patientDbId,
+        patientName: row.patientName || "Patient",
+        leadThreadIsLead: row.leadPrimaryResponder?.threadIsLead,
+        treatmentType: row.treatmentType,
       },
-    });
-    markPatientChatNav("router_called", { patientId: pk.slice(0, 12), source: "inbox" });
+      { source: "doctor/inbox" },
+    );
+    if (target.kind === "patient_chat" && target.patientId) {
+      markPatientChatNav("press", { patientId: target.patientId.slice(0, 12), source: "inbox" });
+      markPatientChatNav("router_called", { patientId: target.patientId.slice(0, 12), source: "inbox" });
+    }
   };
 
   const tOr = (key: string, en: string) => {

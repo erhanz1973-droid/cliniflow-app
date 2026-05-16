@@ -4,6 +4,8 @@ import { LanguageProvider } from "../../lib/language-context";
 import { AuthProvider } from "../../lib/auth";
 import { DeviceGuidanceProvider } from "../../lib/deviceGuidanceContext";
 import { ClinicBootstrap } from "../../components/ClinicBootstrap";
+import { PushNotificationNavigation } from "../../components/PushNotificationNavigation";
+import { PatientOfferUnreadWatcher } from "../../components/PatientOfferUnreadWatcher";
 
 const AppOutlet = memo(function AppOutlet() {
   return <Slot />;
@@ -16,6 +18,8 @@ export default function AppShellLayout() {
       <AuthProvider>
         <DeviceGuidanceProvider>
           <ClinicBootstrap />
+          <PushNotificationNavigation />
+          <PatientOfferUnreadWatcher />
           <AppOutlet />
         </DeviceGuidanceProvider>
       </AuthProvider>

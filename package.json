@@ -17,6 +17,7 @@
     "ios": "npx expo run:ios",
     "web": "npx expo start --web",
     "test:offer-chat-text": "node --experimental-strip-types --test scripts/test-offer-chat-text.mjs",
+    "test:canonical-chat": "node --experimental-strip-types --test scripts/test-canonical-chat-target.mjs",
     "typecheck": "npx tsc --noEmit"
   },
   "dependencies": {

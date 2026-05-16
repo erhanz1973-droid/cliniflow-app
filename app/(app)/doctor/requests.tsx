@@ -10,6 +10,7 @@ import { useRouter } from 'expo-router';
 import { useAuthSession } from '../../../lib/auth';
 import { useLanguage } from '../../../lib/language-context';
 import { API_BASE, setAuthToken } from '../../../lib/api';
+import { isEnrolledSharedCare } from '../../../lib/canonicalChatTarget';
 import { startIncomingRequestChat } from '../../../lib/incomingRequestStartChat';
 import { invalidateDoctorThreadSummaryCacheOnly } from '../../../lib/doctorMessaging';
 import { doctorPatientPrimaryKey } from '../../../lib/doctorPatientId';
@@ -110,7 +111,7 @@ function fmtOfferDate(iso: string | null | undefined): string {
 }
 
 function isEnrolledSharedCareRequest(req: Request): boolean {
-  return req.lead_thread_is_lead === false;
+  return isEnrolledSharedCare({ leadThreadIsLead: req.lead_thread_is_lead });
 }
 
 /** Sheet: doctor’s own offer text (price, duration, note) — opened from “Offer sent” chip */

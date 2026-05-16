@@ -2,10 +2,13 @@ import type { Router } from "expo-router";
 import { Alert } from "react-native";
 import { API_BASE } from "./api";
 import {
-  goToOfferChat,
+  buildOfferChatPath,
+  buildPatientChatPath,
   normalizeLeadThreadIsLead,
-  type GoToOfferChatParams,
-} from "./goToOfferChat";
+  resolveCanonicalChatTarget,
+  type ResolveCanonicalChatInput,
+} from "./canonicalChatTarget";
+import { navigateCanonicalChat } from "./navigateCanonicalChat";
 import { doctorPatientPrimaryKey } from "./doctorPatientId";
 
 export type IncomingRequestChatContext = {
@@ -27,6 +30,7 @@ export type StartChatDiagFields = {
   error?: string;
   enrolled?: boolean;
   leadThreadIsLead?: boolean | null;
+  canonicalKind?: string;
 };
 
 function logStartChat(event: string, fields: StartChatDiagFields): void {
@@ -34,62 +38,54 @@ function logStartChat(event: string, fields: StartChatDiagFields): void {
   console.log(event, payload);
 }
 
-function isEnrolledLead(leadRaw: unknown): boolean {
-  return normalizeLeadThreadIsLead(leadRaw) === false;
+function ctxToResolveInput(
+  ctx: IncomingRequestChatContext,
+  overrides?: Partial<ResolveCanonicalChatInput>,
+): ResolveCanonicalChatInput {
+  return {
+    viewerRole: "doctor",
+    patientId: ctx.patientId,
+    patientName: ctx.patientName,
+    offerId: ctx.offerId || ctx.myOfferId,
+    requestId: ctx.requestId,
+    leadThreadIsLead: ctx.leadThreadIsLead,
+    treatmentType: ctx.preferredTreatment,
+    threadKind: "offer",
+    ...overrides,
+  };
 }
 
 /** Shared offer-chat params for doctor incoming requests + push deep links. */
 export function buildOfferChatRouteParams(
   offerId: string,
-  ctx: Pick<IncomingRequestChatContext, "patientName" | "preferredTreatment" | "leadThreadIsLead">,
-): GoToOfferChatParams {
-  return {
-    offerId,
-    otherNameRaw: ctx.patientName || "Patient",
-    treatmentType: ctx.preferredTreatment || "",
-    leadThreadIsLead: ctx.leadThreadIsLead,
-    /** Never block foreign leads with unknown thread row — only hard-block enrolled. */
-    requireExplicitLeadThread: false,
-  };
+  ctx: Pick<IncomingRequestChatContext, "patientName" | "preferredTreatment" | "leadThreadIsLead" | "patientId">,
+) {
+  const target = resolveCanonicalChatTarget(
+    ctxToResolveInput(
+      {
+        requestId: "",
+        patientName: ctx.patientName,
+        patientId: ctx.patientId,
+        offerId,
+        leadThreadIsLead: ctx.leadThreadIsLead,
+        preferredTreatment: ctx.preferredTreatment,
+      },
+      { offerId },
+    ),
+  );
+  if (target.kind !== "offer_chat") return null;
+  return target;
 }
 
-export function buildOfferChatPath(offerId: string, patientName: string): string {
-  const q = new URLSearchParams({
-    offerId,
-    otherName: encodeURIComponent(patientName || "Patient"),
-  });
-  return `/offer-chat?${q.toString()}`;
-}
-
-export function buildPatientChatPath(patientId: string, patientName: string): string {
-  const q = new URLSearchParams({
-    patientId,
-    patientName: encodeURIComponent(patientName || "Patient"),
-  });
-  return `/doctor/patient-chat?${q.toString()}`;
-}
-
-type EnsureOfferChatResponse = {
-  ok?: boolean;
-  error?: string;
-  message?: string;
-  offer_id?: string | null;
-  offerId?: string | null;
-  patient_id?: string | null;
-  thread_id?: string | null;
-  enrolled?: boolean;
-  lead_thread_is_lead?: boolean | null;
-  route?: "offer_chat" | "patient_chat";
-};
+export { buildOfferChatPath, buildPatientChatPath };
 
 /**
  * Doctor → Incoming Requests → Messages / Open Conversation.
- * Resolves offer id (bootstrap if needed), ensures lead thread server-side, navigates with alerts on failure.
  */
 export async function startIncomingRequestChat(opts: {
   token: string;
   ctx: IncomingRequestChatContext;
-  router: Pick<Router, "push">;
+  router: Pick<Router, "push" | "replace">;
   t: (key: string) => string;
   source: string;
 }): Promise<boolean> {
@@ -99,43 +95,31 @@ export async function startIncomingRequestChat(opts: {
   let offerId = String(ctx.offerId || ctx.myOfferId || "").trim();
   const leadRaw = ctx.leadThreadIsLead;
 
+  const preTarget = resolveCanonicalChatTarget(ctxToResolveInput(ctx));
   logStartChat("incoming_request_start_chat_press", {
     requestId,
     patientId,
     offerId: offerId || null,
     leadThreadIsLead: normalizeLeadThreadIsLead(leadRaw),
-    enrolled: isEnrolledLead(leadRaw),
+    enrolled: preTarget.channel === "patient" && preTarget.kind === "patient_chat",
+    canonicalKind: preTarget.kind,
+    routeTarget: preTarget.path,
   });
 
-  if (isEnrolledLead(leadRaw)) {
-    const pk = doctorPatientPrimaryKey({ id: patientId ?? undefined });
-    if (!pk) {
-      logStartChat("incoming_request_start_chat_failed", {
-        requestId,
-        patientId,
-        error: "enrolled_missing_patient_id",
-        routeTarget: "/doctor/patients",
-      });
-      Alert.alert(
-        t("common.error") !== "common.error" ? t("common.error") : "Error",
-        t("requests.enrolled.messagesBlockedBody") !== "requests.enrolled.messagesBlockedBody"
-          ? t("requests.enrolled.messagesBlockedBody")
-          : "Open this patient from the Patients page to continue messaging.",
-        [
-          { text: "OK", onPress: () => router.push("/doctor/patients" as never) },
-        ],
-      );
-      return false;
-    }
-    const routeTarget = buildPatientChatPath(pk, ctx.patientName);
-    logStartChat("incoming_request_start_chat_thread_found", {
-      requestId,
-      patientId: pk,
-      routeTarget,
-      enrolled: true,
+  if (preTarget.kind === "patient_chat") {
+    navigateCanonicalChat(router, ctxToResolveInput(ctx), {
+      source,
+      alertOnEnrolledRedirect: true,
     });
-    router.push(routeTarget as never);
     return true;
+  }
+
+  if (preTarget.kind === "redirect_patients") {
+    navigateCanonicalChat(router, ctxToResolveInput(ctx), {
+      source,
+      alertOnEnrolledRedirect: true,
+    });
+    return false;
   }
 
   try {
@@ -154,7 +138,18 @@ export async function startIncomingRequestChat(opts: {
         }),
       },
     );
-    const data = (await res.json().catch(() => ({}))) as EnsureOfferChatResponse;
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      message?: string;
+      offer_id?: string | null;
+      offerId?: string | null;
+      patient_id?: string | null;
+      thread_id?: string | null;
+      enrolled?: boolean;
+      lead_thread_is_lead?: boolean | null;
+      route?: "offer_chat" | "patient_chat";
+    };
 
     if (!res.ok || data?.ok === false) {
       const err = String(data?.error || data?.message || `http_${res.status}`);
@@ -174,31 +169,17 @@ export async function startIncomingRequestChat(opts: {
       return false;
     }
 
-    if (data.route === "patient_chat" || data.enrolled === true) {
-      const pid = String(data.patient_id || patientId || "").trim();
-      const pk = doctorPatientPrimaryKey({ id: pid });
-      if (!pk) {
-        logStartChat("incoming_request_start_chat_failed", {
-          requestId,
-          error: "bootstrap_patient_chat_no_id",
-        });
-        Alert.alert(t("common.error") !== "common.error" ? t("common.error") : "Error", "Patient id missing.");
-        return false;
-      }
-      const routeTarget = buildPatientChatPath(pk, ctx.patientName);
-      logStartChat("incoming_request_start_chat_thread_found", {
-        requestId,
-        patientId: pk,
-        threadId: data.thread_id ? String(data.thread_id) : null,
-        routeTarget,
-        enrolled: true,
-      });
-      router.push(routeTarget as never);
-      return true;
-    }
-
     const resolvedOffer = String(data.offer_id || data.offerId || offerId || "").trim();
-    if (!resolvedOffer) {
+    const bootstrapInput = ctxToResolveInput(ctx, {
+      offerId: resolvedOffer || offerId,
+      patientId: data.patient_id || patientId,
+      leadThreadIsLead: data.lead_thread_is_lead ?? leadRaw,
+      enrolled: data.enrolled === true,
+      bootstrapRoute: data.route,
+    });
+    const target = resolveCanonicalChatTarget(bootstrapInput);
+
+    if (!resolvedOffer && target.kind === "offer_chat") {
       logStartChat("incoming_request_start_chat_failed", {
         requestId,
         patientId,
@@ -213,38 +194,29 @@ export async function startIncomingRequestChat(opts: {
       return false;
     }
 
-    const created = !offerId;
-    offerId = resolvedOffer;
-    const routeParams = buildOfferChatRouteParams(offerId, {
-      patientName: ctx.patientName,
-      preferredTreatment: ctx.preferredTreatment,
-      leadThreadIsLead: data.lead_thread_is_lead ?? leadRaw ?? true,
-    });
+    const created = !offerId && !!resolvedOffer;
+    offerId = resolvedOffer || offerId;
+
     logStartChat(
       created ? "incoming_request_start_chat_thread_created" : "incoming_request_start_chat_thread_found",
       {
         requestId,
         patientId: String(data.patient_id || patientId || "") || null,
-        offerId,
+        offerId: offerId || null,
         threadId: data.thread_id ? String(data.thread_id) : null,
-        routeTarget: buildOfferChatPath(offerId, ctx.patientName),
-        leadThreadIsLead: normalizeLeadThreadIsLead(routeParams.leadThreadIsLead),
+        routeTarget: target.path,
+        leadThreadIsLead: normalizeLeadThreadIsLead(bootstrapInput.leadThreadIsLead),
+        canonicalKind: target.kind,
+        enrolled: target.channel === "patient",
       },
     );
-    logStartChat("incoming_request_start_chat_payload", {
-      requestId,
-      patientId: String(data.patient_id || patientId || "") || null,
-      offerId,
-      threadId: data.thread_id ? String(data.thread_id) : null,
-      routeTarget: buildOfferChatPath(offerId, ctx.patientName),
-      leadThreadIsLead: normalizeLeadThreadIsLead(routeParams.leadThreadIsLead),
-    });
 
-    goToOfferChat(router, routeParams, source);
+    navigateCanonicalChat(router, bootstrapInput, { source });
     logStartChat("incoming_request_start_chat_navigation", {
       requestId,
-      offerId,
-      routeTarget: buildOfferChatPath(offerId, ctx.patientName),
+      offerId: offerId || null,
+      routeTarget: target.path,
+      canonicalKind: target.kind,
     });
     return true;
   } catch (e) {
