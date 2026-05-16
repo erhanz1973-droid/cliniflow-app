@@ -14,7 +14,9 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { io, type Socket } from 'socket.io-client';
 import { getSupabaseClient, isSupabaseRealtimeConfigured } from '../lib/supabase';
 import { API_BASE } from '../lib/api';
+import { getActiveOfferChatOfferId } from './chatSessionGlobal';
 import { normalizeOfferMessageTextNullable } from '../lib/offerChatMessageText';
+import { notifyDoctorOfferInboundMessage } from '../lib/doctorRequestsUnread';
 
 const SUBSCRIBED_TIMEOUT_MS = 8_000;
 const POLL_INTERVAL_MS = 5_000;
@@ -199,6 +201,10 @@ export function useSupabaseOfferMessages({
           if (!raw?.id || String(raw.offer_id || '') !== oid) return;
           if (__DEV__) console.log('🔥 RT INSERT offer_messages:', raw.id, 'role:', raw.sender_role);
           const msg = offerRowToMessage(raw, oid);
+          notifyDoctorOfferInboundMessage(oid, msg.sender_role, {
+            skipIfOfferChatOpen: true,
+            activeOfferId: getActiveOfferChatOfferId(),
+          });
           setMessages(prev => {
             if (prev.some(m => m.id === msg.id)) return prev;
             return sortAndDedupe([...prev, msg]);
@@ -306,6 +312,10 @@ export function useSupabaseOfferMessages({
     socket.on('offer_new_message', (msg: SupabaseOfferMessage) => {
       if (!msg?.id || msg.offer_id !== oid) return;
       if (__DEV__) console.log('[offer-socket] RECEIVED offer_new_message:', msg.id, msg.sender_role);
+      notifyDoctorOfferInboundMessage(oid, msg.sender_role, {
+        skipIfOfferChatOpen: true,
+        activeOfferId: getActiveOfferChatOfferId(),
+      });
       setMessages(prev => {
         if (prev.some(m => m.id === msg.id)) return prev;
         return sortAndDedupe([...prev, { ...msg, _supabase: true }]);

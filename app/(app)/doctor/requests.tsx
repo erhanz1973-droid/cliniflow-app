@@ -29,6 +29,12 @@ import {
   stripRequestPhotosForPaint,
 } from '../../../lib/doctorRequestsCache';
 import { subscribeOfferUnreadEvents } from '../../../lib/offerUnreadEvents';
+import {
+  clearDoctorRequestUnreadByOfferId,
+  handleDoctorOfferUnreadEvent,
+  sortDoctorRequestsForInbox,
+  syncDoctorRequestUnreadFromServer,
+} from '../../../lib/doctorRequestsUnread';
 
 // ── Quick treatment presets ───────────────────────────────────────────────────
 const QUICK = [
@@ -490,8 +496,14 @@ const RequestCard = memo(function RequestCard({
         ? [{ url: fallbackPhotoUrl, type: 'image' }]
         : [];
 
+  const hasUnread = !enrolledShared && hasMyOffer && (req.unread_count ?? 0) > 0;
+
   return (
-    <View style={[cs.card, isPending && !hasMyOffer && cs.cardUrgent]}>
+    <View style={[
+      cs.card,
+      isPending && !hasMyOffer && cs.cardUrgent,
+      hasUnread && cs.cardUnread,
+    ]}>
       {enrolledShared && (
         <View style={cs.enrolledRibbon} accessibilityRole="text">
           <Text style={cs.enrolledRibbonText}>
@@ -698,14 +710,15 @@ const RequestCard = memo(function RequestCard({
               <Text style={cs.answeredBadgeText}>{t('requests.card.offerSentBadge') || '✓ Offer sent'}</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={cs.chatBtn}
+              style={[cs.chatBtn, hasUnread && cs.chatBtnUnread]}
               onPress={() => onLeadOfferChat(req.my_offer_id, req)}
               disabled={startingChat}
             >
-              <Text style={cs.chatBtnText}>
+              <Text style={[cs.chatBtnText, hasUnread && cs.chatBtnTextUnread]}>
                 {t('requests.card.startMessaging') !== 'requests.card.startMessaging'
                   ? `💬 ${t('requests.card.startMessaging')}`
                   : (t('requests.card.messages') || '💬 Messages')}
+                {hasUnread ? ` (${req.unread_count > 99 ? '99+' : req.unread_count})` : ''}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity style={cs.resendBtn} onPress={openFull}>
@@ -778,12 +791,12 @@ export default function DoctorRequestsScreen() {
         });
         const data = await res.json();
         if (!data?.ok) throw new Error(data?.error || 'error');
-        const rows = normalizeDoctorRequests(
-          Array.isArray(data.requests) ? data.requests : []
+        const rows = sortDoctorRequestsForInbox(
+          normalizeDoctorRequests(Array.isArray(data.requests) ? data.requests : []),
         );
 
         const applyRows = (next: DoctorRequestRow[]) => {
-          setRequests(next);
+          setRequests(sortDoctorRequestsForInbox(next));
           setCachedResource(DOCTOR_REQUESTS_LIST_CACHE_KEY, next);
           hasDisplayedContentRef.current = next.length > 0 || hasDisplayedContentRef.current;
           focusPerfMark('doctor:requests:data_ready', { count: next.length });
@@ -833,9 +846,22 @@ export default function DoctorRequestsScreen() {
   useEffect(() => {
     if (!token) return;
     return subscribeOfferUnreadEvents((ev) => {
-      if (ev.recipient !== "doctor" || ev.type !== "offer_realtime_update") return;
-      const cached = peekCachedResource<DoctorRequestRow[]>(DOCTOR_REQUESTS_LIST_CACHE_KEY);
-      if (cached?.length) setRequests(cached);
+      if (ev.recipient !== "doctor") return;
+      if (ev.type === "offer_activity") {
+        void syncDoctorRequestUnreadFromServer(token).then((next) => {
+          if (next?.length) setRequests(next);
+        });
+        return;
+      }
+      const next = handleDoctorOfferUnreadEvent(ev);
+      if (next?.length) setRequests(next);
+    });
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    void syncDoctorRequestUnreadFromServer(token).then((next) => {
+      if (next?.length) setRequests(next);
     });
   }, [token]);
 
@@ -879,6 +905,11 @@ export default function DoctorRequestsScreen() {
   const handleLeadOfferChatPress = useCallback(
     (offerId: string | null, req: Request) => {
       if (!token || startingChatRequestId) return;
+      const oid = String(offerId || req.my_offer_id || '').trim();
+      if (oid) {
+        const cleared = clearDoctorRequestUnreadByOfferId(oid);
+        if (cleared?.length) setRequests(cleared);
+      }
       setStartingChatRequestId(req.id);
       void startIncomingRequestChat({
         token,
@@ -902,34 +933,43 @@ export default function DoctorRequestsScreen() {
   );
 
   const filtered = useMemo(() => {
-    return requests.filter((r) => {
+    const rows = requests.filter((r) => {
       if (filter === 'mine') return !!r.my_offer_id;
       if (filter === 'pending') return r.status === 'pending';
       if (filter === 'answered') return r.status === 'answered';
       if (filter === 'chats') return !!r.my_offer_id;
       return true;
     });
+    return sortDoctorRequestsForInbox(rows);
   }, [requests, filter]);
 
-  const { pendingCount, mineCount, chatsCount } = useMemo(() => {
+  const { pendingCount, mineCount, chatsCount, chatsUnreadCount } = useMemo(() => {
     let pending = 0;
     let mine = 0;
+    let chatsUnread = 0;
     for (const r of requests) {
       if (r.status === 'pending') pending += 1;
-      if (r.my_offer_id) mine += 1;
+      if (r.my_offer_id) {
+        mine += 1;
+        if ((r.unread_count ?? 0) > 0) chatsUnread += 1;
+      }
     }
-    return { pendingCount: pending, mineCount: mine, chatsCount: mine };
+    return { pendingCount: pending, mineCount: mine, chatsCount: mine, chatsUnreadCount: chatsUnread };
   }, [requests]);
 
   const FILTERS: { key: FilterKey; label: string; count?: number }[] = useMemo(
     () => [
-      { key: 'chats', label: t('requests.filter.chats') || '💬 My Chats', count: chatsCount },
+      {
+        key: 'chats',
+        label: t('requests.filter.chats') || '💬 My Chats',
+        count: chatsUnreadCount > 0 ? chatsUnreadCount : chatsCount,
+      },
       { key: 'all', label: t('requests.filter.all') || 'All' },
       { key: 'pending', label: t('requests.filter.pending') || 'Pending', count: pendingCount },
       { key: 'mine', label: t('requests.filter.mine') || 'Mine', count: mineCount },
       { key: 'answered', label: t('requests.filter.answered') || 'Answered' },
     ],
-    [t, chatsCount, pendingCount, mineCount]
+    [t, chatsCount, chatsUnreadCount, pendingCount, mineCount]
   );
 
   const handleOfferSent = useCallback(
@@ -1126,6 +1166,7 @@ const cs = StyleSheet.create({
     borderLeftWidth: 3, borderLeftColor: 'transparent',
   },
   cardUrgent: { borderLeftColor: '#F59E0B' },
+  cardUnread: { borderLeftColor: '#DC2626', backgroundColor: '#FFFBFB' },
   topRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
   topLeft: { flex: 1, gap: 3 },
   topRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -1175,6 +1216,8 @@ const cs = StyleSheet.create({
     borderColor: '#BFDBFE', paddingVertical: 7, alignItems: 'center',
   },
   chatBtnText: { fontSize: 12, fontWeight: '700', color: '#2563EB' },
+  chatBtnUnread: { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' },
+  chatBtnTextUnread: { color: '#B91C1C' },
   resendBtn: {
     backgroundColor: '#F3F4F6', borderRadius: 8, borderWidth: 1, borderColor: '#D1D5DB',
     paddingHorizontal: 12, paddingVertical: 7,

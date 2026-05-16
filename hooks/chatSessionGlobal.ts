@@ -13,6 +13,8 @@ declare global {
   var isChatOpen: boolean | undefined;
   // eslint-disable-next-line no-var, vars-on-top
   var isOfferChatOpen: boolean | undefined;
+  /** Offer-chat route focus — suppress per-card unread bump while thread is open. */
+  var activeOfferChatOfferId: string | undefined;
 }
 
 export function setGlobalChatOpen(open: boolean): void {
@@ -23,12 +25,22 @@ export function getGlobalChatOpen(): boolean {
   return globalThis.isChatOpen === true;
 }
 
-export function setGlobalOfferChatOpen(open: boolean): void {
+export function setGlobalOfferChatOpen(open: boolean, offerId?: string | null): void {
   globalThis.isOfferChatOpen = open;
+  if (open) {
+    const oid = String(offerId ?? "").trim();
+    globalThis.activeOfferChatOfferId = oid || undefined;
+  } else {
+    globalThis.activeOfferChatOfferId = undefined;
+  }
 }
 
 export function getGlobalOfferChatOpen(): boolean {
   return globalThis.isOfferChatOpen === true;
+}
+
+export function getActiveOfferChatOfferId(): string {
+  return String(globalThis.activeOfferChatOfferId ?? "").trim();
 }
 
 /** Her iki ekran da odaktayken Railway fetch'ini kes — harici provider'lar için. */

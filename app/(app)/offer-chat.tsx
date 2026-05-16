@@ -41,6 +41,7 @@ import {
   setGlobalChatOpen,
   setGlobalOfferChatOpen,
 } from  '../../hooks/chatSessionGlobal';
+import { clearDoctorRequestUnreadByOfferId } from '../../lib/doctorRequestsUnread';
 import { useSupabaseOfferMessages } from  '../../hooks/useSupabaseOfferMessages';
 import { appendMappedChatMessage, mergeSbMessages } from  '../../hooks/chatMessageUtils';
 import { playInAppNewMessageSoundDebouncedForThread } from '../../lib/playInAppMessageSound';
@@ -504,15 +505,10 @@ export default function OfferChatScreen() {
     if (!user?.token || currentOfferId == null || !String(currentOfferId).trim()) return;
     const oid = String(currentOfferId).trim();
     const recipient = user?.type === 'doctor' ? 'doctor' : 'patient';
-    const cached = peekCachedResource<DoctorRequestRow[]>(DOCTOR_REQUESTS_LIST_CACHE_KEY);
-    if (cached?.length && recipient === 'doctor') {
-      const next = cached.map((row) => {
-        const rowOid = String(row.my_offer_id || row.my_offer?.id || '').trim();
-        return rowOid === oid ? { ...row, unread_count: 0 } : row;
-      });
-      setCachedResource(DOCTOR_REQUESTS_LIST_CACHE_KEY, next);
+    if (recipient === 'doctor') {
+      clearDoctorRequestUnreadByOfferId(oid);
+      invalidateDoctorUnreadCacheOnly();
     }
-    if (recipient === 'doctor') invalidateDoctorUnreadCacheOnly();
     else invalidatePatientInboxUnreadCache();
     emitOfferUnreadEvent({ type: 'offer_mark_read', offerId: oid, recipient });
     try {
@@ -520,7 +516,6 @@ export default function OfferChatScreen() {
         method: 'POST',
         headers: { Authorization: `Bearer ${user.token}` },
       });
-      emitOfferUnreadEvent({ type: 'offer_realtime_update', offerId: oid, recipient });
     } catch { /* silent */ }
   }, [user?.token, user?.type, currentOfferId]);
 
@@ -642,9 +637,10 @@ export default function OfferChatScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setGlobalOfferChatOpen(true);
+      const oid = currentOfferId == null ? '' : String(currentOfferId).trim();
+      setGlobalOfferChatOpen(true, oid);
       setGlobalChatOpen(false);
-      if (currentOfferId == null || !String(currentOfferId).trim()) {
+      if (!oid) {
         return () => {
           setGlobalOfferChatOpen(false);
         };

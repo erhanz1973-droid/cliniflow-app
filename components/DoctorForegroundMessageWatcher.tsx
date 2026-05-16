@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef } from "react";
 import { AppState, type AppStateStatus, ToastAndroid, Platform } from "react-native";
-import { useAuth } from "../lib/auth";
+import { useAuthSession } from "../lib/auth";
 import {
   fetchDoctorThreadSummary,
+  fetchDoctorUnreadBreakdown,
   invalidateDoctorThreadSummaryCacheOnly,
+  invalidateDoctorUnreadCacheOnly,
 } from "../lib/doctorMessaging";
+import { emitOfferUnreadEvent, subscribeOfferUnreadEvents } from "../lib/offerUnreadEvents";
+import { syncDoctorRequestUnreadFromServer } from "../lib/doctorRequestsUnread";
 import { playInAppNewMessageSoundDebouncedForThread } from "../lib/playInAppMessageSound";
 import {
   canonicalDoctorPatientChatKey,
@@ -22,18 +26,32 @@ type Snap = { lastId: string; unread: number };
  * plays sound + banner when activity changes (not only when chat screen is mounted).
  */
 export function DoctorForegroundMessageWatcher() {
-  const { user, isDoctor } = useAuth();
+  const { token: sessionToken, isDoctor } = useAuthSession();
   const { t } = useLanguage();
-  const token = user?.token?.trim() ?? "";
+  const token = sessionToken.trim();
   const snapRef = useRef<Map<string, Snap>>(new Map());
   const primedRef = useRef(false);
+  const offerUnreadTotalRef = useRef(0);
+  const offerUnreadPrimedRef = useRef(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
     if (!token || !isDoctor) {
       snapRef.current = new Map();
       primedRef.current = false;
+      offerUnreadTotalRef.current = 0;
+      offerUnreadPrimedRef.current = false;
     }
+  }, [token, isDoctor]);
+
+  useEffect(() => {
+    if (!token || !isDoctor) return;
+    return subscribeOfferUnreadEvents((ev) => {
+      if (ev.recipient !== "doctor") return;
+      if (ev.type === "offer_mark_read") {
+        invalidateDoctorUnreadCacheOnly();
+      }
+    });
   }, [token, isDoctor]);
 
   const poll = useCallback(async (opts?: { forceRefresh?: boolean }) => {
@@ -95,6 +113,33 @@ export function DoctorForegroundMessageWatcher() {
 
       snapRef.current = newMap;
       primedRef.current = true;
+
+      try {
+        const { offerUnread } = await fetchDoctorUnreadBreakdown(token);
+        const prevOfferOnly = offerUnreadTotalRef.current;
+        if (offerUnreadPrimedRef.current && offerUnread > prevOfferOnly) {
+          invalidateDoctorUnreadCacheOnly();
+          playInAppNewMessageSoundDebouncedForThread("fg_offer_unread", 2800);
+          const title =
+            t("doctor.foregroundChat.offerTitle") !== "doctor.foregroundChat.offerTitle"
+              ? t("doctor.foregroundChat.offerTitle")
+              : "New offer activity";
+          const body =
+            t("doctor.foregroundChat.offerBody") !== "doctor.foregroundChat.offerBody"
+              ? t("doctor.foregroundChat.offerBody")
+              : "A patient replied to a treatment offer.";
+          if (Platform.OS === "android") {
+            ToastAndroid.show(body.slice(0, 300), ToastAndroid.SHORT);
+          }
+          showDoctorForegroundBanner({ title, body });
+          void syncDoctorRequestUnreadFromServer(token);
+          emitOfferUnreadEvent({ type: "offer_activity", recipient: "doctor" });
+        }
+        offerUnreadTotalRef.current = offerUnread;
+        offerUnreadPrimedRef.current = true;
+      } catch {
+        /* ignore offer tally poll */
+      }
     } catch {
       /* ignore */
     }
@@ -106,7 +151,8 @@ export function DoctorForegroundMessageWatcher() {
     const id = setInterval(() => void poll({ forceRefresh: false }), POLL_MS);
     const sub = AppState.addEventListener("change", (s) => {
       appStateRef.current = s;
-      if (s === "active") void poll({ forceRefresh: true });
+      /** Avoid busting thread-summary cache on every resume (collides with screen back-navigation). */
+      if (s === "active") void poll({ forceRefresh: false });
     });
     return () => {
       clearInterval(id);
