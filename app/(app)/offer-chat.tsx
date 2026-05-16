@@ -20,7 +20,17 @@ import { useLanguage } from '../../lib/language-context';
 import { API_BASE } from '../../lib/api';
 import { offerChatLastStorageKey } from '../../lib/goToOfferChat';
 import { normalizeRouteParam } from '../../lib/doctorPatientId';
-import { invalidateDoctorThreadSummaryCacheOnly } from '../../lib/doctorMessaging';
+import {
+  invalidateDoctorThreadSummaryCacheOnly,
+  invalidateDoctorUnreadCacheOnly,
+} from '../../lib/doctorMessaging';
+import { emitOfferUnreadEvent } from '../../lib/offerUnreadEvents';
+import { invalidatePatientInboxUnreadCache } from '../../lib/patientInboxUnread';
+import { peekCachedResource, setCachedResource } from '../../lib/resourceCache';
+import {
+  DOCTOR_REQUESTS_LIST_CACHE_KEY,
+  type DoctorRequestRow,
+} from '../../lib/doctorRequestsCache';
 import { formatTreatmentRequestDescription } from '../../lib/treatmentRequestDescription';
 import {
   maybeAbortOfferRailwayMessagesFetch,
@@ -68,6 +78,22 @@ function fmtDate(iso: string) {
   } catch { return ''; }
 }
 
+/** RN Web: never render non-string / whitespace-only fragments as stray View children. */
+function safeOfferMessageText(raw: string | null | undefined): string {
+  if (raw == null) return '';
+  return typeof raw === 'string' ? raw.trim() : String(raw).trim();
+}
+
+function logOfferChatItemDev(message: Message): void {
+  if (!__DEV__) return;
+  console.log('[offer-chat:item]', {
+    id: message.id,
+    text: message.text,
+    type: typeof message.text,
+    sender_role: message.sender_role,
+  });
+}
+
 /** RN Image / Linking need https://…; API may return /uploads/… paths. */
 function resolveAttachmentMediaUrl(raw: string | null | undefined, apiBase: string): string {
   const u = String(raw || '').trim();
@@ -104,7 +130,8 @@ function offerMessageRowToUI(
 
   // Normalize: message_text (DB/Supabase canonical) → text (Railway API legacy) → message (eski fallback)
   const rawText = row.message_text ?? row.text ?? row.message;
-  const text = rawText == null ? null : String(rawText);
+  const text =
+    rawText == null ? null : safeOfferMessageText(String(rawText)) || null;
   if (__DEV__) console.log('[offerMessageRowToUI] FINAL TEXT:', JSON.stringify(text));
 
   const role = String(row.sender_role || 'patient').toLowerCase();
@@ -180,19 +207,22 @@ const OfferChatMessageItem = React.memo(function OfferChatMessageItem({
     );
   }
   if (item.sender_role === 'system') {
-    const systemText =
+    const systemText = safeOfferMessageText(
       item.text === 'clinic_joined'
         ? t('chat.systemClinicJoined') || '✅ Hasta klinik kaydını tamamladı'
-        : item.text || '';
+        : item.text,
+    );
     return (
       <View style={styles.systemMsgRow}>
         <View style={styles.systemMsgBubble}>
-          <Text style={styles.systemMsgText}>{systemText}</Text>
+          <Text style={styles.systemMsgText}>{systemText || ' '}</Text>
           <Text style={styles.systemMsgTime}>{fmtTime(item.created_at)}</Text>
         </View>
       </View>
     );
   }
+
+  logOfferChatItemDev(item);
 
   const isMe = item.sender_role === myRole;
   const isDoctorViewingPatient = myRole === 'doctor' && !isMe;
@@ -208,9 +238,11 @@ const OfferChatMessageItem = React.memo(function OfferChatMessageItem({
   const otherSenderLabel = patientSenderLabel || doctorSenderLabel;
 
   const mediaUrl = resolveAttachmentMediaUrl(item.attachment_url, API_BASE);
-  const hasImage = mediaUrl && (item.attachment_type === 'image' || item.attachment_type === 'xray');
-  const hasDoc   = mediaUrl && item.attachment_type === 'document';
-  const bubbleText = item.text ? formatTreatmentRequestDescription(item.text) : '';
+  const hasImage = Boolean(mediaUrl && (item.attachment_type === 'image' || item.attachment_type === 'xray'));
+  const hasDoc = Boolean(mediaUrl && item.attachment_type === 'document');
+  const rawText = safeOfferMessageText(item.text);
+  const bubbleText = rawText ? formatTreatmentRequestDescription(rawText) : '';
+  const showBubbleText = bubbleText.length > 0;
 
   return (
     <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowOther]}>
@@ -225,7 +257,7 @@ const OfferChatMessageItem = React.memo(function OfferChatMessageItem({
         {!isMe && !isDoctorViewingPatient && (
           <Text style={styles.senderName}>{otherSenderLabel}</Text>
         )}
-        {isDoctorViewingPatient && (hasImage || hasDoc) && !bubbleText ? (
+        {isDoctorViewingPatient && (hasImage || hasDoc) && !showBubbleText && patientSenderLabel ? (
           <Text style={styles.senderBesideMessage} numberOfLines={1}>{patientSenderLabel}</Text>
         ) : null}
 
@@ -258,15 +290,17 @@ const OfferChatMessageItem = React.memo(function OfferChatMessageItem({
           </TouchableOpacity>
         )}
 
-        {bubbleText ? (
-          <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
-            {isDoctorViewingPatient ? (
-              <>
-                <Text style={styles.senderBesideMessage}>{patientSenderLabel}</Text>
-                <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>{' · '}{bubbleText}</Text>
-              </>
-            ) : bubbleText}
-          </Text>
+        {showBubbleText ? (
+          isDoctorViewingPatient && patientSenderLabel ? (
+            <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
+              <Text style={styles.senderBesideMessage}>{patientSenderLabel}</Text>
+              <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
+                {` · ${bubbleText}`}
+              </Text>
+            </Text>
+          ) : (
+            <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>{bubbleText}</Text>
+          )
         ) : null}
 
         <Text style={[styles.bubbleTime, isMe && styles.bubbleTimeMe]}>{fmtTime(item.created_at)}</Text>
@@ -451,13 +485,27 @@ export default function OfferChatScreen() {
   /** Mark the other party's messages read (doctor ↔ patient); backend picks counterparty by actor. */
   const markAsRead = useCallback(async () => {
     if (!user?.token || currentOfferId == null || !String(currentOfferId).trim()) return;
+    const oid = String(currentOfferId).trim();
+    const recipient = user?.type === 'doctor' ? 'doctor' : 'patient';
+    const cached = peekCachedResource<DoctorRequestRow[]>(DOCTOR_REQUESTS_LIST_CACHE_KEY);
+    if (cached?.length && recipient === 'doctor') {
+      const next = cached.map((row) => {
+        const rowOid = String(row.my_offer_id || row.my_offer?.id || '').trim();
+        return rowOid === oid ? { ...row, unread_count: 0 } : row;
+      });
+      setCachedResource(DOCTOR_REQUESTS_LIST_CACHE_KEY, next);
+    }
+    if (recipient === 'doctor') invalidateDoctorUnreadCacheOnly();
+    else invalidatePatientInboxUnreadCache();
+    emitOfferUnreadEvent({ type: 'offer_mark_read', offerId: oid, recipient });
     try {
-      await fetch(`${API_BASE}/api/offer-messages/${encodeURIComponent(String(currentOfferId))}/read`, {
+      await fetch(`${API_BASE}/api/offer-messages/${encodeURIComponent(oid)}/read`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${user.token}` },
       });
+      emitOfferUnreadEvent({ type: 'offer_realtime_update', offerId: oid, recipient });
     } catch { /* silent */ }
-  }, [user?.token, currentOfferId]);
+  }, [user?.token, user?.type, currentOfferId]);
 
   /** Single source of truth: GET — no merge, no client-side thread filter. */
   const fetchMessages = useCallback(
