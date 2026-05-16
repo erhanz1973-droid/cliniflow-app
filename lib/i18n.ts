@@ -1342,6 +1342,10 @@ export const translations: Record<Language, Record<string, string>> = {
     "doctor.quickActions.messages": "Lead gelen kutusu",
     "doctor.inbox.title": "Lead gelen kutusu",
     "doctor.inbox.empty": "Henüz görüşme yok.",
+    "doctor.inbox.emptyOfferUnread":
+      "Tedavi tekliflerinizde okunmamış mesaj var. Hangi lead'in yazdığını görmek için Gelen Talepler'e gidin.",
+    "doctor.inbox.openRequestsCta": "Gelen Taleplere git",
+    "doctor.inbox.offerThreadBadge": "Teklif sohbeti",
     "doctor.inbox.noPreview": "Henüz mesaj yok",
     "doctor.inbox.leadBadge": "Lead",
     "doctor.inbox.unassigned": "Atanmadı",
@@ -2878,6 +2882,10 @@ export const translations: Record<Language, Record<string, string>> = {
     "doctor.quickActions.messages": "Leads Inbox",
     "doctor.inbox.title": "Leads Inbox",
     "doctor.inbox.empty": "No conversations yet.",
+    "doctor.inbox.emptyOfferUnread":
+      "You have unread messages on treatment offers. Open Incoming Requests to see which lead replied.",
+    "doctor.inbox.openRequestsCta": "Open Incoming Requests",
+    "doctor.inbox.offerThreadBadge": "Offer chat",
     "doctor.inbox.noPreview": "No messages yet",
     "doctor.inbox.leadBadge": "Lead",
     "doctor.inbox.unassigned": "Unassigned",
@@ -4407,6 +4415,10 @@ export const translations: Record<Language, Record<string, string>> = {
     "doctor.quickActions.messages": "ლიდების ინბოქსი",
     "doctor.inbox.title": "ლიდების ინბოქსი",
     "doctor.inbox.empty": "საუბრები ჯერ არ არის.",
+    "doctor.inbox.emptyOfferUnread":
+      "გაუმკითხარი შეტყობინებები გაქვთ მკურნალობის შეთავაზებებზე. გახსენით შემომავალი მოთხოვნები.",
+    "doctor.inbox.openRequestsCta": "შემომავალი მოთხოვნები",
+    "doctor.inbox.offerThreadBadge": "შეთავაზების ჩატი",
     "doctor.inbox.noPreview": "შეტყობინებები ჯერ არ არის",
     "doctor.inbox.leadBadge": "ლიდი",
     "doctor.inbox.unassigned": "დაუნიშნავი",

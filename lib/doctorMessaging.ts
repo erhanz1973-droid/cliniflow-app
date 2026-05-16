@@ -14,7 +14,23 @@ export type LeadPrimaryResponder = {
   threadIsLead?: boolean;
 };
 
+export type DoctorInboxMeta = {
+  onlyActive?: boolean;
+  chatThreadCount?: number;
+  offerThreadCount?: number;
+  lead_inbox_query_result_count?: number;
+  lead_inbox_filtered_count?: number;
+  chatUnreadTotal?: number;
+  offerUnreadTotal?: number;
+  lead_inbox_unread_count?: number;
+};
+
 export type DoctorThreadSummaryRow = {
+  /** `patient` = clinic/patient chat; `offer` = treatment offer thread (lead phase). */
+  threadKind?: "patient" | "offer";
+  offerId?: string | null;
+  requestId?: string | null;
+  treatmentType?: string | null;
   patientDbId: string;
   patientPublicId?: string | null;
   patientLegacyId?: string | null;
@@ -36,14 +52,15 @@ export type DoctorThreadSummaryRow = {
 export type DoctorThreadSummaryResponse = {
   ok?: boolean;
   threads?: DoctorThreadSummaryRow[];
+  inboxMeta?: DoctorInboxMeta;
   visiblePatientCount?: number;
   resolvedPatientCount?: number;
   cached?: boolean;
   hint?: string;
 };
 
-let unreadInflight: Promise<number> | null = null;
-let unreadCache: { expires: number; total: number } | null = null;
+let unreadInflight: Promise<{ total: number; offerUnread: number; chatUnread: number }> | null = null;
+let unreadCache: { expires: number; total: number; offerUnread: number; chatUnread: number } | null = null;
 
 let threadSummaryInflight: Promise<DoctorThreadSummaryResponse> | null = null;
 let threadSummaryCache: { expires: number; body: DoctorThreadSummaryResponse } | null = null;
@@ -68,10 +85,20 @@ export function invalidateDoctorUnreadCacheOnly(): void {
  * GET /api/doctor/messages/unread-counts?totalOnly=1 — deduped in-flight + brief TTL
  * so dashboard load + useFocusEffect + 30s poll do not stack duplicate queries.
  */
-export async function fetchDoctorUnreadTotalOnly(token: string): Promise<number> {
+export type DoctorUnreadBreakdown = {
+  total: number;
+  offerUnread: number;
+  chatUnread: number;
+};
+
+export async function fetchDoctorUnreadBreakdown(token: string): Promise<DoctorUnreadBreakdown> {
   const now = Date.now();
   if (unreadCache && unreadCache.expires > now) {
-    return unreadCache.total;
+    return {
+      total: unreadCache.total,
+      offerUnread: unreadCache.offerUnread,
+      chatUnread: unreadCache.chatUnread,
+    };
   }
   if (unreadInflight) return unreadInflight;
 
@@ -85,17 +112,33 @@ export async function fetchDoctorUnreadTotalOnly(token: string): Promise<number>
       );
       const d = await res.json().catch(() => ({}));
       const total = Number(d?.totalUnread ?? d?.total ?? 0);
-      const n = Number.isFinite(total) ? total : 0;
-      unreadCache = { expires: Date.now() + UNREAD_TOTAL_CLIENT_TTL_MS, total: n };
-      return n;
+      const offerUnread = Number(d?.offerUnread ?? 0);
+      const chatUnread = Number(d?.chatUnread ?? Math.max(0, total - offerUnread));
+      const row: DoctorUnreadBreakdown = {
+        total: Number.isFinite(total) ? total : 0,
+        offerUnread: Number.isFinite(offerUnread) ? offerUnread : 0,
+        chatUnread: Number.isFinite(chatUnread) ? chatUnread : 0,
+      };
+      unreadCache = { expires: Date.now() + UNREAD_TOTAL_CLIENT_TTL_MS, ...row };
+      return row;
     } catch {
-      return unreadCache?.total ?? 0;
+      return {
+        total: unreadCache?.total ?? 0,
+        offerUnread: unreadCache?.offerUnread ?? 0,
+        chatUnread: unreadCache?.chatUnread ?? 0,
+      };
     } finally {
       unreadInflight = null;
     }
   })();
 
   return unreadInflight;
+}
+
+/** Badge aggregate (chat + offer threads) for dashboard tab badges. */
+export async function fetchDoctorUnreadTotalOnly(token: string): Promise<number> {
+  const row = await fetchDoctorUnreadBreakdown(token);
+  return row.total;
 }
 
 /**

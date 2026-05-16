@@ -2,7 +2,7 @@
  * Doctor message inbox — single GET /api/doctor/messages/thread-summary (no per-patient full hydrates).
  * Opening a row navigates to patient-chat, which loads GET /api/doctor/patient/:id/messages.
  */
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -13,16 +13,24 @@ import {
   RefreshControl,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter, useFocusEffect } from "expo-router";
-import { useAuth } from "../../../lib/auth";
+import { useRouter } from "expo-router";
+import { useDeferredFocusRefresh } from "../../../hooks/use-deferred-focus-refresh";
+import { focusPerfStart } from "../../../lib/perfFocus";
+import { markPatientChatNav } from "../../../lib/patientChatNavPerf";
+import { peekCachedResource, setCachedResource } from "../../../lib/resourceCache";
+import { useAuthSession } from "../../../lib/auth";
 import { useLanguage } from "../../../lib/language-context";
 import { setAuthToken } from "../../../lib/api";
 import {
   fetchDoctorThreadSummary,
+  fetchDoctorUnreadBreakdown,
   invalidateDoctorMessagingCache,
+  type DoctorInboxMeta,
   type DoctorThreadSummaryRow,
 } from "../../../lib/doctorMessaging";
 import { doctorPatientPrimaryKey } from "../../../lib/doctorPatientId";
+import { goToOfferChat } from "../../../lib/goToOfferChat";
+import { subscribeOfferUnreadEvents } from "../../../lib/offerUnreadEvents";
 
 function fmtPreviewTime(createdAt: number | null | undefined): string {
   if (createdAt == null || !Number.isFinite(Number(createdAt))) return "";
@@ -46,41 +54,81 @@ export default function DoctorInboxScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useLanguage();
-  const { user } = useAuth();
-  const token = user?.token ?? "";
+  const { token } = useAuthSession();
 
-  const [loading, setLoading] = useState(true);
+  const cachedThreads = peekCachedResource<DoctorThreadSummaryRow[]>("doctor:inbox:threads");
+  const [loading, setLoading] = useState(cachedThreads == null);
+  const hasDisplayedContentRef = useRef((cachedThreads?.length ?? 0) > 0);
   const [refreshing, setRefreshing] = useState(false);
-  const [threads, setThreads] = useState<DoctorThreadSummaryRow[]>([]);
+  const [threads, setThreads] = useState<DoctorThreadSummaryRow[]>(cachedThreads ?? []);
+  const [inboxMeta, setInboxMeta] = useState<DoctorInboxMeta | null>(null);
+  const [badgeBreakdown, setBadgeBreakdown] = useState({ total: 0, offerUnread: 0, chatUnread: 0 });
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(
-    async (opts?: { refresh?: boolean }) => {
+    async (opts?: { refresh?: boolean; blocking?: boolean }) => {
       if (!token) return;
+      const blocking = opts?.blocking === true && !hasDisplayedContentRef.current;
+      if (blocking) setLoading(true);
       setAuthToken(token);
       setError(null);
+      const endFetch = focusPerfStart("doctor:inbox:fetch");
       try {
         const data = await fetchDoctorThreadSummary(token, {
           refresh: opts?.refresh === true,
           onlyActive: true,
         });
-        setThreads(Array.isArray(data.threads) ? data.threads : []);
+        const rows = Array.isArray(data.threads) ? data.threads : [];
+        setThreads(rows);
+        setInboxMeta(data.inboxMeta ?? null);
+        setCachedResource("doctor:inbox:threads", rows);
+        hasDisplayedContentRef.current = rows.length > 0 || hasDisplayedContentRef.current;
+        if (__DEV__ && data.inboxMeta) {
+          console.log("[doctor:inbox] meta", data.inboxMeta);
+        }
+        try {
+          const bd = await fetchDoctorUnreadBreakdown(token);
+          setBadgeBreakdown({
+            total: bd.total,
+            offerUnread: bd.offerUnread,
+            chatUnread: bd.chatUnread,
+          });
+        } catch {
+          /* badge hint optional */
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Error");
-        setThreads([]);
+        if (!hasDisplayedContentRef.current) setThreads([]);
       } finally {
         setLoading(false);
         setRefreshing(false);
+        endFetch();
       }
     },
     [token]
   );
 
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true);
-      void load({ refresh: false });
-    }, [load])
+  useEffect(() => {
+    if (!token) return;
+    void load({ refresh: false, blocking: true });
+  }, [token, load]);
+
+  useEffect(() => {
+    if (!token) return;
+    return subscribeOfferUnreadEvents((ev) => {
+      if (ev.recipient !== "doctor") return;
+      invalidateDoctorMessagingCache();
+      void load({ refresh: true, blocking: false });
+    });
+  }, [token, load]);
+
+  useDeferredFocusRefresh(
+    "doctor:inbox:focus",
+    () => {
+      invalidateDoctorMessagingCache();
+      return load({ refresh: true, blocking: false });
+    },
+    { enabled: !!token, minIntervalMs: 30_000 }
   );
 
   const onRefresh = () => {
@@ -89,14 +137,29 @@ export default function DoctorInboxScreen() {
     void load({ refresh: true });
   };
 
-  const openThread = (row: DoctorThreadSummaryRow) => {
+  const openRow = (row: DoctorThreadSummaryRow) => {
+    const offerId = String(row.offerId || "").trim();
+    if (row.threadKind === "offer" && offerId) {
+      goToOfferChat(
+        router,
+        {
+          offerId,
+          otherNameRaw: row.patientName || "Patient",
+          treatmentType: row.treatmentType || "",
+          leadThreadIsLead: row.leadPrimaryResponder?.threadIsLead,
+          requireExplicitLeadThread: true,
+        },
+        "doctor/inbox",
+      );
+      return;
+    }
     const pk = doctorPatientPrimaryKey({
       id: row.patientDbId,
       patient_id: row.patientLegacyId,
       patientId: row.patientPublicId,
     });
     if (!pk) return;
-    invalidateDoctorMessagingCache();
+    markPatientChatNav("press", { patientId: pk.slice(0, 12), source: "inbox" });
     router.push({
       pathname: "/doctor/patient-chat",
       params: {
@@ -104,6 +167,7 @@ export default function DoctorInboxScreen() {
         patientName: encodeURIComponent(row.patientName || "Hasta"),
       },
     });
+    markPatientChatNav("router_called", { patientId: pk.slice(0, 12), source: "inbox" });
   };
 
   const tOr = (key: string, en: string) => {
@@ -123,11 +187,11 @@ export default function DoctorInboxScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      {loading ? (
+      {loading && threads.length === 0 ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#2563eb" />
         </View>
-      ) : error ? (
+      ) : error && threads.length === 0 ? (
         <View style={styles.center}>
           <Text style={styles.err}>{error}</Text>
           <Pressable style={styles.retryBtn} onPress={() => void load({ refresh: true })}>
@@ -137,27 +201,55 @@ export default function DoctorInboxScreen() {
       ) : (
         <FlatList
           data={threads}
-          keyExtractor={(item) =>
-            String(item.patientDbId || item.patientPublicId || item.patientLegacyId || "").trim() || "row"
-          }
+          keyExtractor={(item) => {
+            if (item.threadKind === "offer" && item.offerId) return `offer:${item.offerId}`;
+            return (
+              String(item.patientDbId || item.patientPublicId || item.patientLegacyId || "").trim() || "row"
+            );
+          }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2563eb" />}
           ListEmptyComponent={
             <View style={styles.empty}>
               <Text style={styles.emptyTxt}>
-                {t("doctor.inbox.empty") !== "doctor.inbox.empty"
-                  ? t("doctor.inbox.empty")
-                  : "No conversations yet."}
+                {badgeBreakdown.offerUnread > 0
+                  ? tOr(
+                      "doctor.inbox.emptyOfferUnread",
+                      "You have unread messages on treatment offers. Open Incoming Requests to see which lead replied.",
+                    )
+                  : t("doctor.inbox.empty") !== "doctor.inbox.empty"
+                    ? t("doctor.inbox.empty")
+                    : "No conversations yet."}
               </Text>
+              {badgeBreakdown.offerUnread > 0 ? (
+                <Pressable
+                  style={styles.emptyCta}
+                  onPress={() => router.push("/doctor/requests")}
+                >
+                  <Text style={styles.emptyCtaTxt}>
+                    {tOr("doctor.inbox.openRequestsCta", "Open Incoming Requests")}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {__DEV__ && inboxMeta ? (
+                <Text style={styles.emptyDiag}>
+                  {`meta: chat=${inboxMeta.chatThreadCount ?? 0} offer=${inboxMeta.offerThreadCount ?? 0} unread=${inboxMeta.lead_inbox_unread_count ?? 0}`}
+                </Text>
+              ) : null}
             </View>
           }
           renderItem={({ item }) => {
             const preview = item.lastMessage?.text?.trim() || "";
             const unread = Number(item.unreadFromPatient) || 0;
             const ts = fmtPreviewTime(item.lastActivityAt ?? item.lastMessage?.createdAt ?? null);
+            const isOfferRow = item.threadKind === "offer" && !!item.offerId;
             const lead = item.leadPrimaryResponder;
             const isEnrolledShared = Boolean(lead && lead.threadIsLead === false);
             const leadBadge =
               t("doctor.inbox.leadBadge") !== "doctor.inbox.leadBadge" ? t("doctor.inbox.leadBadge") : "Lead";
+            const offerThreadLbl =
+              t("doctor.inbox.offerThreadBadge") !== "doctor.inbox.offerThreadBadge"
+                ? t("doctor.inbox.offerThreadBadge")
+                : "Offer chat";
             const unassignedLbl =
               t("doctor.inbox.unassigned") !== "doctor.inbox.unassigned"
                 ? t("doctor.inbox.unassigned")
@@ -167,7 +259,9 @@ export default function DoctorInboxScreen() {
                 ? t("doctor.inbox.ownerPrefix")
                 : "Primary:";
             let ownerLine: string | null = null;
-            if (lead && !isEnrolledShared) {
+            if (isOfferRow) {
+              ownerLine = `💬 ${offerThreadLbl}`;
+            } else if (lead && !isEnrolledShared) {
               ownerLine = lead.unassigned
                 ? `${leadBadge} · ${unassignedLbl}`
                 : `${leadBadge} · ${ownerPrefix} ${(lead.displayName || "").trim() || "—"}`;
@@ -230,7 +324,7 @@ export default function DoctorInboxScreen() {
 
                     <Pressable
                       style={styles.enrolledCta}
-                      onPress={() => openThread(item)}
+                      onPress={() => openRow(item)}
                       accessibilityRole="button"
                       accessibilityLabel={tOr("doctor.inbox.openPatientChatCta", "Open patient chat")}
                     >
@@ -244,7 +338,10 @@ export default function DoctorInboxScreen() {
             }
 
             return (
-              <Pressable style={styles.row} onPress={() => openThread(item)}>
+              <Pressable
+                style={[styles.row, isOfferRow && unread > 0 && styles.rowOfferUnread]}
+                onPress={() => openRow(item)}
+              >
                 <View style={styles.avatar}>
                   <Text style={styles.avatarTxt}>
                     {(item.patientName || "?").trim().charAt(0).toUpperCase()}
@@ -353,7 +450,17 @@ const styles = StyleSheet.create({
   },
   badgeTxt: { color: "#fff", fontSize: 12, fontWeight: "800" },
   empty: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32 },
-  emptyTxt: { fontSize: 15, color: "#6b7280", textAlign: "center" },
+  emptyTxt: { fontSize: 15, color: "#6b7280", textAlign: "center", lineHeight: 22 },
+  emptyCta: {
+    marginTop: 16,
+    backgroundColor: "#2563eb",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  emptyCtaTxt: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  emptyDiag: { marginTop: 12, fontSize: 11, color: "#9ca3af", textAlign: "center" },
+  rowOfferUnread: { backgroundColor: "#fffbfb", borderLeftWidth: 3, borderLeftColor: "#dc2626" },
   rowEnrolled: {
     flexDirection: "row",
     alignItems: "stretch",
