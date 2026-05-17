@@ -17,6 +17,11 @@ import { focusPerfStart } from '../../../lib/perfFocus';
 import { markPatientChatNav } from '../../../lib/patientChatNavPerf';
 import { openDoctorPatientChat } from '../../../lib/navigateCanonicalChat';
 import { peekCachedResource, setCachedResource } from '../../../lib/resourceCache';
+import {
+  doctorPatientArchivedLabel,
+  doctorPatientCanReceiveMessages,
+  type DoctorPatientLifecycleFields,
+} from '../../../lib/doctorPatientLifecycle';
 
 const PAGE_SIZE = 20;
 
@@ -26,7 +31,7 @@ interface RiskFlag {
   label: string;
 }
 
-interface Patient {
+interface Patient extends DoctorPatientLifecycleFields {
   id: string;
   patient_id?: string;
   patientId?: string;
@@ -43,12 +48,9 @@ interface Patient {
   avatar_url?: string;
   hasRisk?: boolean;
   riskFlags?: RiskFlag[];
-  /** From GET /api/doctor/patients — false when patient left clinic or thread archived */
-  messagingActive?: boolean;
-  conversationArchived?: boolean;
-  leftClinic?: boolean;
 }
 
+type RosterTab = "active" | "archived";
 type FilterTab = 'All' | 'Approved' | 'Pending' | 'Rejected';
 const FILTER_TABS: FilterTab[] = ['All', 'Approved', 'Pending', 'Rejected'];
 const FILTER_KEYS: Record<FilterTab, string> = {
@@ -112,33 +114,23 @@ function patientRowDbKey(p: Patient): string {
   return String(p.id || '').trim().toLowerCase();
 }
 
-function patientCanReceiveMessages(p: Patient): boolean {
-  if (p.messagingActive === false) return false;
-  if (p.leftClinic === true || p.conversationArchived === true) return false;
-  return true;
-}
-
-function patientArchivedLabel(p: Patient, t: (key: string) => string): string {
-  if (p.leftClinic) {
-    return t('doctor.patients.leftClinic') !== 'doctor.patients.leftClinic'
-      ? t('doctor.patients.leftClinic')
-      : 'Patient left clinic';
-  }
-  return t('doctor.patients.conversationArchived') !== 'doctor.patients.conversationArchived'
-    ? t('doctor.patients.conversationArchived')
-    : 'Conversation archived';
-}
-
 type PatientsPageCache = {
   patients: Patient[];
   page: number;
   total: number;
   hasMore: boolean;
+  rosterTab: RosterTab;
 };
+
+function patientsCacheKey(rosterTab: RosterTab): string {
+  return rosterTab === "archived" ? "doctor:patients:archived:page1" : "doctor:patients:page1";
+}
 
 const PatientCard = memo(function PatientCard({
   p,
   t,
+  doctorClinicId,
+  allowMessaging,
   msgActivity,
   onDiagnosis,
   onFiles,
@@ -146,6 +138,8 @@ const PatientCard = memo(function PatientCard({
 }: {
   p: Patient;
   t: (key: string) => string;
+  doctorClinicId?: string | null;
+  allowMessaging: boolean;
   msgActivity?: { unread: number; hasClinicSideActivity: boolean; enrolledSharedThread?: boolean };
   onDiagnosis: (p: Patient) => void;
   onFiles: (p: Patient) => void;
@@ -157,6 +151,7 @@ const PatientCard = memo(function PatientCard({
   const sc = statusColor(bucket);
   const initial = name.charAt(0).toUpperCase();
   const shared = Boolean(msgActivity?.enrolledSharedThread);
+  const canMessage = allowMessaging && doctorPatientCanReceiveMessages(p, doctorClinicId);
 
   return (
     <View style={styles.card}>
@@ -210,7 +205,7 @@ const PatientCard = memo(function PatientCard({
           <Text style={styles.actionBtnText}>{t('doctor.patients.files')}</Text>
         </Pressable>
         {(p.patient_id || p.patientId || p.id) ? (
-          patientCanReceiveMessages(p) ? (
+          canMessage ? (
             <Pressable
               style={[styles.actionBtn, styles.actionBtnMsg, styles.actionBtnMsgWrap, shared && styles.actionBtnMsgShared]}
               onPress={() => onChat(p)}
@@ -244,7 +239,7 @@ const PatientCard = memo(function PatientCard({
             </Pressable>
           ) : (
             <View style={[styles.actionBtn, styles.actionBtnArchived, styles.actionBtnMsgWrap]}>
-              <Text style={styles.actionBtnArchivedText}>💬 {patientArchivedLabel(p, t)}</Text>
+              <Text style={styles.actionBtnArchivedText}>💬 {doctorPatientArchivedLabel(p, t)}</Text>
             </View>
           )
         ) : null}
@@ -258,8 +253,10 @@ export default function DoctorPatientsScreen() {
   const token = useAuthToken();
   const router = useRouter();
   const { t } = useLanguage();
+  const doctorClinicId = user?.clinicId ?? null;
 
-  const cachedPage = peekCachedResource<PatientsPageCache>('doctor:patients:page1');
+  const [rosterTab, setRosterTab] = useState<RosterTab>("active");
+  const cachedPage = peekCachedResource<PatientsPageCache>(patientsCacheKey(rosterTab));
   const hasDisplayedContentRef = useRef((cachedPage?.patients?.length ?? 0) > 0);
   const [allPatients, setAllPatients] = useState<Patient[]>(cachedPage?.patients ?? []);
   const [loading, setLoading] = useState(!cachedPage);
@@ -310,8 +307,9 @@ export default function DoctorPatientsScreen() {
     { enabled: !!token, minIntervalMs: 30_000 },
   );
 
-  const fetchPage = useCallback(async (pageNum: number, append: boolean) => {
+  const fetchPage = useCallback(async (pageNum: number, append: boolean, tab: RosterTab) => {
     const endFetch = focusPerfStart(append ? 'doctor:patients:fetch-page-next' : 'doctor:patients:fetch');
+    const scope = tab === "archived" ? "archived" : "active";
     try {
       const res = await apiGet<{
         ok: boolean;
@@ -321,19 +319,24 @@ export default function DoctorPatientsScreen() {
         totalPages?: number;
         hasMore?: boolean;
       }>(
-        `/api/doctor/patients?page=${pageNum}&limit=${PAGE_SIZE}&includeHealth=1`,
+        `/api/doctor/patients?page=${pageNum}&limit=${PAGE_SIZE}&includeHealth=1&scope=${scope}`,
         { timeoutMs: TIMEOUT_GET_LONG },
       );
       if (res?.ok) {
-        const incoming = res.patients ?? [];
+        const incoming = (res.patients ?? []).filter((row) =>
+          tab === "archived"
+            ? !doctorPatientCanReceiveMessages(row, doctorClinicId)
+            : doctorPatientCanReceiveMessages(row, doctorClinicId),
+        );
         setAllPatients((prev) => {
           const next = append ? [...prev, ...incoming] : incoming;
           if (!append) {
-            setCachedResource('doctor:patients:page1', {
+            setCachedResource(patientsCacheKey(tab), {
               patients: next,
               page: res.page ?? pageNum,
               total: res.total ?? next.length,
               hasMore: res.hasMore ?? false,
+              rosterTab: tab,
             } satisfies PatientsPageCache);
             hasDisplayedContentRef.current = next.length > 0;
           }
@@ -352,21 +355,40 @@ export default function DoctorPatientsScreen() {
       setRefreshing(false);
       endFetch();
     }
-  }, []);
+  }, [doctorClinicId]);
 
-  const load = useCallback((opts?: { blocking?: boolean }) => {
+  const load = useCallback((opts?: { blocking?: boolean; tab?: RosterTab }) => {
+    const tab = opts?.tab ?? rosterTab;
     setLoadError(null);
     if (opts?.blocking !== false && !hasDisplayedContentRef.current) {
       setLoading(true);
     }
-    fetchPage(1, false);
-  }, [fetchPage]);
+    fetchPage(1, false, tab);
+  }, [fetchPage, rosterTab]);
 
   const loadMore = useCallback(() => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
-    fetchPage(page + 1, true);
-  }, [loadingMore, hasMore, page, fetchPage]);
+    fetchPage(page + 1, true, rosterTab);
+  }, [loadingMore, hasMore, page, fetchPage, rosterTab]);
+
+  const switchRosterTab = useCallback(
+    (tab: RosterTab) => {
+      if (tab === rosterTab) return;
+      const cached = peekCachedResource<PatientsPageCache>(patientsCacheKey(tab));
+      setRosterTab(tab);
+      setFilter("All");
+      setSearch("");
+      setPage(cached?.page ?? 1);
+      setTotal(cached?.total ?? 0);
+      setHasMore(cached?.hasMore ?? false);
+      setAllPatients(cached?.patients ?? []);
+      hasDisplayedContentRef.current = (cached?.patients?.length ?? 0) > 0;
+      setLoading(!cached?.patients?.length);
+      load({ blocking: !cached?.patients?.length, tab });
+    },
+    [rosterTab, load],
+  );
 
   const didInitialLoadRef = useRef(false);
   useEffect(() => {
@@ -387,6 +409,9 @@ export default function DoctorPatientsScreen() {
   };
 
   const visible = allPatients.filter((p) => {
+    const archived = !doctorPatientCanReceiveMessages(p, doctorClinicId);
+    if (rosterTab === "active" && archived) return false;
+    if (rosterTab === "archived" && !archived) return false;
     const name = patientDisplayName(p).toLowerCase();
     const matchSearch = !search || name.includes(search.toLowerCase())
       || (p.phone || '').includes(search);
@@ -418,7 +443,7 @@ export default function DoctorPatientsScreen() {
 
   const openChat = useCallback(
     (p: Patient) => {
-      if (!patientCanReceiveMessages(p)) return;
+      if (!doctorPatientCanReceiveMessages(p, doctorClinicId)) return;
       const patientId = resolveDoctorPatientRouteId({
         id: p.id,
         patient_id: p.patient_id,
@@ -431,7 +456,7 @@ export default function DoctorPatientsScreen() {
       }, { source: 'doctor/patients' });
       markPatientChatNav('router_called', { patientId: patientId.slice(0, 12) });
     },
-    [router],
+    [router, doctorClinicId],
   );
 
   const renderPatient = useCallback(
@@ -439,13 +464,17 @@ export default function DoctorPatientsScreen() {
       <PatientCard
         p={p}
         t={t}
-        msgActivity={msgActivityByPatientId[patientRowDbKey(p)]}
+        doctorClinicId={doctorClinicId}
+        allowMessaging={rosterTab === "active"}
+        msgActivity={
+          rosterTab === "active" ? msgActivityByPatientId[patientRowDbKey(p)] : undefined
+        }
         onDiagnosis={openDiagnosis}
         onFiles={openFiles}
         onChat={openChat}
       />
     ),
-    [t, msgActivityByPatientId, openDiagnosis, openFiles, openChat],
+    [t, doctorClinicId, rosterTab, msgActivityByPatientId, openDiagnosis, openFiles, openChat],
   );
 
   const listHeader = (
@@ -462,10 +491,18 @@ export default function DoctorPatientsScreen() {
     <View style={styles.emptyBox}>
       <Text style={styles.emptyIcon}>👥</Text>
       <Text style={styles.emptyTitle}>
-        {search ? t('doctor.patients.noResults') : t('doctor.patients.noPatientsYet')}
+        {search
+          ? t('doctor.patients.noResults')
+          : rosterTab === "archived"
+            ? t('doctor.patients.noArchivedYet')
+            : t('doctor.patients.noPatientsYet')}
       </Text>
       <Text style={styles.emptySub}>
-        {search ? t('doctor.patients.noResultsSub') : t('doctor.patients.noPatientsYetSub')}
+        {search
+          ? t('doctor.patients.noResultsSub')
+          : rosterTab === "archived"
+            ? t('doctor.patients.noArchivedYetSub')
+            : t('doctor.patients.noPatientsYetSub')}
       </Text>
     </View>
   );
@@ -503,6 +540,21 @@ export default function DoctorPatientsScreen() {
           onChangeText={setSearch}
           clearButtonMode="while-editing"
         />
+      </View>
+
+      {/* ── Active / Archived roster ── */}
+      <View style={styles.rosterTabRow}>
+        {(["active", "archived"] as RosterTab[]).map((tab) => (
+          <Pressable
+            key={tab}
+            style={[styles.rosterTab, rosterTab === tab && styles.rosterTabActive]}
+            onPress={() => switchRosterTab(tab)}
+          >
+            <Text style={[styles.rosterTabText, rosterTab === tab && styles.rosterTabTextActive]}>
+              {tab === "active" ? t("doctor.patients.rosterActive") : t("doctor.patients.rosterArchived")}
+            </Text>
+          </Pressable>
+        ))}
       </View>
 
       {/* ── Filter Tabs ── */}
@@ -603,6 +655,26 @@ const styles = StyleSheet.create({
     fontSize: 15, color: '#111827', borderWidth: 1, borderColor: '#E5E7EB',
   },
 
+  rosterTabRow: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 6,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  rosterTab: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+  },
+  rosterTabActive: { backgroundColor: '#111827' },
+  rosterTabText: { fontSize: 13, fontWeight: '700', color: '#6B7280' },
+  rosterTabTextActive: { color: '#fff' },
   // Tabs
   tabRow: { flexDirection: 'row', backgroundColor: '#fff', paddingHorizontal: 12, paddingBottom: 10, paddingTop: 4, gap: 8, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
   tab: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: '#F3F4F6' },
