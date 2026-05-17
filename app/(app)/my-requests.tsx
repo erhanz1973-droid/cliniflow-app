@@ -92,6 +92,9 @@ type Request = {
   budget: string | null;
   preferred_treatment: string | null;
   status: 'pending' | 'answered' | 'closed';
+  proposal_status?: string | null;
+  proposal_status_label?: string | null;
+  proposal_waiting_minutes?: number | null;
   created_at: string;
   offers: Offer[];
 };
@@ -470,7 +473,12 @@ export default function MyRequestsScreen() {
                   {/* Offers */}
                   {req.offers.length === 0 ? (
                     <View style={styles.noOffers}>
-                      <Text style={styles.noOffersText}>{t('treatReq.noOffers')}</Text>
+                      <Text style={styles.noOffersText}>
+                        {req.proposal_status_label ||
+                          (req.proposal_status && req.proposal_status !== 'quote_sent'
+                            ? t('treatReq.preparingEstimate')
+                            : t('treatReq.noOffers'))}
+                      </Text>
                     </View>
                   ) : (
                     <>
