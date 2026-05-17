@@ -1,6 +1,7 @@
 import { API_BASE, getAuthHeaders } from "../api";
 import { emptyLeadData, mergeLeadData, type AiLeadData } from "../aiCoordinator/leadData";
 import type { ClinicDirectoryPayload } from "./clinicDirectoryApi";
+import { normalizeWorkspace } from "./workspaceApi";
 import type {
   IntakeJourneyPayload,
   OperationalIntakeFlags,
@@ -162,6 +163,7 @@ export function parseIntakeApiPayload(json: Record<string, unknown>): TreatmentG
     intakeJourney: normalizeJourney(json.intakeJourney),
     documents: normalizeDocuments(json.documents),
     clinicDirectory,
+    treatmentGuideWorkspace: normalizeWorkspace(json.treatmentGuideWorkspace),
   };
 }
 

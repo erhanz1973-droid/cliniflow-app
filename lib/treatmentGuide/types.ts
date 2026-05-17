@@ -68,12 +68,24 @@ export type ClinicDirectorySnapshot = {
   cityCount: number;
 };
 
+export type TreatmentGuideWorkspace = {
+  photoUrl: string | null;
+  contentHash: string | null;
+  photoSavedAt: string | null;
+  analysisSnapshot: Record<string, unknown> | null;
+  analysisSavedAt: string | null;
+  patientNarrative: string;
+  inquiryDraftText: string;
+  updatedAt: string | null;
+};
+
 export type TreatmentGuideIntakeState = {
   leadData: AiLeadData;
   operationalIntakeFlags: OperationalIntakeFlags | null;
   intakeJourney: IntakeJourneyPayload | null;
   documents: PatientIntakeDocument[];
   clinicDirectory: ClinicDirectorySnapshot | null;
+  treatmentGuideWorkspace: TreatmentGuideWorkspace | null;
 };
 
 export type ChecklistItemStatus = "done" | "pending" | "optional";

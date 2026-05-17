@@ -23,6 +23,7 @@ import { useAuth } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
 import { API_BASE } from '../../lib/api';
 import { QUOTE_REQUEST_PREFILL_IMAGE_KEY } from '../../lib/quotePrefill';
+import { loadClinicInquiryDraftForQuote } from '../../lib/clinicInquiryDraftStorage';
 import { saveSelectedChatClinic } from '../../lib/selectedChatClinic';
 import { useDeviceGuidanceOptional } from '../../lib/deviceGuidanceContext';
 import { isLowStorageLikeError } from '../../lib/lowStorageError';
@@ -293,6 +294,20 @@ export default function QuoteRequestScreen() {
       setUploading(false);
     }
   };
+
+  /** Prefill description from Treatment Support clinic inquiry draft. */
+  useEffect(() => {
+    if (phase !== 'form' || prefillStartedRef.current) return;
+    let cancelled = false;
+    void (async () => {
+      const stored = await loadClinicInquiryDraftForQuote();
+      if (cancelled || !stored?.text?.trim()) return;
+      setDescription(stored.text.trim());
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [phase]);
 
   /** Prefill attachment from AI analysis / smile sim URL saved when leaving chat (see messages.tsx). */
   useEffect(() => {

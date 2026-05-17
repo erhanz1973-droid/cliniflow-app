@@ -34,6 +34,7 @@ type Props = {
   showTranslatedBadge?: boolean;
   onRetry: () => void;
   onRetakePhoto?: () => void;
+  guidanceSavedAt?: string | null;
   /** Step header provided by parent — guidance body only */
   embedded?: boolean;
 };
@@ -47,6 +48,7 @@ export function GuidePhotoAnalysisCard({
   showTranslatedBadge,
   onRetry,
   onRetakePhoto,
+  guidanceSavedAt,
   embedded,
 }: Props) {
   const { t } = useLanguage();
@@ -71,10 +73,7 @@ export function GuidePhotoAnalysisCard({
       );
     }
     return (
-      <View style={styles.statusBox}>
-        <ActivityIndicator size="small" color="#64748b" />
-        <Text style={styles.statusTitle}>{t("treatmentGuide.analysis.preparing")}</Text>
-      </View>
+      <Text style={styles.emptyPlaceholder}>{t("treatmentGuide.analysis.awaitingGuidance")}</Text>
     );
   }
 
@@ -120,7 +119,16 @@ export function GuidePhotoAnalysisCard({
       {showResult || (hasResult && !isProcessing && !showFailed) ? (
         <View style={styles.resultCard}>
           <View style={styles.resultTitleRow}>
-            <Text style={styles.resultTitle}>{t("treatmentGuide.analysisResultTitle")}</Text>
+            <View style={styles.resultTitleCol}>
+              <Text style={styles.resultTitle}>{t("treatmentGuide.analysisResultTitle")}</Text>
+              {guidanceSavedAt ? (
+                <Text style={styles.savedAt}>
+                  {t("treatmentGuide.analysis.savedAt", {
+                    date: new Date(guidanceSavedAt).toLocaleDateString(),
+                  })}
+                </Text>
+              ) : null}
+            </View>
             {showTranslatedBadge ? (
               <View style={styles.translatedBadge}>
                 <Text style={styles.translatedBadgeText}>{t("analysis.translatedBadge")}</Text>
@@ -207,8 +215,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
-  resultTitleRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 10 },
-  resultTitle: { fontSize: 15, fontWeight: "800", color: "#0f172a", flex: 1 },
+  resultTitleRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 8, marginBottom: 10 },
+  resultTitleCol: { flex: 1, minWidth: 120 },
+  resultTitle: { fontSize: 15, fontWeight: "800", color: "#0f172a" },
+  savedAt: { fontSize: 12, color: "#94a3b8", marginTop: 4 },
   translatedBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: "#e0e7ff" },
   translatedBadgeText: { fontSize: 11, fontWeight: "700", color: "#3730a3" },
   insightLine: { fontSize: 14, color: "#334155", marginBottom: 6, lineHeight: 20 },

@@ -8,6 +8,8 @@ type Props = {
   onTakePhoto: () => void;
   onUploadPhoto: () => void;
   uploading?: boolean;
+  showAnalyzeGuidance?: boolean;
+  onAnalyzeGuidance?: () => void;
   showAnalyzeAgain?: boolean;
   onAnalyzeAgain?: () => void;
   /** Section provides heading — show actions only */
@@ -19,6 +21,8 @@ export function GuidePhotoStart({
   onTakePhoto,
   onUploadPhoto,
   uploading,
+  showAnalyzeGuidance,
+  onAnalyzeGuidance,
   showAnalyzeAgain,
   onAnalyzeAgain,
   embedded,
@@ -67,6 +71,17 @@ export function GuidePhotoStart({
       ) : (
         <Text style={styles.optionalNote}>{t("treatmentGuide.photoOptional")}</Text>
       )}
+
+      {showAnalyzeGuidance && onAnalyzeGuidance ? (
+        <TouchableOpacity
+          style={styles.analyzePrimaryBtn}
+          onPress={onAnalyzeGuidance}
+          activeOpacity={0.88}
+          disabled={uploading}
+        >
+          <Text style={styles.analyzePrimaryText}>{t("treatmentGuide.photoStart.getGuidance")}</Text>
+        </TouchableOpacity>
+      ) : null}
 
       {showAnalyzeAgain && onAnalyzeAgain ? (
         <TouchableOpacity
@@ -119,6 +134,14 @@ const styles = StyleSheet.create({
   secondaryBtnText: { color: "#1d4ed8", fontSize: 14, fontWeight: "700" },
   optionalNote: { fontSize: 12, color: "#94a3b8", marginTop: 12, lineHeight: 17, fontStyle: "italic" },
   addedHint: { fontSize: 12, color: "#059669", marginTop: 12, fontWeight: "600" },
+  analyzePrimaryBtn: {
+    marginTop: 12,
+    backgroundColor: "#0f172a",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  analyzePrimaryText: { fontSize: 14, fontWeight: "700", color: "#fff" },
   analyzeAgainBtn: {
     marginTop: 12,
     paddingVertical: 10,

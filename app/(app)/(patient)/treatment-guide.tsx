@@ -36,6 +36,9 @@ import { AiCoordinatorChatView } from "../../../components/aiCoordinator/AiCoord
 import { GoalChips } from "../../../components/treatmentGuide/GoalChips";
 import { UploadGuidance } from "../../../components/treatmentGuide/UploadGuidance";
 import { ClinicNetworkHint } from "../../../components/treatmentGuide/ClinicNetworkHint";
+import { ClinicInquiryDraftPanel } from "../../../components/treatmentGuide/ClinicInquiryDraftPanel";
+import { saveClinicInquiryDraftForQuote } from "../../../lib/clinicInquiryDraftStorage";
+import { saveTreatmentGuideWorkspace } from "../../../lib/treatmentGuide/workspaceApi";
 import {
   chipIdsToTags,
   tagsToChipIds,
@@ -71,8 +74,10 @@ export default function TreatmentGuideScreen() {
   const localImageFingerprintRef = useRef<string | null>(null);
   const analysisInFlightRef = useRef(false);
   const analyzeFetchFailedRef = useRef(false);
-  const pendingNewAnalysisRef = useRef(false);
-  const hydrateInFlightRef = useRef(false);
+  const workspaceHydratedRef = useRef(false);
+  const narrativeRestoredRef = useRef(false);
+  const inquiryRestoredRef = useRef(false);
+  const [guidanceSavedAt, setGuidanceSavedAt] = useState<string | null>(null);
 
   const patientId = String(user?.patientId || user?.id || "").trim();
   const token = user?.token;
@@ -112,6 +117,7 @@ export default function TreatmentGuideScreen() {
   const [selectedChipIds, setSelectedChipIds] = useState<TreatmentGoalChipId[]>([]);
   const [savingGoals, setSavingGoals] = useState(false);
   const [goalsError, setGoalsError] = useState<string | null>(null);
+  const [inquiryDraftText, setInquiryDraftText] = useState("");
 
   const flags = intake.operationalIntakeFlags;
   const serverTags = flags?.patientReportedTags || intake.leadData.patientReportedTags || [];
@@ -223,6 +229,9 @@ export default function TreatmentGuideScreen() {
 
   useEffect(() => {
     if (!patientId) return;
+    workspaceHydratedRef.current = false;
+    narrativeRestoredRef.current = false;
+    inquiryRestoredRef.current = false;
     let cancelled = false;
     void getStableTreatmentGuideSessionId(patientId).then((sid) => {
       if (!cancelled) setSessionId(sid);
@@ -280,8 +289,23 @@ export default function TreatmentGuideScreen() {
           savedAt: Date.now(),
         });
       }
+
+      const analyzedAt = new Date().toISOString();
+      setGuidanceSavedAt(analyzedAt);
+      if (sessionId) {
+        void saveTreatmentGuideWorkspace({
+          sessionId,
+          photoUrl: fileUrl,
+          contentHash: hash || null,
+          photoSavedAt: analyzedAt,
+          analysisSavedAt: analyzedAt,
+          analysisSnapshot: norm,
+          patientNarrative: patientNarrative.trim() || undefined,
+          inquiryDraftText: inquiryDraftText.trim() || undefined,
+        });
+      }
     },
-    [patientId],
+    [patientId, sessionId, patientNarrative, inquiryDraftText],
   );
 
   const restoreAnalysisOnly = useCallback(
@@ -306,88 +330,143 @@ export default function TreatmentGuideScreen() {
     [patientId, applyAnalysisResult],
   );
 
+  /** Restore saved workspace from server + local cache — never auto-run analysis. */
   useEffect(() => {
-    if (typeof params.imageUri !== "string" || !params.imageUri.trim() || !patientId) return;
-    const uri = params.imageUri.trim();
-    setLastCapturedImage(uri);
-    if (!uri.startsWith("http")) {
-      localImageFingerprintRef.current = normalizeImageFingerprint(uri);
-    }
+    if (!patientId || !sessionId || workspaceHydratedRef.current || intakeLoading) return;
+
+    const ws = intake.treatmentGuideWorkspace;
     let cancelled = false;
     void (async () => {
-      const fp = normalizeImageFingerprint(uri);
-      const hash = uri.startsWith("http") ? "" : await resolveContentHash(uri);
-      if (cancelled) return;
-      if (hash) analyzedContentHashRef.current = hash;
+      const photoFromServer = ws?.photoUrl?.trim() || "";
+      const paramUri = typeof params.imageUri === "string" ? params.imageUri.trim() : "";
 
-      const cached = await loadTreatmentGuideAnalysisCacheAny(patientId, {
-        fingerprint: fp,
-        contentHash: hash || null,
-      });
+      if (photoFromServer && !paramUri) {
+        setRestoredDisplayUri(photoFromServer);
+        setLastCapturedImage(photoFromServer);
+        analyzedFingerprintRef.current = normalizeImageFingerprint(photoFromServer);
+        if (ws?.contentHash) analyzedContentHashRef.current = ws.contentHash;
+      }
 
-      if (cached?.aiData) {
-        pendingNewAnalysisRef.current = false;
-        const norm = normalizeAnalyzeApiPayload(cached.aiData);
-        if (norm) {
-          applyAnalysisResult(cached.fileUrl, norm, fp, hash || cached.contentHash, [
-            localImageFingerprintRef.current || fp,
-          ]);
+      if (paramUri) {
+        setLastCapturedImage(paramUri);
+        if (!paramUri.startsWith("http")) {
+          localImageFingerprintRef.current = normalizeImageFingerprint(paramUri);
         }
+        const fp = normalizeImageFingerprint(paramUri);
+        const hash = paramUri.startsWith("http") ? ws?.contentHash || "" : await resolveContentHash(paramUri);
+        if (cancelled) return;
+        if (hash) analyzedContentHashRef.current = hash;
+        const cached = await loadTreatmentGuideAnalysisCacheAny(patientId, {
+          fingerprint: fp,
+          contentHash: hash || ws?.contentHash || null,
+        });
+        if (cached?.aiData) {
+          const norm = normalizeAnalyzeApiPayload(cached.aiData);
+          if (norm) {
+            applyAnalysisResult(cached.fileUrl, norm, fp, hash || cached.contentHash, [fp]);
+            return;
+          }
+        }
+        setPhase("idle");
+        setAnalysisPayload(null);
         return;
       }
 
-      const last = await loadLastGuideImage(patientId);
-      if (cancelled) return;
-      const alreadyHandled =
-        (last && last.fingerprint === fp) || (hash && last?.contentHash === hash);
-      if (alreadyHandled && last) {
-        pendingNewAnalysisRef.current = false;
-        analyzedFingerprintRef.current = last.fingerprint;
-        const again = await loadTreatmentGuideAnalysisCacheAny(patientId, {
-          fingerprint: last.fingerprint,
-          contentHash: last.contentHash || hash,
+      if (ws?.analysisSnapshot && !analysisPayload) {
+        const norm = normalizeAnalyzeApiPayload(ws.analysisSnapshot);
+        const photo = photoFromServer || ws.photoUrl || "";
+        if (norm && photo) {
+          applyAnalysisResult(
+            photo,
+            norm,
+            normalizeImageFingerprint(photo),
+            ws.contentHash,
+          );
+          if (ws.analysisSavedAt) setGuidanceSavedAt(ws.analysisSavedAt);
+        }
+      } else if (photoFromServer) {
+        const cached = await loadTreatmentGuideAnalysisCacheAny(patientId, {
+          fingerprint: normalizeImageFingerprint(photoFromServer),
+          contentHash: ws?.contentHash || null,
         });
-        if (again?.aiData) {
-          const norm = normalizeAnalyzeApiPayload(again.aiData);
+        if (cancelled) return;
+        if (cached?.aiData) {
+          const norm = normalizeAnalyzeApiPayload(cached.aiData);
           if (norm) {
-            applyAnalysisResult(again.fileUrl, norm, last.fingerprint, last.contentHash || hash, [fp]);
+            applyAnalysisResult(
+              cached.fileUrl,
+              norm,
+              normalizeImageFingerprint(photoFromServer),
+              ws?.contentHash,
+            );
+          } else {
+            setPhase("idle");
           }
+        } else {
+          setPhase("idle");
         }
       } else {
-        pendingNewAnalysisRef.current = true;
-        analyzeFetchFailedRef.current = false;
+        const last = await loadLastGuideImage(patientId);
+        if (cancelled || !last?.displayUri) {
+          setPhase("skipped");
+          return;
+        }
+        setRestoredDisplayUri(last.displayUri);
+        setLastCapturedImage(last.remoteUrl || last.displayUri);
+        const cached = await loadTreatmentGuideAnalysisCacheAny(patientId, {
+          fingerprint: last.fingerprint,
+          contentHash: last.contentHash,
+        });
+        if (cached?.aiData) {
+          const norm = normalizeAnalyzeApiPayload(cached.aiData);
+          if (norm) {
+            applyAnalysisResult(cached.fileUrl, norm, last.fingerprint, last.contentHash);
+          }
+        } else {
+          setPhase("idle");
+        }
       }
+
+      if (!narrativeRestoredRef.current && ws?.patientNarrative) {
+        narrativeRestoredRef.current = true;
+        setPatientNarrative(ws.patientNarrative);
+      }
+      if (!inquiryRestoredRef.current && ws?.inquiryDraftText) {
+        inquiryRestoredRef.current = true;
+        setInquiryDraftText(ws.inquiryDraftText);
+      }
+
+      if (!cancelled) workspaceHydratedRef.current = true;
     })();
+
     return () => {
       cancelled = true;
     };
-  }, [params.imageUri, patientId, resolveContentHash, applyAnalysisResult]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- bootstrap once per session load
+  }, [patientId, sessionId, intakeLoading, intake.treatmentGuideWorkspace]);
 
   useEffect(() => {
-    if (imageUri || !patientId) return;
-    let cancelled = false;
-    void (async () => {
-      const last = await loadLastGuideImage(patientId);
-      if (cancelled || !last?.displayUri) return;
-      setRestoredDisplayUri(last.displayUri);
-      setLastCapturedImage(last.remoteUrl || last.displayUri);
-      analyzedFingerprintRef.current = last.fingerprint;
-      analyzedContentHashRef.current = last.contentHash || null;
-      const cached = await loadTreatmentGuideAnalysisCacheAny(patientId, {
-        fingerprint: last.fingerprint,
-        contentHash: last.contentHash,
+    if (!sessionId || !workspaceHydratedRef.current) return;
+    const tid = setTimeout(() => {
+      void saveTreatmentGuideWorkspace({
+        sessionId,
+        patientNarrative,
+        inquiryDraftText,
+        photoUrl: displayImageUri?.startsWith("http") ? displayImageUri : null,
+        contentHash: analyzedContentHashRef.current,
+        analysisSnapshot: analysisPayload,
+        analysisSavedAt: guidanceSavedAt,
       });
-      if (cancelled || !cached?.aiData) return;
-      const norm = normalizeAnalyzeApiPayload(cached.aiData);
-      if (norm) {
-        pendingNewAnalysisRef.current = false;
-        applyAnalysisResult(cached.fileUrl, norm, last.fingerprint, last.contentHash);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [patientId, imageUri, applyAnalysisResult]);
+    }, 900);
+    return () => clearTimeout(tid);
+  }, [
+    sessionId,
+    patientNarrative,
+    inquiryDraftText,
+    displayImageUri,
+    analysisPayload,
+    guidanceSavedAt,
+  ]);
 
   const runPhotoAnalysis = useCallback(
     async (opts: { forceReanalyze?: boolean } = {}) => {
@@ -405,7 +484,6 @@ export default function TreatmentGuideScreen() {
       setErrorText(null);
       if (force) {
         setAnalysisPayload(null);
-        pendingNewAnalysisRef.current = true;
         analyzeFetchFailedRef.current = false;
       }
 
@@ -458,7 +536,6 @@ export default function TreatmentGuideScreen() {
         }
       } finally {
         analysisInFlightRef.current = false;
-        pendingNewAnalysisRef.current = false;
       }
     },
     [
@@ -476,74 +553,9 @@ export default function TreatmentGuideScreen() {
     ],
   );
 
-  useEffect(() => {
-    if (!imageUri) {
-      setPhase("skipped");
-      return;
-    }
-    if (!token || !patientId) {
-      setPhase("error");
-      setErrorText(t("chat.sessionExpired"));
-      return;
-    }
-    if (hydrateInFlightRef.current) return;
-
-    let cancelled = false;
-    void (async () => {
-      hydrateInFlightRef.current = true;
-      setPhase("restoring");
-      try {
-        if (cancelled) return;
-
-        let contentHash = await resolveContentHash(imageUri);
-        if (contentHash) analyzedContentHashRef.current = contentHash;
-
-        const restored = await restoreAnalysisOnly(imageFingerprint, contentHash);
-        if (restored) return;
-
-        if (analysisPayload) {
-          setPhase("done");
-          return;
-        }
-
-        if (analyzeFetchFailedRef.current) {
-          setPhase("error");
-          setErrorText(t("treatmentGuide.analysis.photoProcessFailed"));
-          return;
-        }
-
-        if (!pendingNewAnalysisRef.current) {
-          setPhase("idle");
-          return;
-        }
-
-        if (cancelled) return;
-        await runPhotoAnalysis({ forceReanalyze: false });
-      } finally {
-        hydrateInFlightRef.current = false;
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate only on image/patient identity
-  }, [imageFingerprint, patientId, token, imageUri]);
-
   const goToFiles = useCallback(() => {
     router.push("/(patient)/files" as never);
   }, [router]);
-
-  const goToClinicConnection = useCallback(() => {
-    if (hasClinic && linkedClinicId) {
-      router.push({
-        pathname: "/(patient)/messages",
-        params: { clinicId: linkedClinicId },
-      } as never);
-      return;
-    }
-    router.push("/clinic-onboarding" as never);
-  }, [router, hasClinic, linkedClinicId]);
 
   const clinicRegionHint = useMemo(() => {
     if (hasClinic) return null;
@@ -563,9 +575,9 @@ export default function TreatmentGuideScreen() {
     analyzedFingerprintRef.current = null;
     analyzedContentHashRef.current = null;
     localImageFingerprintRef.current = normalizeImageFingerprint(uri);
-    pendingNewAnalysisRef.current = true;
     analyzeFetchFailedRef.current = false;
     setAnalysisPayload(null);
+    setGuidanceSavedAt(null);
     setRestoredDisplayUri(null);
     setPhase("idle");
     setLastCapturedImage(uri);
@@ -583,6 +595,54 @@ export default function TreatmentGuideScreen() {
     phase === "uploading" || phase === "analyzing" || phase === "restoring";
 
   const chatInitialDraft = useMemo(() => patientNarrative.trim(), [patientNarrative]);
+
+  const photoGuidanceSummary = useMemo(() => {
+    const parts = [localized.summary, localized.recommendation].map((s) => String(s || "").trim()).filter(Boolean);
+    return parts.join(" ");
+  }, [localized.summary, localized.recommendation]);
+
+  const collectInquiryPhotoUrls = useCallback((): string[] => {
+    const urls = new Set<string>();
+    const uri = String(displayImageUri || "").trim();
+    if (/^https?:\/\//i.test(uri)) urls.add(uri.split("?")[0]);
+    for (const doc of intake.documents) {
+      const u = String(doc.fileUrl || "").trim();
+      if (/^https?:\/\//i.test(u)) urls.add(u.split("?")[0]);
+    }
+    return [...urls];
+  }, [displayImageUri, intake.documents]);
+
+  const persistInquiryDraft = useCallback(async () => {
+    const text = inquiryDraftText.trim();
+    if (!text) return;
+    await saveClinicInquiryDraftForQuote({
+      text,
+      photoUrls: collectInquiryPhotoUrls(),
+      savedAt: Date.now(),
+    });
+  }, [inquiryDraftText, collectInquiryPhotoUrls]);
+
+  const handleReviewInquiry = useCallback(() => {
+    void (async () => {
+      await persistInquiryDraft();
+      if (hasClinic && linkedClinicId) {
+        router.push({
+          pathname: "/(patient)/messages",
+          params: {
+            clinicId: linkedClinicId,
+            prefillText: inquiryDraftText.trim().slice(0, 2000),
+            prefillComposer: "1",
+          },
+        } as never);
+        return;
+      }
+      router.push("/clinic-onboarding" as never);
+    })();
+  }, [persistInquiryDraft, hasClinic, linkedClinicId, router, inquiryDraftText]);
+
+  const handleShareInquiryWithClinic = useCallback(() => {
+    void handleReviewInquiry();
+  }, [handleReviewInquiry]);
 
   return (
     <KeyboardAvoidingView
@@ -615,6 +675,9 @@ export default function TreatmentGuideScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.flowIntro}>{t("treatmentGuide.flow.intro")}</Text>
+        {intake.treatmentGuideWorkspace?.photoUrl || intake.treatmentGuideWorkspace?.analysisSnapshot ? (
+          <Text style={styles.savedWorkspaceHint}>{t("treatmentGuide.workspace.savedHint")}</Text>
+        ) : null}
 
         <GuideFlowSection
           step={1}
@@ -627,7 +690,14 @@ export default function TreatmentGuideScreen() {
             onTakePhoto={addPhoto}
             onUploadPhoto={() => void uploadPhotoFromLibrary()}
             uploading={isPhotoBusy}
-            showAnalyzeAgain={phase === "done" && !!displayImageUri}
+            showAnalyzeGuidance={
+              !!displayImageUri && !analysisPayload && !isPhotoBusy && phase !== "error"
+            }
+            onAnalyzeGuidance={() => {
+              analyzeFetchFailedRef.current = false;
+              void runPhotoAnalysis({ forceReanalyze: false });
+            }}
+            showAnalyzeAgain={!!analysisPayload && phase === "done"}
             onAnalyzeAgain={() => {
               analyzeFetchFailedRef.current = false;
               void runPhotoAnalysis({ forceReanalyze: true });
@@ -657,6 +727,7 @@ export default function TreatmentGuideScreen() {
             localized={localized}
             errorText={errorText}
             showTranslatedBadge={showTranslatedBadge}
+            guidanceSavedAt={guidanceSavedAt}
             onRetry={() => {
               analyzeFetchFailedRef.current = false;
               void runPhotoAnalysis({ forceReanalyze: true });
@@ -675,7 +746,10 @@ export default function TreatmentGuideScreen() {
           <TextInput
             style={styles.narrativeInput}
             value={patientNarrative}
-            onChangeText={setPatientNarrative}
+            onChangeText={(v) => {
+              narrativeRestoredRef.current = true;
+              setPatientNarrative(v);
+            }}
             placeholder={t("treatmentGuide.narrativePlaceholder")}
             placeholderTextColor="#94a3b8"
             multiline
@@ -715,16 +789,23 @@ export default function TreatmentGuideScreen() {
             </Text>
           ) : null}
 
-          <TouchableOpacity style={styles.secondaryBtn} onPress={goToClinicConnection} activeOpacity={0.88}>
-            <Text style={styles.secondaryBtnText}>
-              {hasClinic
-                ? t("treatmentGuide.next.messageClinicLinked")
-                : t("treatmentGuide.next.shareWithClinics")}
-            </Text>
-          </TouchableOpacity>
-          {!hasClinic ? (
-            <Text style={styles.ctaHelper}>{t("treatmentGuide.next.shareWithClinicsHelper")}</Text>
-          ) : null}
+          <ClinicInquiryDraftPanel
+            flags={flags}
+            leadData={intake.leadData}
+            documents={intake.documents}
+            patientNarrative={patientNarrative}
+            photoGuidanceSummary={photoGuidanceSummary || undefined}
+            hasDentalPhoto={!!displayImageUri}
+            dentalPhotoUrl={/^https?:\/\//i.test(displayImageUri || "") ? displayImageUri : undefined}
+            draftText={inquiryDraftText}
+            onDraftTextChange={(v) => {
+              inquiryRestoredRef.current = true;
+              setInquiryDraftText(v);
+            }}
+            onReviewInquiry={handleReviewInquiry}
+            onShareWithClinic={handleShareInquiryWithClinic}
+            hasLinkedClinic={hasClinic}
+          />
 
           <View style={styles.chatBlock}>
             <Text style={styles.chatLabel}>{t("treatmentGuide.chat.title")}</Text>
@@ -778,7 +859,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#64748b",
     lineHeight: 21,
-    marginBottom: 24,
+    marginBottom: 8,
+  },
+  savedWorkspaceHint: {
+    fontSize: 13,
+    color: "#059669",
+    lineHeight: 18,
+    marginBottom: 20,
+    fontWeight: "600",
   },
   photoPreviewBlock: { marginTop: 16 },
   preview: {
