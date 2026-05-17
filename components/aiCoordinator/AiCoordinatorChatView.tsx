@@ -34,8 +34,6 @@ import {
 import type { TreatmentGuideIntakeState } from "../../lib/treatmentGuide/intakeApi";
 import { LeadInsightsBar } from "./LeadInsightsBar";
 
-const EMBEDDED_CHAT_HEIGHT = 360;
-
 type Props = {
   clinicId?: string | null;
   patientId?: string | null;
@@ -104,6 +102,8 @@ export function AiCoordinatorChatView({
   const insets = useSafeAreaInsets();
   const listRef = useRef<FlatList<AiCoordinatorMessage>>(null);
   const isGuide = contextMode === "treatment_guide";
+  /** Embedded in Treatment Guide ScrollView — must not use FlatList (nested virtualized list). */
+  const useStaticMessageList = embedded;
 
   const welcomeMessage = isGuide ? AI_TREATMENT_GUIDE_WELCOME_MESSAGE : AI_COORDINATOR_WELCOME_MESSAGE;
 
@@ -135,10 +135,11 @@ export function AiCoordinatorChatView({
   }, [priorLeadDataProp]);
 
   const scrollToLatest = useCallback(() => {
+    if (useStaticMessageList) return;
     requestAnimationFrame(() => {
       listRef.current?.scrollToEnd({ animated: true });
     });
-  }, []);
+  }, [useStaticMessageList]);
 
   useEffect(() => {
     scrollToLatest();
@@ -248,10 +249,17 @@ export function AiCoordinatorChatView({
     />
   );
 
-  const messageList = (
+  const messageList = useStaticMessageList ? (
+    <View style={styles.embeddedMessageStack}>
+      {messages.map((item) => (
+        <MessageBubble key={item.id} item={item} />
+      ))}
+      {sending ? <TypingBubble /> : null}
+    </View>
+  ) : (
     <FlatList
       ref={listRef}
-      style={embedded ? styles.listEmbedded : styles.list}
+      style={styles.list}
       contentContainerStyle={styles.listContent}
       data={messages}
       keyExtractor={keyExtractor}
@@ -260,7 +268,6 @@ export function AiCoordinatorChatView({
       onContentSizeChange={scrollToLatest}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
-      nestedScrollEnabled
     />
   );
 
@@ -358,7 +365,11 @@ const styles = StyleSheet.create({
   },
   embeddedTitle: { fontSize: 16, fontWeight: "800", color: "#0f172a" },
   embeddedSub: { fontSize: 12, color: "#64748b", marginTop: 4, lineHeight: 17 },
-  embeddedChatBox: { height: EMBEDDED_CHAT_HEIGHT, backgroundColor: "#f8faff" },
+  embeddedChatBox: { backgroundColor: "#f8faff" },
+  embeddedMessageStack: {
+    paddingHorizontal: 14,
+    paddingVertical: 16,
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -379,7 +390,6 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 17, fontWeight: "800", color: "#111827" },
   headerSub: { fontSize: 12, color: "#6B7280", marginTop: 2, textAlign: "center" },
   list: { flex: 1 },
-  listEmbedded: { flex: 1 },
   listContent: { paddingHorizontal: 14, paddingVertical: 16, flexGrow: 1 },
   row: { marginBottom: 10, maxWidth: "88%" },
   rowPatient: { alignSelf: "flex-end" },
