@@ -2,6 +2,7 @@ import { Alert, Platform } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { API_BASE, getAuthHeaders } from "../api";
+import { sha256LocalFileUri, normalizeContentHash } from "./imageContentHash";
 import {
   ensureCameraAccess,
   ensureMediaLibraryAccessForPicker,
@@ -121,6 +122,8 @@ export async function uploadPatientAiDocument(params: {
   sessionId: string;
   clinicId: string;
 }): Promise<IntakeUploadResult> {
+  const contentHash = normalizeContentHash(await sha256LocalFileUri(params.file.uri));
+
   const form = new FormData();
   form.append("file", {
     uri: params.file.uri,
@@ -131,6 +134,7 @@ export async function uploadPatientAiDocument(params: {
   form.append("sessionId", params.sessionId);
   form.append("clinicId", params.clinicId);
   form.append("uploadConsent", "true");
+  if (contentHash) form.append("contentHash", contentHash);
 
   const headers: Record<string, string> = {
     Accept: "application/json",

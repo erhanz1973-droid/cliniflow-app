@@ -1,5 +1,6 @@
 import type { Router } from "expo-router";
 import { setLastCapturedImage } from "./lastCapturedImage";
+import { goToTreatmentGuide } from "./treatmentGuideNavigation";
 
 type PatientRouter = Pick<Router, "push" | "replace" | "setParams">;
 
@@ -23,14 +24,9 @@ export function goToAnalysis(
     goToDentalCamera(router);
     return;
   }
-  if (__DEV__) console.log("[FLOW] navigating to analysis", uri);
+  if (__DEV__) console.log("[FLOW] navigating to treatment guide", uri);
   setLastCapturedImage(uri);
-  const href = {
-    pathname: "/(patient)/dental-analysis" as const,
-    params: { imageUri: uri },
-  };
-  if (opts?.replace) router.replace(href as any);
-  else router.push(href as any);
+  goToTreatmentGuide(router, { imageUri: uri }, opts);
 }
 
 /** Opens in-app camera flow (never Messages). */

@@ -49,6 +49,7 @@ import { goToTreatmentGuide } from "../../../lib/treatmentGuideNavigation";
 import { saveToFiles } from "../../../lib/saveToFiles";
 import { sendMessage } from "../../../lib/sendMessage";
 import { playInAppNewMessageSoundDebouncedForThread } from "../../../lib/playInAppMessageSound";
+import { isHumanInboundChatMessage } from "../../../lib/chatMessageClassification";
 import { getMessageSoundPreference } from "../../../lib/messageSoundPreference";
 import {
   maybeAbortRailwayMessagesFetch,
@@ -591,9 +592,6 @@ export default function MessagesScreen() {
         const soundOn = await getMessageSoundPreference();
         const fromField = (m: Message): string =>
           String((m as { from?: string }).from || "").toUpperCase();
-        const isInboundClinic = (m: Message): boolean =>
-          fromField(m) === "CLINIC" || fromField(m) === "ADMIN";
-
         if (!chatInboundIdsPrimedRef.current) {
           for (const m of msgs) {
             const mid = String((m as { id?: string }).id || "").trim();
@@ -606,7 +604,7 @@ export default function MessagesScreen() {
             const mid = String((m as { id?: string }).id || "").trim();
             if (!mid) continue;
             const seen = seenServerMessageIdsRef.current.has(mid);
-            if (!seen && isInboundClinic(m)) {
+            if (!seen && isHumanInboundChatMessage(m)) {
               hasFreshInbound = true;
             }
             seenServerMessageIdsRef.current.add(mid);
@@ -1425,9 +1423,9 @@ export default function MessagesScreen() {
             <TouchableOpacity
               style={s.noClinicPrimary}
               activeOpacity={0.85}
-              onPress={capturePhotoForAI}
+              onPress={() => goToTreatmentGuide(router)}
             >
-              <Text style={s.noClinicPrimaryTxt}>{`🦷 ${t("home.ctaDentalPhoto")}`}</Text>
+              <Text style={s.noClinicPrimaryTxt}>{`✨ ${t("home.ctaTreatmentGuide")}`}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={s.noClinicSecondary}

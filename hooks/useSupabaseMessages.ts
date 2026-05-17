@@ -95,19 +95,44 @@ function extractRowBodyText(row: MessagesRow): string {
   return '';
 }
 
+function parseRowAttachment(row: MessagesRow): SupabasePatientMessage['attachment'] {
+  const raw = row.attachment ?? (row as { attachments?: unknown }).attachments;
+  if (raw == null) return undefined;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return parsed as SupabasePatientMessage['attachment'];
+    } catch {
+      return undefined;
+    }
+  }
+  if (typeof raw === 'object') return raw as SupabasePatientMessage['attachment'];
+  return undefined;
+}
+
 function rowToMessage(row: MessagesRow): SupabasePatientMessage {
   // patient_messages uses from_role; messages uses sender_type
   const senderType = String(row.from_role ?? row.sender_type ?? '').toLowerCase();
   const text = extractRowBodyText(row);
   // patient_messages uses message_id as logical key; messages uses id
   const id = String(row.message_id || row.id || '');
+  const attachment = parseRowAttachment(row);
+  const explicitType = String(row.type || '').trim().toLowerCase();
+  const type =
+    explicitType ||
+    (attachment &&
+    typeof attachment === 'object' &&
+    ((attachment as { aiResult?: unknown }).aiResult ||
+      (attachment as { ai_result?: unknown }).ai_result))
+      ? 'ai_result'
+      : 'text';
 
   return {
     id,
     from: senderType === 'patient' ? 'PATIENT' : 'CLINIC',
     text,
-    type: 'text',
-    attachment: row.attachment ?? undefined,
+    type,
+    attachment,
     createdAt: new Date(row.created_at).getTime(),
     _supabase: true,
     ...(row.thread_id ? { thread_id: String(row.thread_id) } : {}),

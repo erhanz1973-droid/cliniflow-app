@@ -77,3 +77,110 @@ export function derivePatientClinicMembership(args: {
     sources,
   };
 }
+
+/** Parse GET /api/patient/me JSON into clinic membership fields. */
+export function parsePatientMeClinicFields(
+  meJson: Record<string, unknown> | null | undefined,
+): PatientMeClinicFields | null {
+  if (!meJson || meJson.ok !== true) return null;
+
+  const cidRaw =
+    meJson.clinic_id != null && String(meJson.clinic_id).trim() !== ""
+      ? String(meJson.clinic_id).trim()
+      : meJson.clinicId != null && String(meJson.clinicId).trim() !== ""
+        ? String(meJson.clinicId).trim()
+        : null;
+
+  const clinicNameTop =
+    meJson.clinic_name != null && String(meJson.clinic_name).trim() !== ""
+      ? String(meJson.clinic_name).trim()
+      : null;
+
+  const brandRaw =
+    meJson.branding && typeof meJson.branding === "object"
+      ? (meJson.branding as Record<string, unknown>)
+      : null;
+  const brand = brandRaw
+    ? {
+        clinicLogoUrl:
+          brandRaw.clinicLogoUrl != null ? String(brandRaw.clinicLogoUrl) : undefined,
+        clinicName: brandRaw.clinicName != null ? String(brandRaw.clinicName) : undefined,
+      }
+    : null;
+
+  const codeTop =
+    meJson.clinicCode != null && String(meJson.clinicCode).trim() !== ""
+      ? String(meJson.clinicCode).trim()
+      : null;
+
+  const clinicEmbed =
+    meJson.clinic &&
+    typeof meJson.clinic === "object" &&
+    meJson.clinic != null &&
+    (meJson.clinic as { id?: unknown }).id != null &&
+    String((meJson.clinic as { id?: unknown }).id).trim() !== ""
+      ? {
+          id: String((meJson.clinic as { id: unknown }).id),
+          name: String(
+            (meJson.clinic as { name?: string }).name ||
+              clinicNameTop ||
+              brand?.clinicName ||
+              "",
+          ).trim(),
+          logo:
+            (meJson.clinic as { logo?: unknown }).logo != null &&
+            String((meJson.clinic as { logo?: unknown }).logo).trim() !== ""
+              ? String((meJson.clinic as { logo?: unknown }).logo).trim()
+              : null,
+        }
+      : null;
+
+  return {
+    clinic_id: cidRaw,
+    clinicId: cidRaw,
+    clinicCode: codeTop,
+    clinicName: clinicNameTop,
+    clinic: clinicEmbed,
+    branding: brand,
+  };
+}
+
+/** Authoritative linked clinic id when membership is active (not route-only). */
+export function resolveLinkedClinicId(args: {
+  user: unknown;
+  patientRecord: PatientMeClinicFields | null | undefined;
+  routeClinicId?: string | null;
+}): string | null {
+  const membership = derivePatientClinicMembership({
+    user: args.user,
+    patientRecord: args.patientRecord,
+  });
+  if (!membership.hasClinic) return null;
+
+  const fromMe = String(
+    args.patientRecord?.clinicId ||
+      args.patientRecord?.clinic_id ||
+      args.patientRecord?.clinic?.id ||
+      "",
+  ).trim();
+  if (fromMe) return fromMe;
+
+  const u = args.user as { clinicId?: string } | null | undefined;
+  const fromJwt = String(u?.clinicId || "").trim();
+  if (fromJwt) return fromJwt;
+
+  const route = String(args.routeClinicId || "").trim();
+  return route || null;
+}
+
+export function resolveLinkedClinicDisplayName(
+  patientRecord: PatientMeClinicFields | null | undefined,
+): string {
+  if (!patientRecord) return "";
+  return (
+    String(patientRecord.clinic?.name || "").trim() ||
+    String(patientRecord.clinicName || "").trim() ||
+    String(patientRecord.branding?.clinicName || "").trim() ||
+    String(patientRecord.clinicCode || "").trim()
+  );
+}

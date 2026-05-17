@@ -12,6 +12,7 @@ import { emitOfferUnreadEvent } from "./offerUnreadEvents";
 import { invalidateDoctorUnreadCacheOnly } from "./doctorMessaging";
 import { bumpDoctorRequestUnreadByOfferId } from "./doctorRequestsUnread";
 import { invalidatePatientInboxUnreadCache } from "./patientInboxUnread";
+import { isSystemOrAiChatMessage } from "./chatMessageClassification";
 
 export type ChatNotifViewer = {
   type?: string;
@@ -88,6 +89,16 @@ export function installForegroundChatNotificationEffects(getViewer: () => ChatNo
         const isChat = pushType === "chat_message";
         const isOffer = isOfferPushType(pushType);
         if (!isChat && !isOffer) return;
+
+        if (
+          isChat &&
+          isSystemOrAiChatMessage({
+            type: String(data?.messageType || data?.message_type || ""),
+            text: String(event.request.content.body || ""),
+          })
+        ) {
+          return;
+        }
 
         const viewer = getViewer();
         const vt = String(viewer?.type || "").toLowerCase();

@@ -19,6 +19,7 @@ import { track } from "../../../lib/analytics";
 import { saveSelectedChatClinic } from "../../../lib/selectedChatClinic";
 import { useClinicStore } from "../../../store/useClinicStore";
 import { refreshActiveClinicFromApi } from "../../../lib/fetchPatientMyClinic";
+import { goToTreatmentGuide } from "../../../lib/treatmentGuideNavigation";
 import { derivePatientClinicMembership } from "../../../lib/patientClinicMembership";
 import {
   subscribePatientClinicMembershipInvalidation,
@@ -177,7 +178,6 @@ export default function PatientDashboard() {
   const [inboxSummary, setInboxSummary] = useState({ new_offers: 0, doctor_messages: 0 });
   const [fileCounts, setFileCounts] = useState({ total: 0, xray: 0, image: 0, pdf: 0 });
   const [showDentalReminder, setShowDentalReminder] = useState(false);
-  const [isCameraBusy, setIsCameraBusy] = useState(false);
   const [leavingClinic, setLeavingClinic] = useState(false);
   /** First GET /api/patient/me completed — avoids Find/Join flicker before /me. */
   const [patientMeSynced, setPatientMeSynced] = useState(false);
@@ -562,15 +562,14 @@ export default function PatientDashboard() {
     );
   }, [user, t, signIn, refetchPatientMe, clearClinic]);
 
-  const goToCamera = useCallback(() => {
-    setIsCameraBusy(true);
-    track("home_camera_click");
-    router.push({ pathname: "/(patient)/dental-camera" as const } as any);
-  }, [router]);
+  const goToGuide = useCallback(() => {
+    track("home_treatment_guide_click");
+    const cid = String(patientMe?.clinic?.id || user?.clinicId || "").trim();
+    goToTreatmentGuide(router, cid ? { clinicId: cid } : undefined);
+  }, [router, patientMe?.clinic?.id, user?.clinicId]);
 
   useFocusEffect(
     useCallback(() => {
-      setIsCameraBusy(false);
       refreshInbox();
       void refetchPatientMe();
     }, [refreshInbox, refetchPatientMe])
@@ -639,7 +638,7 @@ export default function PatientDashboard() {
       {showDentalReminder && fileCounts.image === 0 && (
         <TouchableOpacity
           style={styles.dentalBanner}
-          onPress={() => router.push("/(patient)/files" as any)}
+          onPress={goToGuide}
           activeOpacity={0.85}
         >
           <Text style={styles.dentalBannerIcon}>📸</Text>
@@ -705,17 +704,26 @@ export default function PatientDashboard() {
         </TouchableOpacity>
       )}
 
-      {/* Primary CTA: foto + klinik (banner’ların altında, quick icon grid üstünde) */}
+      {/* Primary entry: AI Treatment Guide */}
       <View style={styles.ctaSection}>
         <PrimaryCard
-          title={t("home.ctaDentalPhoto")}
-          subtitle={t("home.ctaDentalPhotoSub")}
-          icon="camera"
+          title={t("home.ctaTreatmentGuide")}
+          subtitle={t("home.ctaTreatmentGuideSub")}
+          icon="sparkles"
           accentColor="#2563EB"
-          disabled={isCameraBusy}
-          loading={isCameraBusy}
-          onPress={goToCamera}
+          onPress={goToGuide}
         />
+        {hasClinic ? (
+          <View style={{ marginTop: 10 }}>
+            <SecondaryCard
+              title={t("home.ctaSendDentalUpdate")}
+              subtitle={t("home.ctaSendDentalUpdateSub")}
+              icon="camera"
+              accentColor="#0d9488"
+              onPress={goToGuide}
+            />
+          </View>
+        ) : null}
         {isLoadingClinicSection ? null : !hasClinic ? (
           <View style={styles.ctaSecondaryRow}>
             <SecondaryCard
