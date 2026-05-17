@@ -6,6 +6,8 @@ const LAST_IMAGE_PREFIX = "@cliniflow:tg-last-image:v1:";
 export type UploadedImageRecord = {
   contentHash: string;
   remoteUrl: string;
+  /** Supabase object path within patient-files, e.g. ai-photos/{patientId}/….jpg */
+  storagePath?: string;
   fingerprint: string;
   uploadedAt: number;
 };

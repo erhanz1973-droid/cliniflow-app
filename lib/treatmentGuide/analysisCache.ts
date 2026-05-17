@@ -43,8 +43,7 @@ export async function loadTreatmentGuideAnalysisCache(
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedTreatmentGuideAnalysis;
     if (!parsed?.aiData || typeof parsed.aiData !== "object") return null;
-    if (parsed.fingerprint !== fp) return null;
-    return parsed;
+    return { ...parsed, fingerprint: fp };
   } catch {
     return null;
   }
@@ -53,18 +52,44 @@ export async function loadTreatmentGuideAnalysisCache(
 export async function saveTreatmentGuideAnalysisCache(
   patientId: string,
   entry: CachedTreatmentGuideAnalysis,
+  aliasFingerprints: string[] = [],
 ): Promise<void> {
   const pid = String(patientId || "").trim();
   if (!pid || !entry.fingerprint) return;
   try {
-    await AsyncStorage.setItem(storageKey(pid, entry.fingerprint), JSON.stringify(entry));
+    const serialized = JSON.stringify(entry);
+    await AsyncStorage.setItem(storageKey(pid, entry.fingerprint), serialized);
+    const aliases = new Set(
+      aliasFingerprints.map((a) => String(a || "").trim()).filter((a) => a && a !== entry.fingerprint),
+    );
+    for (const alias of aliases) {
+      await AsyncStorage.setItem(storageKey(pid, alias), serialized);
+    }
     const hash = String(entry.contentHash || "").trim().toLowerCase();
     if (hash) {
-      await AsyncStorage.setItem(`${HASH_PREFIX}${pid}:${hash}`, JSON.stringify(entry));
+      await AsyncStorage.setItem(`${HASH_PREFIX}${pid}:${hash}`, serialized);
     }
   } catch {
     /* non-fatal */
   }
+}
+
+/** Try hash, then exact fingerprint, then any alias path match. */
+export async function loadTreatmentGuideAnalysisCacheAny(
+  patientId: string,
+  opts: { fingerprint?: string; contentHash?: string | null },
+): Promise<CachedTreatmentGuideAnalysis | null> {
+  const hash = String(opts.contentHash || "").trim().toLowerCase();
+  if (hash) {
+    const byHash = await loadTreatmentGuideAnalysisCacheByHash(patientId, hash);
+    if (byHash) return byHash;
+  }
+  const fp = String(opts.fingerprint || "").trim();
+  if (fp) {
+    const byFp = await loadTreatmentGuideAnalysisCache(patientId, fp);
+    if (byFp) return byFp;
+  }
+  return null;
 }
 
 export async function loadTreatmentGuideAnalysisCacheByHash(

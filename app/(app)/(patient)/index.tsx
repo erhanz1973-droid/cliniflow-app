@@ -709,7 +709,8 @@ export default function PatientDashboard() {
         <PrimaryCard
           title={t("home.ctaTreatmentGuide")}
           subtitle={t("home.ctaTreatmentGuideSub")}
-          icon="sparkles"
+          actionLabel={t("home.ctaTreatmentGuideAction")}
+          icon="heart-outline"
           accentColor="#2563EB"
           onPress={goToGuide}
         />

@@ -9,9 +9,10 @@ type Props = {
   flags: OperationalIntakeFlags | null;
   directory?: ClinicDirectoryPayload | null;
   countryHint?: string | null;
+  embedded?: boolean;
 };
 
-export function ClinicNetworkHint({ flags, directory: directoryProp, countryHint }: Props) {
+export function ClinicNetworkHint({ flags, directory: directoryProp, countryHint, embedded }: Props) {
   const { t } = useLanguage();
   const router = useRouter();
   const [directory, setDirectory] = useState<ClinicDirectoryPayload | null>(directoryProp ?? null);
@@ -46,8 +47,8 @@ export function ClinicNetworkHint({ flags, directory: directoryProp, countryHint
   if (!show || !directory?.clinics?.length) return null;
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.title}>{t("treatmentGuide.clinicNetwork.title")}</Text>
+    <View style={embedded ? styles.embedded : styles.card}>
+      <Text style={embedded ? styles.embeddedTitle : styles.title}>{t("treatmentGuide.clinicNetwork.title")}</Text>
       <Text style={styles.hint}>{t("treatmentGuide.clinicNetwork.hint")}</Text>
       {directory.cities.slice(0, 4).map((line) => (
         <Text key={line} style={styles.cityLine}>
@@ -80,7 +81,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#bae6fd",
   },
+  embedded: {
+    marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+  },
   title: { fontSize: 15, fontWeight: "800", color: "#0f172a", marginBottom: 4 },
+  embeddedTitle: { fontSize: 14, fontWeight: "700", color: "#334155", marginBottom: 4 },
   hint: { fontSize: 12, color: "#64748b", lineHeight: 17, marginBottom: 10 },
   cityLine: { fontSize: 13, color: "#334155", lineHeight: 18, marginBottom: 2 },
   clinicLine: { fontSize: 12, color: "#475569", marginTop: 4 },

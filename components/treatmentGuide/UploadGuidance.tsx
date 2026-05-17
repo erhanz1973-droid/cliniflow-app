@@ -25,6 +25,7 @@ type Props = {
   onIntakeUpdate: (next: TreatmentGuideIntakeState) => void;
   onRefresh: () => Promise<void>;
   onOpenFiles?: () => void;
+  embedded?: boolean;
 };
 
 export function UploadGuidance({
@@ -36,6 +37,7 @@ export function UploadGuidance({
   onIntakeUpdate,
   onRefresh,
   onOpenFiles,
+  embedded,
 }: Props) {
   const { t } = useLanguage();
   const [uploadingSlotId, setUploadingSlotId] = useState<string | null>(null);
@@ -90,9 +92,15 @@ export function UploadGuidance({
   );
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.title}>{t("treatmentGuide.section.uploads")}</Text>
-      <Text style={styles.hint}>{t("treatmentGuide.section.uploadsActionHint")}</Text>
+    <View style={embedded ? styles.embedded : styles.card}>
+      {!embedded ? (
+        <>
+          <Text style={styles.title}>{t("treatmentGuide.section.uploads")}</Text>
+          <Text style={styles.hint}>{t("treatmentGuide.section.uploadsActionHint")}</Text>
+        </>
+      ) : (
+        <Text style={styles.hint}>{t("treatmentGuide.flow.step4.uploadHint")}</Text>
+      )}
       <Text style={styles.consent}>{t("treatmentGuide.upload.consentShort")}</Text>
 
       {slots.map((slot) => {
@@ -163,6 +171,7 @@ export function UploadGuidance({
 }
 
 const styles = StyleSheet.create({
+  embedded: { marginTop: 4 },
   card: {
     backgroundColor: "#fff",
     borderRadius: 14,

@@ -7,6 +7,8 @@ type IconName = React.ComponentProps<typeof Ionicons>["name"];
 export type PrimaryCardProps = {
   title: string;
   subtitle?: string;
+  /** Short action label shown on the card (e.g. "Start") */
+  actionLabel?: string;
   icon?: IconName;
   onPress: () => void;
   accentColor?: string;
@@ -17,6 +19,7 @@ export type PrimaryCardProps = {
 export function PrimaryCard({
   title,
   subtitle,
+  actionLabel,
   icon = "camera",
   onPress,
   accentColor = "#2563EB",
@@ -47,6 +50,11 @@ export function PrimaryCard({
       <View style={styles.textCol}>
         <Text style={[styles.title, { color: "#111827" }]}>{title}</Text>
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+        {actionLabel ? (
+          <View style={[styles.actionPill, { backgroundColor: `${accentColor}14` }]}>
+            <Text style={[styles.actionText, { color: accentColor }]}>{actionLabel}</Text>
+          </View>
+        ) : null}
       </View>
       <Ionicons name="chevron-forward" size={22} color={inactive ? "#D1D5DB" : "#9CA3AF"} />
     </Pressable>
@@ -81,4 +89,12 @@ const styles = StyleSheet.create({
   textCol: { flex: 1, minWidth: 0 },
   title: { fontSize: 18, fontWeight: "800" },
   subtitle: { marginTop: 4, fontSize: 14, color: "#475569", lineHeight: 20, fontWeight: "600" },
+  actionPill: {
+    alignSelf: "flex-start",
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  actionText: { fontSize: 13, fontWeight: "800" },
 });

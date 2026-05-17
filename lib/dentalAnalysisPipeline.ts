@@ -91,7 +91,15 @@ export async function compressImageForAi(
 const UPLOAD_TIMEOUT_MS = 90_000;
 const ANALYZE_TIMEOUT_MS = 60_000;
 
-const uploadInFlightByPatient = new Map<string, Promise<{ ok: true; url: string } | { ok: false; message: string }>>();
+type UploadOk = { ok: true; url: string; storagePath?: string; reused?: boolean };
+type UploadErr = { ok: false; message: string; aborted?: boolean };
+
+const uploadInFlightByPatient = new Map<string, Promise<UploadOk | UploadErr>>();
+
+/** Cache/dedupe key — strip signed token only; keep path stable. */
+function stableRemoteUrlKey(url: string): string {
+  return String(url || "").trim().split("?")[0];
+}
 
 export function isAlreadyUploadedRemoteUrl(uri: string): boolean {
   const s = String(uri || "").trim();
@@ -109,14 +117,19 @@ export async function uploadImageForAi(
   mimeType: string,
   token: string,
   opts?: { contentHash?: string | null; patientId?: string },
-): Promise<{ ok: true; url: string; reused?: boolean } | { ok: false; message: string; aborted?: boolean }> {
+): Promise<UploadOk | UploadErr> {
   const patientId = String(opts?.patientId || "").trim();
   const contentHash = normalizeContentHash(opts?.contentHash);
 
   if (contentHash && patientId) {
     const local = await getUploadedImageByHash(patientId, contentHash);
     if (local?.remoteUrl) {
-      return { ok: true, url: local.remoteUrl, reused: true };
+      return {
+        ok: true,
+        url: local.remoteUrl,
+        storagePath: local.storagePath,
+        reused: true,
+      };
     }
   }
 
@@ -174,17 +187,19 @@ export async function uploadImageForAi(
           message: String(json.message || json.error || rawText.slice(0, 200)),
         };
       }
-      const url = String(json.url);
+      const url = String(json.url || json.imageUrl || "");
+      const storagePath = String(json.path || json.storagePath || "").trim() || undefined;
       const reused = json.reused === true;
       if (contentHash && patientId) {
         await saveUploadedImageRecord(patientId, {
           contentHash,
-          remoteUrl: url.split("?")[0],
+          remoteUrl: stableRemoteUrlKey(url),
+          storagePath,
           fingerprint: normalizeImageFingerprint(uri),
           uploadedAt: Date.now(),
         });
       }
-      return { ok: true as const, url, reused };
+      return { ok: true as const, url, storagePath, reused };
     } catch (e) {
       const aborted = (e as Error)?.name === "AbortError";
       return {
@@ -216,6 +231,8 @@ export type AnalyzePhotoErr = {
   phase: "session" | "upload" | "analyze" | "parse";
   message: string;
   status?: number;
+  errorCode?: string;
+  retryable?: boolean;
   aiData?: Record<string, unknown>;
 };
 
@@ -261,13 +278,18 @@ export async function analyzePhoto(params: {
     /\.heic(\?|$)/i.test(imageUri) ? "image/heic" :
     "image/jpeg";
 
-  let fileUrl: string;
+  let analyzeImageUrl: string;
+  let storagePath: string | undefined;
   if (isAlreadyUploadedRemoteUrl(imageUri)) {
-    fileUrl = String(imageUri).trim().split("?")[0];
+    analyzeImageUrl = String(imageUri).trim();
+    const refPath = analyzeImageUrl.split("?")[0];
+    const m = refPath.match(/\/storage\/v1\/object\/(?:sign|public)\/[^/]+\/(.+)$/i);
+    if (m?.[1]) storagePath = decodeURIComponent(m[1]);
   } else if (contentHash) {
     const prior = await getUploadedImageByHash(patientId, contentHash);
     if (prior?.remoteUrl) {
-      fileUrl = prior.remoteUrl;
+      analyzeImageUrl = prior.remoteUrl;
+      storagePath = prior.storagePath;
     } else {
       const compressed = await compressImageForAi(imageUri, mimeGuess);
       if (!contentHash) {
@@ -285,7 +307,8 @@ export async function analyzePhoto(params: {
       if (!up.ok) {
         return { ok: false, phase: "upload", message: up.message };
       }
-      fileUrl = up.url.split("?")[0];
+      analyzeImageUrl = up.url;
+      storagePath = up.storagePath;
     }
   } else {
     const compressed = await compressImageForAi(imageUri, mimeGuess);
@@ -298,7 +321,8 @@ export async function analyzePhoto(params: {
     if (!up.ok) {
       return { ok: false, phase: "upload", message: up.message };
     }
-    fileUrl = up.url.split("?")[0];
+    analyzeImageUrl = up.url;
+    storagePath = up.storagePath;
   }
 
   const userLocation = await getUserLocationForAnalysis();
@@ -315,7 +339,8 @@ export async function analyzePhoto(params: {
       },
       body: JSON.stringify({
         patientId,
-        imageUrl: fileUrl,
+        imageUrl: analyzeImageUrl,
+        storagePath: storagePath || undefined,
         photoType,
         userLocation,
         preferredCountry: null,
@@ -333,15 +358,18 @@ export async function analyzePhoto(params: {
       return { ok: false, phase: "parse", message: rawText.slice(0, 200), status: aiRes.status };
     }
     if (!aiRes.ok) {
+      const errCode = String(aiData.error || "");
       return {
         ok: false,
         phase: "analyze",
         message: String(aiData.message || aiData.error || rawText.slice(0, 200)),
         status: aiRes.status,
+        errorCode: errCode || undefined,
+        retryable: aiData.retryable === true || errCode === "image_fetch_failed",
         aiData,
       };
     }
-    return { ok: true, fileUrl, aiData };
+    return { ok: true, fileUrl: stableRemoteUrlKey(analyzeImageUrl), aiData };
   } catch (e) {
     const aborted = (e as Error)?.name === "AbortError";
     return {

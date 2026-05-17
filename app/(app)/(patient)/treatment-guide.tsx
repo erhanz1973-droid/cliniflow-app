@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Image,
   TouchableOpacity,
   ActivityIndicator,
   ScrollView,
@@ -11,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   BackHandler,
+  Image,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,16 +18,22 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLanguage } from "../../../lib/language-context";
 import { useAuth } from "../../../lib/auth";
 import { setLastCapturedImage, useLastCapturedImage } from "../../../lib/lastCapturedImage";
-import { analyzePhoto, type AnalyzePhotoResult } from "../../../lib/dentalAnalysisPipeline";
+import {
+  analyzePhoto,
+  compressImageForAi,
+  type AnalyzePhotoResult,
+} from "../../../lib/dentalAnalysisPipeline";
 import { getLocalizedDentalAnalysis } from "../../../lib/dentalAnalysisView";
+import { normalizeAnalyzeApiPayload } from "../../../lib/dentalAnalysisNormalize";
 import { goToDentalCamera } from "../../../lib/dentalPhotoNavigation";
 import { pickIntakeImageFromLibrary } from "../../../lib/treatmentGuide/uploadDocument";
 import { GuidePhotoStart } from "../../../components/treatmentGuide/GuidePhotoStart";
+import { GuideFlowSection } from "../../../components/treatmentGuide/GuideFlowSection";
+import { IntakeProgressSummary } from "../../../components/treatmentGuide/IntakeProgressSummary";
 import { leaveToPatientHome } from "../../../lib/safePatientNavigation";
 import { getStableTreatmentGuideSessionId } from "../../../lib/treatmentGuide/stableSession";
 import { AiCoordinatorChatView } from "../../../components/aiCoordinator/AiCoordinatorChatView";
 import { GoalChips } from "../../../components/treatmentGuide/GoalChips";
-import { IntakeWorkflowPanel } from "../../../components/treatmentGuide/IntakeWorkflowPanel";
 import { UploadGuidance } from "../../../components/treatmentGuide/UploadGuidance";
 import { ClinicNetworkHint } from "../../../components/treatmentGuide/ClinicNetworkHint";
 import {
@@ -39,11 +45,11 @@ import { savePatientReportedTags } from "../../../lib/treatmentGuide/intakeApi";
 import { useTreatmentGuideIntake } from "../../../lib/treatmentGuide/useTreatmentGuideIntake";
 import { usePatientClinicMembership } from "../../../hooks/usePatientClinicMembership";
 import {
-  loadTreatmentGuideAnalysisCache,
-  loadTreatmentGuideAnalysisCacheByHash,
+  loadTreatmentGuideAnalysisCacheAny,
   normalizeImageFingerprint,
   saveTreatmentGuideAnalysisCache,
 } from "../../../lib/treatmentGuide/analysisCache";
+import { GuidePhotoAnalysisCard, type PhotoAnalysisUiPhase } from "../../../components/treatmentGuide/GuidePhotoAnalysisCard";
 import { sha256LocalFileUri, normalizeContentHash } from "../../../lib/treatmentGuide/imageContentHash";
 import {
   loadLastGuideImage,
@@ -58,12 +64,13 @@ export default function TreatmentGuideScreen() {
   const params = useLocalSearchParams<{ imageUri?: string; clinicId?: string; clinic_id?: string }>();
   const storeUri = useLastCapturedImage();
   const [sessionId, setSessionId] = useState("");
-  const chatSectionRef = useRef<View>(null);
   const scrollRef = useRef<ScrollView>(null);
   const chipSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const analyzedFingerprintRef = useRef<string | null>(null);
   const analyzedContentHashRef = useRef<string | null>(null);
+  const localImageFingerprintRef = useRef<string | null>(null);
   const analysisInFlightRef = useRef(false);
+  const analyzeFetchFailedRef = useRef(false);
   const pendingNewAnalysisRef = useRef(false);
   const hydrateInFlightRef = useRef(false);
 
@@ -75,7 +82,7 @@ export default function TreatmentGuideScreen() {
     [params.clinicId, params.clinic_id],
   );
 
-  const { hasClinic, linkedClinicId, linkedClinicName } = usePatientClinicMembership(routeClinicId);
+  const { hasClinic, linkedClinicId } = usePatientClinicMembership(routeClinicId);
 
   const clinicId = useMemo(() => {
     if (hasClinic && linkedClinicId) return linkedClinicId;
@@ -117,6 +124,28 @@ export default function TreatmentGuideScreen() {
     () => getLocalizedDentalAnalysis(analysisPayload, currentLanguage),
     [analysisPayload, currentLanguage],
   );
+
+  const photoUiPhase = useMemo((): PhotoAnalysisUiPhase => {
+    if (phase === "error") return "failed";
+    if (phase === "done") return "analyzed";
+    if (phase === "skipped") return displayImageUri ? "uploaded" : "idle";
+    if (phase === "idle" && displayImageUri && analysisPayload) return "analyzed";
+    if (phase === "idle" && displayImageUri) return "uploaded";
+    return phase;
+  }, [phase, displayImageUri, analysisPayload]);
+
+  const resolveContentHash = useCallback(async (uri: string): Promise<string> => {
+    const existing = normalizeContentHash(analyzedContentHashRef.current);
+    if (existing) return existing;
+    if (!uri || uri.startsWith("http")) return "";
+    try {
+      const mime = /\.png(\?|$)/i.test(uri) ? "image/png" : "image/jpeg";
+      const compressed = await compressImageForAi(uri, mime);
+      return normalizeContentHash(await sha256LocalFileUri(compressed.uri));
+    } catch {
+      return normalizeContentHash(await sha256LocalFileUri(uri));
+    }
+  }, []);
 
   const allTranslationsMap = useMemo(() => {
     if (!analysisPayload) return null;
@@ -203,72 +232,45 @@ export default function TreatmentGuideScreen() {
     };
   }, [patientId]);
 
-  useEffect(() => {
-    if (typeof params.imageUri !== "string" || !params.imageUri.trim() || !patientId) return;
-    const uri = params.imageUri.trim();
-    setLastCapturedImage(uri);
-    let cancelled = false;
-    void (async () => {
-      const fp = normalizeImageFingerprint(uri);
-      const hash = uri.startsWith("http") ? "" : normalizeContentHash(await sha256LocalFileUri(uri));
-      const last = await loadLastGuideImage(patientId);
-      if (cancelled) return;
-      const alreadyHandled =
-        (last && last.fingerprint === fp) ||
-        (hash && last?.contentHash === hash) ||
-        (hash && (await loadTreatmentGuideAnalysisCacheByHash(patientId, hash)));
-      if (alreadyHandled) {
-        pendingNewAnalysisRef.current = false;
-        if (hash) analyzedContentHashRef.current = hash;
-        if (last?.fingerprint) analyzedFingerprintRef.current = last.fingerprint;
-      } else {
-        pendingNewAnalysisRef.current = true;
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [params.imageUri, patientId]);
-
-  useEffect(() => {
-    if (imageUri || !patientId) return;
-    let cancelled = false;
-    void (async () => {
-      const last = await loadLastGuideImage(patientId);
-      if (cancelled || !last?.displayUri) return;
-      setRestoredDisplayUri(last.displayUri);
-      setLastCapturedImage(last.remoteUrl || last.displayUri);
-      analyzedFingerprintRef.current = last.fingerprint;
-      analyzedContentHashRef.current = last.contentHash || null;
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [patientId, imageUri]);
-
   const applyAnalysisResult = useCallback(
     (
       fileUrl: string,
       aiData: Record<string, unknown>,
       _fingerprint: string,
       contentHash?: string | null,
+      aliasFingerprints: string[] = [],
     ) => {
+      const norm = normalizeAnalyzeApiPayload(aiData);
+      if (!norm) return;
+
       const stableFingerprint = normalizeImageFingerprint(fileUrl);
       analyzedFingerprintRef.current = stableFingerprint;
       const hash = normalizeContentHash(contentHash);
       if (hash) analyzedContentHashRef.current = hash;
       setLastCapturedImage(fileUrl);
       setRestoredDisplayUri(fileUrl);
-      setAnalysisPayload({ ...aiData });
+      setAnalysisPayload(norm);
       setPhase("done");
       setErrorText(null);
-      void saveTreatmentGuideAnalysisCache(patientId, {
-        fingerprint: stableFingerprint,
-        contentHash: hash || undefined,
-        fileUrl,
-        aiData,
-        cachedAt: Date.now(),
-      });
+
+      const aliases = [
+        localImageFingerprintRef.current,
+        _fingerprint,
+        ...aliasFingerprints,
+      ].filter((a): a is string => !!a && a !== stableFingerprint);
+
+      void saveTreatmentGuideAnalysisCache(
+        patientId,
+        {
+          fingerprint: stableFingerprint,
+          contentHash: hash || undefined,
+          fileUrl,
+          aiData: norm,
+          cachedAt: Date.now(),
+        },
+        aliases,
+      );
+
       if (patientId && hash) {
         void saveLastGuideImage(patientId, {
           displayUri: fileUrl,
@@ -285,22 +287,107 @@ export default function TreatmentGuideScreen() {
   const restoreAnalysisOnly = useCallback(
     async (fingerprint: string, contentHash?: string | null): Promise<boolean> => {
       const hash = normalizeContentHash(contentHash);
-      if (hash) {
-        const byHash = await loadTreatmentGuideAnalysisCacheByHash(patientId, hash);
-        if (byHash?.aiData) {
-          applyAnalysisResult(byHash.fileUrl, byHash.aiData, fingerprint, hash);
-          return true;
-        }
-      }
-      const local = await loadTreatmentGuideAnalysisCache(patientId, fingerprint);
-      if (local?.aiData) {
-        applyAnalysisResult(local.fileUrl, local.aiData, fingerprint, local.contentHash);
-        return true;
-      }
-      return false;
+      const cached = await loadTreatmentGuideAnalysisCacheAny(patientId, {
+        fingerprint,
+        contentHash: hash,
+      });
+      if (!cached?.aiData) return false;
+      const norm = normalizeAnalyzeApiPayload(cached.aiData);
+      if (!norm) return false;
+      applyAnalysisResult(
+        cached.fileUrl,
+        norm,
+        fingerprint,
+        hash || cached.contentHash,
+        [localImageFingerprintRef.current].filter(Boolean) as string[],
+      );
+      return true;
     },
     [patientId, applyAnalysisResult],
   );
+
+  useEffect(() => {
+    if (typeof params.imageUri !== "string" || !params.imageUri.trim() || !patientId) return;
+    const uri = params.imageUri.trim();
+    setLastCapturedImage(uri);
+    if (!uri.startsWith("http")) {
+      localImageFingerprintRef.current = normalizeImageFingerprint(uri);
+    }
+    let cancelled = false;
+    void (async () => {
+      const fp = normalizeImageFingerprint(uri);
+      const hash = uri.startsWith("http") ? "" : await resolveContentHash(uri);
+      if (cancelled) return;
+      if (hash) analyzedContentHashRef.current = hash;
+
+      const cached = await loadTreatmentGuideAnalysisCacheAny(patientId, {
+        fingerprint: fp,
+        contentHash: hash || null,
+      });
+
+      if (cached?.aiData) {
+        pendingNewAnalysisRef.current = false;
+        const norm = normalizeAnalyzeApiPayload(cached.aiData);
+        if (norm) {
+          applyAnalysisResult(cached.fileUrl, norm, fp, hash || cached.contentHash, [
+            localImageFingerprintRef.current || fp,
+          ]);
+        }
+        return;
+      }
+
+      const last = await loadLastGuideImage(patientId);
+      if (cancelled) return;
+      const alreadyHandled =
+        (last && last.fingerprint === fp) || (hash && last?.contentHash === hash);
+      if (alreadyHandled && last) {
+        pendingNewAnalysisRef.current = false;
+        analyzedFingerprintRef.current = last.fingerprint;
+        const again = await loadTreatmentGuideAnalysisCacheAny(patientId, {
+          fingerprint: last.fingerprint,
+          contentHash: last.contentHash || hash,
+        });
+        if (again?.aiData) {
+          const norm = normalizeAnalyzeApiPayload(again.aiData);
+          if (norm) {
+            applyAnalysisResult(again.fileUrl, norm, last.fingerprint, last.contentHash || hash, [fp]);
+          }
+        }
+      } else {
+        pendingNewAnalysisRef.current = true;
+        analyzeFetchFailedRef.current = false;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [params.imageUri, patientId, resolveContentHash, applyAnalysisResult]);
+
+  useEffect(() => {
+    if (imageUri || !patientId) return;
+    let cancelled = false;
+    void (async () => {
+      const last = await loadLastGuideImage(patientId);
+      if (cancelled || !last?.displayUri) return;
+      setRestoredDisplayUri(last.displayUri);
+      setLastCapturedImage(last.remoteUrl || last.displayUri);
+      analyzedFingerprintRef.current = last.fingerprint;
+      analyzedContentHashRef.current = last.contentHash || null;
+      const cached = await loadTreatmentGuideAnalysisCacheAny(patientId, {
+        fingerprint: last.fingerprint,
+        contentHash: last.contentHash,
+      });
+      if (cancelled || !cached?.aiData) return;
+      const norm = normalizeAnalyzeApiPayload(cached.aiData);
+      if (norm) {
+        pendingNewAnalysisRef.current = false;
+        applyAnalysisResult(cached.fileUrl, norm, last.fingerprint, last.contentHash);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [patientId, imageUri, applyAnalysisResult]);
 
   const runPhotoAnalysis = useCallback(
     async (opts: { forceReanalyze?: boolean } = {}) => {
@@ -319,14 +406,12 @@ export default function TreatmentGuideScreen() {
       if (force) {
         setAnalysisPayload(null);
         pendingNewAnalysisRef.current = true;
+        analyzeFetchFailedRef.current = false;
       }
 
       try {
-        let contentHash = analyzedContentHashRef.current;
-        if (!contentHash && !imageUri.startsWith("http")) {
-          contentHash = normalizeContentHash(await sha256LocalFileUri(imageUri));
-          if (contentHash) analyzedContentHashRef.current = contentHash;
-        }
+        let contentHash = await resolveContentHash(imageUri);
+        if (contentHash) analyzedContentHashRef.current = contentHash;
 
         if (!force) {
           const restored = await restoreAnalysisOnly(imageFingerprint, contentHash);
@@ -345,22 +430,30 @@ export default function TreatmentGuideScreen() {
         });
 
         if (result.ok) {
+          analyzeFetchFailedRef.current = false;
           applyAnalysisResult(
             result.fileUrl,
-            { ...result.aiData },
+            result.aiData,
             imageFingerprint,
             contentHash,
+            [localImageFingerprintRef.current].filter(Boolean) as string[],
           );
           if (!result.aiData?.reused && !result.aiData?.cached) {
             void refreshIntake();
           }
         } else {
           const err = result as Extract<AnalyzePhotoResult, { ok: false }>;
+          const fetchFailed =
+            err.errorCode === "image_fetch_failed" ||
+            err.errorCode === "image_fetch_timeout";
+          if (fetchFailed) analyzeFetchFailedRef.current = true;
           setPhase("error");
           setErrorText(
             err.phase === "session"
               ? t("chat.sessionExpired")
-              : err.message || t("messages.connectionError") || "Error",
+              : fetchFailed
+                ? t("treatmentGuide.analysis.photoProcessFailed")
+                : err.message || t("messages.connectionError") || "Error",
           );
         }
       } finally {
@@ -377,6 +470,7 @@ export default function TreatmentGuideScreen() {
       applyAnalysisResult,
       restoreAnalysisOnly,
       refreshIntake,
+      resolveContentHash,
       t,
       analysisPayload,
     ],
@@ -401,26 +495,25 @@ export default function TreatmentGuideScreen() {
       try {
         if (cancelled) return;
 
-        let contentHash = analyzedContentHashRef.current;
-        if (!contentHash && !imageUri.startsWith("http")) {
-          contentHash = normalizeContentHash(await sha256LocalFileUri(imageUri));
-          if (contentHash) analyzedContentHashRef.current = contentHash;
-        }
-
-        if (
-          contentHash &&
-          analyzedContentHashRef.current === contentHash &&
-          analyzedFingerprintRef.current
-        ) {
-          setPhase(analysisPayload ? "done" : "idle");
-          return;
-        }
+        let contentHash = await resolveContentHash(imageUri);
+        if (contentHash) analyzedContentHashRef.current = contentHash;
 
         const restored = await restoreAnalysisOnly(imageFingerprint, contentHash);
         if (restored) return;
 
+        if (analysisPayload) {
+          setPhase("done");
+          return;
+        }
+
+        if (analyzeFetchFailedRef.current) {
+          setPhase("error");
+          setErrorText(t("treatmentGuide.analysis.photoProcessFailed"));
+          return;
+        }
+
         if (!pendingNewAnalysisRef.current) {
-          setPhase(analysisPayload ? "done" : "idle");
+          setPhase("idle");
           return;
         }
 
@@ -436,10 +529,6 @@ export default function TreatmentGuideScreen() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate only on image/patient identity
   }, [imageFingerprint, patientId, token, imageUri]);
-
-  const scrollToChat = useCallback(() => {
-    scrollRef.current?.scrollToEnd({ animated: true });
-  }, []);
 
   const goToFiles = useCallback(() => {
     router.push("/(patient)/files" as never);
@@ -473,7 +562,9 @@ export default function TreatmentGuideScreen() {
     const uri = picked.uri.trim();
     analyzedFingerprintRef.current = null;
     analyzedContentHashRef.current = null;
+    localImageFingerprintRef.current = normalizeImageFingerprint(uri);
     pendingNewAnalysisRef.current = true;
+    analyzeFetchFailedRef.current = false;
     setAnalysisPayload(null);
     setRestoredDisplayUri(null);
     setPhase("idle");
@@ -487,6 +578,11 @@ export default function TreatmentGuideScreen() {
     },
     [applyIntakeState],
   );
+
+  const isPhotoBusy =
+    phase === "uploading" || phase === "analyzing" || phase === "restoring";
+
+  const chatInitialDraft = useMemo(() => patientNarrative.trim(), [patientNarrative]);
 
   return (
     <KeyboardAvoidingView
@@ -506,7 +602,7 @@ export default function TreatmentGuideScreen() {
         </TouchableOpacity>
         <View style={styles.topBarCenter}>
           <Text style={styles.pageTitle}>{t("treatmentGuide.title")}</Text>
-          <Text style={styles.pageSub}>{t("treatmentGuide.subtitle")}</Text>
+          <Text style={styles.pageSub}>{t("treatmentGuide.flow.pageIntro")}</Text>
         </View>
         <View style={styles.backBtn} />
       </View>
@@ -518,95 +614,66 @@ export default function TreatmentGuideScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.disclaimerCard}>
-          <Text style={styles.disclaimerText}>{t("treatmentGuide.clinicalDisclaimer")}</Text>
-        </View>
+        <Text style={styles.flowIntro}>{t("treatmentGuide.flow.intro")}</Text>
 
-        <GuidePhotoStart
-          hasPhoto={!!displayImageUri}
-          onTakePhoto={addPhoto}
-          onUploadPhoto={() => void uploadPhotoFromLibrary()}
-          uploading={phase === "uploading" || phase === "analyzing" || phase === "restoring"}
-          showAnalyzeAgain={phase === "done" && !!displayImageUri}
-          onAnalyzeAgain={() => void runPhotoAnalysis({ forceReanalyze: true })}
-        />
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("treatmentGuide.section.analysis")}</Text>
-          <Text style={styles.sectionHint}>{t("treatmentGuide.section.analysisHint")}</Text>
+        <GuideFlowSection
+          step={1}
+          title={t("treatmentGuide.flow.step1.title")}
+          hint={t("treatmentGuide.flow.step1.hint")}
+        >
+          <GuidePhotoStart
+            embedded
+            hasPhoto={!!displayImageUri}
+            onTakePhoto={addPhoto}
+            onUploadPhoto={() => void uploadPhotoFromLibrary()}
+            uploading={isPhotoBusy}
+            showAnalyzeAgain={phase === "done" && !!displayImageUri}
+            onAnalyzeAgain={() => {
+              analyzeFetchFailedRef.current = false;
+              void runPhotoAnalysis({ forceReanalyze: true });
+            }}
+          />
 
           {displayImageUri ? (
-            <View style={styles.previewCard}>
+            <View style={styles.photoPreviewBlock}>
               <Image source={{ uri: displayImageUri }} style={styles.preview} resizeMode="cover" />
+              <TouchableOpacity style={styles.linkBtn} onPress={addPhoto} activeOpacity={0.85}>
+                <Text style={styles.linkBtnText}>{t("treatmentGuide.retakePhoto")}</Text>
+              </TouchableOpacity>
             </View>
           ) : null}
+        </GuideFlowSection>
 
-          {(phase === "uploading" || phase === "analyzing" || phase === "restoring") && (
-            <View style={styles.loadingBox}>
-              <ActivityIndicator size="large" color="#2563eb" />
-              <Text style={styles.loadingText}>{t("analysis.processing")}</Text>
-            </View>
-          )}
-
-          {phase === "error" && errorText ? (
-            <Text style={styles.errorText}>{errorText}</Text>
-          ) : null}
-
-          {phase === "done" && (
-            <View style={styles.resultCard}>
-              <View style={styles.resultTitleRow}>
-                <Text style={styles.resultTitle}>{t("treatmentGuide.analysisResultTitle")}</Text>
-                {showTranslatedBadge ? (
-                  <View style={styles.translatedBadge}>
-                    <Text style={styles.translatedBadgeText}>{t("analysis.translatedBadge")}</Text>
-                  </View>
-                ) : null}
-              </View>
-              {localized.insights.length > 0 ? (
-                localized.insights.slice(0, 4).map((line, i) => (
-                  <Text key={i} style={styles.insightLine}>
-                    {i + 1}. {line}
-                  </Text>
-                ))
-              ) : imageUri ? (
-                <Text style={styles.placeholder}>
-                  {localized.summary || t("treatmentGuide.analysisEmpty")}
-                </Text>
-              ) : null}
-              {imageUri ? (
-                <Text style={styles.microDisclaimer}>{t("analysis.disclaimer")}</Text>
-              ) : null}
-            </View>
-          )}
-
-          {!imageUri && phase === "skipped" ? (
-            <Text style={styles.optionalHint}>{t("treatmentGuide.analysisAwaitingPhoto")}</Text>
-          ) : null}
-
-          {imageUri ? (
-            <TouchableOpacity style={styles.linkBtn} onPress={addPhoto} activeOpacity={0.85}>
-              <Text style={styles.linkBtnText}>{t("treatmentGuide.retakePhoto")}</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-
-        <IntakeWorkflowPanel
-          loading={intakeLoading}
-          intakeJourney={intake.intakeJourney}
-          flags={flags}
-        />
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("treatmentGuide.section.goals")}</Text>
-          <Text style={styles.sectionHint}>{t("treatmentGuide.section.goalsHint")}</Text>
-          <GoalChips
-            selectedIds={selectedChipIds}
-            onToggle={handleToggleGoal}
-            saving={savingGoals}
+        <GuideFlowSection
+          step={2}
+          title={t("treatmentGuide.flow.step2.title")}
+          hint={t("treatmentGuide.flow.step2.hint")}
+        >
+          <GuidePhotoAnalysisCard
+            embedded
+            displayUri={displayImageUri || undefined}
+            phase={photoUiPhase}
+            analysisPayload={analysisPayload}
+            localized={localized}
+            errorText={errorText}
+            showTranslatedBadge={showTranslatedBadge}
+            onRetry={() => {
+              analyzeFetchFailedRef.current = false;
+              void runPhotoAnalysis({ forceReanalyze: true });
+            }}
           />
+        </GuideFlowSection>
+
+        <GuideFlowSection
+          step={3}
+          title={t("treatmentGuide.flow.step3.title")}
+          hint={t("treatmentGuide.flow.step3.hint")}
+        >
+          <Text style={styles.concernPrompt}>{t("treatmentGuide.flow.step3.prompt")}</Text>
+          <GoalChips selectedIds={selectedChipIds} onToggle={handleToggleGoal} saving={savingGoals} />
           {goalsError ? <Text style={styles.errorText}>{goalsError}</Text> : null}
           <TextInput
-            style={[styles.narrativeInput, { marginTop: 14 }]}
+            style={styles.narrativeInput}
             value={patientNarrative}
             onChangeText={setPatientNarrative}
             placeholder={t("treatmentGuide.narrativePlaceholder")}
@@ -615,10 +682,23 @@ export default function TreatmentGuideScreen() {
             textAlignVertical="top"
             maxLength={2000}
           />
-        </View>
+        </GuideFlowSection>
 
-        <View style={styles.section}>
+        <GuideFlowSection
+          step={4}
+          title={t("treatmentGuide.flow.step4.title")}
+          hint={t("treatmentGuide.flow.step4.hint")}
+          isLast
+        >
+          <IntakeProgressSummary
+            subtle
+            loading={intakeLoading}
+            intakeJourney={intake.intakeJourney}
+            flags={flags}
+          />
+
           <UploadGuidance
+            embedded
             flags={flags}
             documents={intake.documents}
             sessionId={sessionId}
@@ -628,65 +708,50 @@ export default function TreatmentGuideScreen() {
             onRefresh={refreshIntake}
             onOpenFiles={goToFiles}
           />
-        </View>
 
-        <View style={styles.section} ref={chatSectionRef}>
-          {sessionId ? (
-          <AiCoordinatorChatView
-            embedded
-            contextMode="treatment_guide"
-            clinicId={clinicId}
-            patientId={patientId || null}
-            sessionId={sessionId}
-            initialDraft={patientNarrative.trim()}
-            priorLeadData={intake.leadData}
-            onIntakeUpdate={handleIntakeUpdate}
-          />
-          ) : (
-            <ActivityIndicator size="small" color="#2563eb" />
-          )}
-        </View>
-
-        <ClinicNetworkHint
-          flags={flags}
-          directory={intake.clinicDirectory}
-          countryHint={intake.leadData.country}
-        />
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("treatmentGuide.section.nextSteps")}</Text>
-          <Text style={styles.sectionHint}>
-            {hasClinic
-              ? linkedClinicName
-                ? t("treatmentGuide.section.nextStepsHintLinkedNamed", { name: linkedClinicName })
-                : t("treatmentGuide.section.nextStepsHint")
-              : t("treatmentGuide.section.nextStepsHintUnlinked")}
-          </Text>
           {!hasClinic && clinicRegionHint ? (
             <Text style={styles.regionHint}>
               {t("treatmentGuide.clinicNetwork.regionAvailable", { cities: clinicRegionHint })}
             </Text>
           ) : null}
 
-          <TouchableOpacity style={styles.primaryBtn} onPress={scrollToChat} activeOpacity={0.88}>
-            <Text style={styles.primaryBtnText}>{t("treatmentGuide.next.continueChat")}</Text>
-          </TouchableOpacity>
-
           <TouchableOpacity style={styles.secondaryBtn} onPress={goToClinicConnection} activeOpacity={0.88}>
             <Text style={styles.secondaryBtnText}>
               {hasClinic
                 ? t("treatmentGuide.next.messageClinicLinked")
-                : t("treatmentGuide.next.connectClinics")}
+                : t("treatmentGuide.next.shareWithClinics")}
             </Text>
           </TouchableOpacity>
           {!hasClinic ? (
-            <Text style={styles.ctaHelper}>{t("treatmentGuide.next.connectClinicsHelper")}</Text>
+            <Text style={styles.ctaHelper}>{t("treatmentGuide.next.shareWithClinicsHelper")}</Text>
           ) : null}
 
-          <TouchableOpacity style={styles.secondaryBtn} onPress={goToFiles} activeOpacity={0.88}>
-            <Text style={styles.secondaryBtnText}>{t("treatmentGuide.next.uploadDocs")}</Text>
-          </TouchableOpacity>
-        </View>
+          <View style={styles.chatBlock}>
+            <Text style={styles.chatLabel}>{t("treatmentGuide.chat.title")}</Text>
+            <Text style={styles.chatHint}>{t("treatmentGuide.chat.subtitle")}</Text>
+            {sessionId ? (
+              <AiCoordinatorChatView
+                embedded
+                contextMode="treatment_guide"
+                clinicId={clinicId}
+                patientId={patientId || null}
+                sessionId={sessionId}
+                initialDraft={chatInitialDraft}
+                priorLeadData={intake.leadData}
+                onIntakeUpdate={handleIntakeUpdate}
+              />
+            ) : (
+              <ActivityIndicator size="small" color="#2563eb" style={styles.chatLoader} />
+            )}
+          </View>
+
+          <ClinicNetworkHint
+            embedded
+            flags={flags}
+            directory={intake.clinicDirectory}
+            countryHint={intake.leadData.country}
+          />
+        </GuideFlowSection>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -708,60 +773,34 @@ const styles = StyleSheet.create({
   pageTitle: { fontSize: 18, fontWeight: "800", color: "#0f172a" },
   pageSub: { fontSize: 12, color: "#64748b", marginTop: 2, textAlign: "center", paddingHorizontal: 8 },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 18, paddingTop: 16 },
-  disclaimerCard: {
-    backgroundColor: "#eff6ff",
+  scrollContent: { paddingHorizontal: 18, paddingTop: 12 },
+  flowIntro: {
+    fontSize: 14,
+    color: "#64748b",
+    lineHeight: 21,
+    marginBottom: 24,
+  },
+  photoPreviewBlock: { marginTop: 16 },
+  preview: {
+    width: "100%",
+    aspectRatio: 4 / 3,
     borderRadius: 12,
-    padding: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: "#bfdbfe",
+    backgroundColor: "#e2e8f0",
+    marginBottom: 8,
   },
-  disclaimerText: { fontSize: 13, color: "#1e3a8a", lineHeight: 19, fontWeight: "500" },
-  intakeLoading: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 16,
-    paddingVertical: 8,
+  concernPrompt: {
+    fontSize: 14,
+    color: "#475569",
+    lineHeight: 20,
+    marginBottom: 14,
   },
-  intakeLoadingText: { fontSize: 13, color: "#64748b", fontWeight: "600" },
-  section: { marginBottom: 20 },
-  sectionTitle: { fontSize: 17, fontWeight: "800", color: "#0f172a", marginBottom: 6 },
-  sectionHint: { fontSize: 13, color: "#64748b", lineHeight: 19, marginBottom: 12 },
-  regionHint: { fontSize: 12, color: "#0369a1", lineHeight: 17, marginBottom: 12, fontWeight: "500" },
-  ctaHelper: { fontSize: 12, color: "#64748b", lineHeight: 17, marginTop: -4, marginBottom: 10 },
-  optionalHint: { fontSize: 13, color: "#64748b", marginBottom: 10, fontStyle: "italic" },
-  previewCard: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    padding: 10,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  preview: { width: "100%", aspectRatio: 4 / 3, borderRadius: 10, backgroundColor: "#e2e8f0" },
-  loadingBox: { alignItems: "center", paddingVertical: 16, gap: 10 },
-  loadingText: { fontSize: 14, color: "#475569", fontWeight: "600" },
+  regionHint: { fontSize: 12, color: "#64748b", lineHeight: 17, marginVertical: 12 },
+  ctaHelper: { fontSize: 12, color: "#94a3b8", lineHeight: 17, marginTop: -6, marginBottom: 16 },
   errorText: { color: "#b91c1c", fontSize: 14, marginBottom: 10, lineHeight: 20 },
-  resultCard: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  resultTitleRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 10 },
-  resultTitle: { fontSize: 15, fontWeight: "800", color: "#0f172a", flex: 1 },
-  translatedBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: "#e0e7ff" },
-  translatedBadgeText: { fontSize: 11, fontWeight: "700", color: "#3730a3" },
-  insightLine: { fontSize: 14, color: "#334155", marginBottom: 6, lineHeight: 20 },
-  placeholder: { fontSize: 14, color: "#64748b", marginBottom: 6 },
-  microDisclaimer: { fontSize: 11, color: "#94a3b8", marginTop: 10, lineHeight: 16 },
   narrativeInput: {
     minHeight: 88,
-    backgroundColor: "#fff",
+    marginTop: 14,
+    backgroundColor: "#f8fafc",
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#e2e8f0",
@@ -771,24 +810,21 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     lineHeight: 22,
   },
-  linkBtn: { paddingVertical: 8, alignSelf: "flex-start" },
-  linkBtnText: { fontSize: 14, fontWeight: "600", color: "#2563eb" },
-  primaryBtn: {
-    backgroundColor: "#2563eb",
-    borderRadius: 14,
-    paddingVertical: 15,
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  primaryBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  linkBtn: { paddingVertical: 4, alignSelf: "flex-start" },
+  linkBtnText: { fontSize: 13, fontWeight: "600", color: "#2563eb" },
   secondaryBtn: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
+    backgroundColor: "#f8fafc",
+    borderRadius: 12,
     paddingVertical: 14,
     alignItems: "center",
-    marginBottom: 10,
+    marginTop: 8,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
   secondaryBtnText: { color: "#334155", fontSize: 15, fontWeight: "600" },
+  chatBlock: { marginTop: 20 },
+  chatLabel: { fontSize: 15, fontWeight: "700", color: "#0f172a", marginBottom: 4 },
+  chatHint: { fontSize: 13, color: "#64748b", lineHeight: 18, marginBottom: 12 },
+  chatLoader: { marginVertical: 16 },
 });

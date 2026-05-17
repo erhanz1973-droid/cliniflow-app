@@ -10,6 +10,8 @@ type Props = {
   uploading?: boolean;
   showAnalyzeAgain?: boolean;
   onAnalyzeAgain?: () => void;
+  /** Section provides heading — show actions only */
+  embedded?: boolean;
 };
 
 export function GuidePhotoStart({
@@ -19,19 +21,18 @@ export function GuidePhotoStart({
   uploading,
   showAnalyzeAgain,
   onAnalyzeAgain,
+  embedded,
 }: Props) {
   const { t } = useLanguage();
 
   return (
-    <View style={styles.card}>
-      <View style={styles.stepRow}>
-        <View style={styles.stepBadge}>
-          <Text style={styles.stepBadgeText}>1</Text>
-        </View>
-        <Text style={styles.stepLabel}>{t("treatmentGuide.photoStart.stepLabel")}</Text>
-      </View>
-      <Text style={styles.title}>{t("treatmentGuide.photoStart.title")}</Text>
-      <Text style={styles.hint}>{t("treatmentGuide.photoStart.hint")}</Text>
+    <View style={embedded ? styles.embedded : styles.card}>
+      {!embedded ? (
+        <>
+          <Text style={styles.title}>{t("treatmentGuide.photoStart.title")}</Text>
+          <Text style={styles.hint}>{t("treatmentGuide.photoStart.hint")}</Text>
+        </>
+      ) : null}
 
       <TouchableOpacity
         style={styles.primaryBtn}
@@ -59,8 +60,10 @@ export function GuidePhotoStart({
         <Text style={styles.secondaryBtnText}>{t("treatmentGuide.photoStart.uploadPhoto")}</Text>
       </TouchableOpacity>
 
-      {hasPhoto ? (
+      {hasPhoto && !uploading ? (
         <Text style={styles.addedHint}>{t("treatmentGuide.photoStart.addedHint")}</Text>
+      ) : hasPhoto && uploading ? (
+        <Text style={styles.addedHint}>{t("treatmentGuide.analysis.preparing")}</Text>
       ) : (
         <Text style={styles.optionalNote}>{t("treatmentGuide.photoOptional")}</Text>
       )}
@@ -80,6 +83,7 @@ export function GuidePhotoStart({
 }
 
 const styles = StyleSheet.create({
+  embedded: {},
   card: {
     backgroundColor: "#fff",
     borderRadius: 14,
@@ -88,17 +92,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
-  stepRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
-  stepBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#2563eb",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stepBadgeText: { color: "#fff", fontSize: 12, fontWeight: "800" },
-  stepLabel: { fontSize: 12, fontWeight: "700", color: "#64748b", textTransform: "uppercase", letterSpacing: 0.4 },
   title: { fontSize: 17, fontWeight: "800", color: "#0f172a", marginBottom: 6 },
   hint: { fontSize: 13, color: "#64748b", lineHeight: 19, marginBottom: 14 },
   primaryBtn: {
