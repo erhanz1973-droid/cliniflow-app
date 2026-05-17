@@ -5,6 +5,8 @@ export type SendMessageInput = {
   clinicId: string;
   clinicCode?: string;
   text: string;
+  /** Active treatment offer — mirrors into offer_messages on the backend */
+  offerId?: string;
   /** Patient_files row ids when available */
   attachments: string[];
   /** HTTPS URLs from chat/upload fallback */
@@ -20,6 +22,7 @@ export async function sendMessage(input: SendMessageInput): Promise<Response> {
     clinicId,
     clinicCode,
     text,
+    offerId,
     attachments,
     attachmentUrls = [],
   } = input;
@@ -35,6 +38,11 @@ export async function sendMessage(input: SendMessageInput): Promise<Response> {
   if (code) {
     body.clinic_code = code;
     body.clinicCode = code;
+  }
+  const oid = String(offerId || "").trim();
+  if (oid) {
+    body.offer_id = oid;
+    body.offerId = oid;
   }
   const ids = attachments.map(String).filter(Boolean);
   if (ids.length > 0) {

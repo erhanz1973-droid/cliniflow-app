@@ -861,6 +861,7 @@ export default function TreatmentGuideScreen() {
             documents={intake.documents}
             sessionId={sessionId}
             clinicId={clinicId}
+            patientId={patientId}
             intake={intake}
             onIntakeUpdate={applyIntakeState}
             onRefresh={refreshIntake}

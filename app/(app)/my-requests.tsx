@@ -71,6 +71,10 @@ type Offer = {
   disclaimer: string;
   created_at: string;
   doctor_name: string | null;
+  last_message?: string | null;
+  last_message_at?: string | null;
+  last_message_role?: string | null;
+  unread_count?: number;
 };
 
 // Key = `${clinicId}:${type}` (or `offer:${offerId}:${type}` for marketplace offers)
@@ -521,6 +525,22 @@ export default function MyRequestsScreen() {
                             </Text>
                           </View>
 
+                          {!!offer.last_message?.trim() && (
+                            <View style={styles.offerThreadPreview}>
+                              <Text style={styles.offerThreadPreviewLabel}>
+                                💬 {t('offerChat.viewMessages')}
+                              </Text>
+                              <Text style={styles.offerThreadPreviewText} numberOfLines={2}>
+                                {offer.last_message_role === 'patient'
+                                  ? `${t('offerChat.you')}: `
+                                  : offer.last_message_role === 'doctor'
+                                    ? `${offer.doctor_name || t('treatReq.doctor')}: `
+                                    : ''}
+                                {offer.last_message}
+                              </Text>
+                            </View>
+                          )}
+
                           {/* Rating badges */}
                           {(() => {
                             const rk = offer.clinic_id
@@ -586,7 +606,15 @@ export default function MyRequestsScreen() {
                                       )
                                     }
                                   >
-                                    <Text style={styles.msgBtnText}>💬 {t('offerChat.messageDoctor')}</Text>
+                                    <Text style={styles.msgBtnText}>
+                                      💬{' '}
+                                      {offer.last_message?.trim()
+                                        ? t('offerChat.viewMessages')
+                                        : t('offerChat.messageDoctor')}
+                                      {(offer.unread_count ?? 0) > 0
+                                        ? ` (${offer.unread_count})`
+                                        : ''}
+                                    </Text>
                                   </TouchableOpacity>
 
                                   {/* Rate Experience (if not yet rated for this clinic) */}
@@ -752,6 +780,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF9C3', borderRadius: 6, padding: 8, marginTop: 6,
   },
   disclaimerText: { fontSize: 11, color: '#92400E', lineHeight: 16 },
+  offerThreadPreview: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+  },
+  offerThreadPreviewLabel: { fontSize: 11, fontWeight: '800', color: '#0369A1', marginBottom: 4 },
+  offerThreadPreviewText: { fontSize: 13, color: '#0C4A6E', lineHeight: 18 },
   // Action row
   actionRow: { flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' },
   actionBtn: { flex: 1, minWidth: 80 },
