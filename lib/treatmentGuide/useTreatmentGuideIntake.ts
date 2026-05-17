@@ -9,6 +9,7 @@ const emptyState = (): TreatmentGuideIntakeState => ({
   operationalIntakeFlags: null,
   intakeJourney: null,
   documents: [],
+  clinicDirectory: null,
 });
 
 export function useTreatmentGuideIntake(params: {

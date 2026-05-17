@@ -3214,6 +3214,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "treatmentGuide.openFiles": "Open files",
 
     "treatmentGuide.openFilesBrowse": "Browse all uploaded files",
+    "treatmentGuide.clinicNetwork.title": "Partner clinics",
+    "treatmentGuide.clinicNetwork.hint": "Registered partner clinics are listed by region — not rankings or medical advice.",
+    "treatmentGuide.clinicNetwork.browse": "Browse clinics",
     "treatmentGuide.section.uploadsActionHint": "Use the buttons below for each requested item. Uploads support clinic coordination — not a diagnosis.",
     "treatmentGuide.upload.consentShort": "By uploading, you confirm this file may be shared for clinic coordination.",
     "treatmentGuide.upload.noClinicTitle": "Clinic link required",
@@ -4922,6 +4925,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "treatmentGuide.openFiles": "ფაილები",
 
     "treatmentGuide.openFilesBrowse": "ყველა ფაილის ნახვა",
+    "treatmentGuide.clinicNetwork.title": "პარტნიორი კლინიკები",
+    "treatmentGuide.clinicNetwork.hint": "რეგიონების მიხედვით — არა რეიტინგი.",
+    "treatmentGuide.clinicNetwork.browse": "კლინიკების ნახვა",
     "treatmentGuide.section.uploadsActionHint": "გამოიყენეთ ღილაკები თითო მოთხოვნისთვის.",
     "treatmentGuide.upload.consentShort": "ატვირთვით ადასტურებთ, რომ ფაილი შეიძლება გაზიარდეს კოორდინაციისთვის.",
     "treatmentGuide.upload.noClinicTitle": "საჭიროა კლინიკა",
@@ -5336,6 +5342,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "treatmentGuide.openFiles": "Открыть файлы",
 
     "treatmentGuide.openFilesBrowse": "Просмотреть все файлы",
+    "treatmentGuide.clinicNetwork.title": "Партнёрские клиники",
+    "treatmentGuide.clinicNetwork.hint": "Список по регионам — не рейтинг и не диагноз.",
+    "treatmentGuide.clinicNetwork.browse": "Смотреть клиники",
     "treatmentGuide.section.uploadsActionHint": "Используйте кнопки ниже для каждого запроса.",
     "treatmentGuide.upload.consentShort": "Загружая файл, вы соглашаетесь на передачу клинике для координации.",
     "treatmentGuide.upload.noClinicTitle": "Нужна привязка к клинике",

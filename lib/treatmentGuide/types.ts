@@ -54,11 +54,26 @@ export type PatientIntakeDocument = {
   reviewStatus?: string;
 };
 
+export type ClinicDirectorySnapshot = {
+  clinics: Array<{
+    id: string;
+    name: string;
+    city: string | null;
+    city_code: string | null;
+    country: string | null;
+    clinicCode: string | null;
+  }>;
+  cities: string[];
+  total: number;
+  cityCount: number;
+};
+
 export type TreatmentGuideIntakeState = {
   leadData: AiLeadData;
   operationalIntakeFlags: OperationalIntakeFlags | null;
   intakeJourney: IntakeJourneyPayload | null;
   documents: PatientIntakeDocument[];
+  clinicDirectory: ClinicDirectorySnapshot | null;
 };
 
 export type ChecklistItemStatus = "done" | "pending" | "optional";

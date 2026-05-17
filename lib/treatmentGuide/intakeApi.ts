@@ -1,5 +1,6 @@
 import { API_BASE, getAuthHeaders } from "../api";
 import { emptyLeadData, mergeLeadData, type AiLeadData } from "../aiCoordinator/leadData";
+import type { ClinicDirectoryPayload } from "./clinicDirectoryApi";
 import type {
   IntakeJourneyPayload,
   OperationalIntakeFlags,
@@ -151,6 +152,8 @@ export function parseIntakeApiPayload(json: Record<string, unknown>): TreatmentG
       ? { patientReportedTags: leadData.patientReportedTags }
       : null;
 
+  const clinicDirectory = normalizeClinicDirectory(json.clinicDirectory);
+
   return {
     leadData: mergeLeadData(leadData, {
       patientReportedTags: mergedFlags?.patientReportedTags || leadData.patientReportedTags,
@@ -158,6 +161,31 @@ export function parseIntakeApiPayload(json: Record<string, unknown>): TreatmentG
     operationalIntakeFlags: mergedFlags,
     intakeJourney: normalizeJourney(json.intakeJourney),
     documents: normalizeDocuments(json.documents),
+    clinicDirectory,
+  };
+}
+
+function normalizeClinicDirectory(raw: unknown): ClinicDirectoryPayload | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const clinics = Array.isArray(o.clinics)
+    ? o.clinics.map((row) => {
+        const c = row as Record<string, unknown>;
+        return {
+          id: String(c.id || ""),
+          name: String(c.name || "Clinic"),
+          city: c.city != null ? String(c.city) : null,
+          city_code: c.city_code != null ? String(c.city_code) : null,
+          country: c.country != null ? String(c.country) : null,
+          clinicCode: c.clinicCode != null ? String(c.clinicCode) : null,
+        };
+      })
+    : [];
+  return {
+    clinics,
+    cities: Array.isArray(o.cities) ? o.cities.map(String) : [],
+    total: typeof o.total === "number" ? o.total : clinics.length,
+    cityCount: typeof o.cityCount === "number" ? o.cityCount : 0,
   };
 }
 

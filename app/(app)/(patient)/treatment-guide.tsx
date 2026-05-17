@@ -27,6 +27,7 @@ import { AiCoordinatorChatView } from "../../../components/aiCoordinator/AiCoord
 import { GoalChips } from "../../../components/treatmentGuide/GoalChips";
 import { IntakeWorkflowPanel } from "../../../components/treatmentGuide/IntakeWorkflowPanel";
 import { UploadGuidance } from "../../../components/treatmentGuide/UploadGuidance";
+import { ClinicNetworkHint } from "../../../components/treatmentGuide/ClinicNetworkHint";
 import {
   chipIdsToTags,
   tagsToChipIds,
@@ -303,6 +304,12 @@ export default function TreatmentGuideScreen() {
             maxLength={2000}
           />
         </View>
+
+        <ClinicNetworkHint
+          flags={flags}
+          directory={intake.clinicDirectory}
+          countryHint={intake.leadData.country}
+        />
 
         <View style={styles.section}>
           <UploadGuidance
