@@ -1,13 +1,12 @@
 import type { AiLeadData } from "../aiCoordinator/leadData";
 import { TREATMENT_GOAL_CHIPS, tagsToChipIds } from "./chips";
+import {
+  collectInquiryAttachments,
+  type InquiryAttachment,
+} from "./collectInquiryAttachments";
 import type { OperationalIntakeFlags, PatientIntakeDocument } from "./types";
 
-export type ClinicInquiryAttachment = {
-  id: string;
-  label: string;
-  kind: "photo" | "xray" | "document";
-  url?: string;
-};
+export type ClinicInquiryAttachment = InquiryAttachment;
 
 export type ClinicInquiryDraft = {
   text: string;
@@ -32,27 +31,6 @@ const SUGGESTED_QUESTION_KEYS = [
   "treatmentGuide.inquiry.suggest.timeline",
   "treatmentGuide.inquiry.suggest.morePhotos",
 ] as const;
-
-function docKind(documentType: string): ClinicInquiryAttachment["kind"] {
-  const d = documentType.toLowerCase();
-  if (/panoramic|xray|x-ray|opg|radiograph/.test(d)) return "xray";
-  if (/smile|intraoral|dental|photo|ai_upload/.test(d)) return "photo";
-  return "document";
-}
-
-function docLabel(
-  documentType: string,
-  documentTypeLabel: string | undefined,
-  t: BuildClinicInquiryDraftInput["t"],
-): string {
-  if (documentTypeLabel?.trim()) return documentTypeLabel.trim();
-  const key = `treatmentGuide.inquiry.doc.${documentType.replace(/[^a-z0-9_]/gi, "_")}`;
-  const translated = t(key);
-  if (translated !== key) return translated;
-  if (/panoramic|xray|opg/.test(documentType)) return t("treatmentGuide.inquiry.doc.panoramic_xray");
-  if (/smile|intraoral|photo/.test(documentType)) return t("treatmentGuide.inquiry.doc.smile_photos");
-  return t("treatmentGuide.inquiry.doc.other");
-}
 
 function formatTimeline(raw: string | null | undefined, t: BuildClinicInquiryDraftInput["t"]): string | null {
   const s = String(raw || "").trim();
@@ -81,24 +59,12 @@ export function buildClinicInquiryDraft(input: BuildClinicInquiryDraftInput): Cl
   const narrative = patientNarrative.trim();
   if (narrative && !concernLines.includes(narrative)) concernLines.push(narrative);
 
-  const attachments: ClinicInquiryAttachment[] = [];
-  if (input.hasDentalPhoto) {
-    attachments.push({
-      id: "session_dental_photo",
-      kind: "photo",
-      label: t("treatmentGuide.inquiry.attachment.dentalPhoto"),
-      url: input.dentalPhotoUrl,
-    });
-  }
-  for (const doc of documents) {
-    if (!doc.id) continue;
-    attachments.push({
-      id: doc.id,
-      kind: docKind(doc.documentType),
-      label: docLabel(doc.documentType, doc.documentTypeLabel, t),
-      url: doc.fileUrl,
-    });
-  }
+  const attachments = collectInquiryAttachments({
+    documents,
+    dentalPhotoUrl: input.dentalPhotoUrl,
+    sessionPhotoUrl: input.hasDentalPhoto ? input.dentalPhotoUrl : undefined,
+    t,
+  });
 
   const attachmentBlock =
     attachments.length > 0

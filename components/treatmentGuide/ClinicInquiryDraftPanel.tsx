@@ -7,15 +7,18 @@ import {
   TouchableOpacity,
   ScrollView,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { useLanguage } from "../../lib/language-context";
 import {
   buildClinicInquiryDraft,
   SUGGESTED_QUESTION_KEYS,
-  type ClinicInquiryAttachment,
 } from "../../lib/treatmentGuide/buildClinicInquiryDraft";
+import {
+  collectInquiryAttachments,
+  type InquiryAttachment,
+} from "../../lib/treatmentGuide/collectInquiryAttachments";
 import type { AiLeadData } from "../../lib/aiCoordinator/leadData";
 import type { OperationalIntakeFlags, PatientIntakeDocument } from "../../lib/treatmentGuide/types";
+import { ClinicInquiryAttachmentsPreview } from "./ClinicInquiryAttachmentsPreview";
 
 type Props = {
   flags: OperationalIntakeFlags | null;
@@ -27,16 +30,13 @@ type Props = {
   dentalPhotoUrl?: string;
   draftText: string;
   onDraftTextChange: (text: string) => void;
+  excludedAttachmentIds: ReadonlySet<string>;
+  onToggleAttachmentExclude: (id: string) => void;
+  onIncludedAttachmentsChange?: (attachments: InquiryAttachment[]) => void;
   onReviewInquiry: () => void;
   onShareWithClinic: () => void;
   hasLinkedClinic: boolean;
 };
-
-function attachmentIcon(kind: ClinicInquiryAttachment["kind"]) {
-  if (kind === "xray") return "scan-outline" as const;
-  if (kind === "photo") return "image-outline" as const;
-  return "document-text-outline" as const;
-}
 
 export function ClinicInquiryDraftPanel({
   flags,
@@ -48,12 +48,35 @@ export function ClinicInquiryDraftPanel({
   dentalPhotoUrl,
   draftText,
   onDraftTextChange,
+  excludedAttachmentIds,
+  onToggleAttachmentExclude,
+  onIncludedAttachmentsChange,
   onReviewInquiry,
   onShareWithClinic,
   hasLinkedClinic,
 }: Props) {
   const { t } = useLanguage();
   const userEditedRef = useRef(false);
+
+  const allAttachments = useMemo(
+    () =>
+      collectInquiryAttachments({
+        documents,
+        dentalPhotoUrl,
+        sessionPhotoUrl: hasDentalPhoto ? dentalPhotoUrl : undefined,
+        t,
+      }),
+    [documents, dentalPhotoUrl, hasDentalPhoto, t],
+  );
+
+  const includedAttachments = useMemo(
+    () => allAttachments.filter((a) => !excludedAttachmentIds.has(a.id)),
+    [allAttachments, excludedAttachmentIds],
+  );
+
+  useEffect(() => {
+    onIncludedAttachmentsChange?.(includedAttachments);
+  }, [includedAttachments, onIncludedAttachmentsChange]);
 
   const generated = useMemo(
     () =>
@@ -128,19 +151,16 @@ export function ClinicInquiryDraftPanel({
         <Text style={styles.resetLinkText}>{t("treatmentGuide.inquiry.resetDraft")}</Text>
       </TouchableOpacity>
 
-      {generated.attachments.length > 0 ? (
-        <View style={styles.attachBlock}>
-          <Text style={styles.attachTitle}>{t("treatmentGuide.inquiry.attachmentsTitle")}</Text>
-          {generated.attachments.map((a) => (
-            <View key={a.id} style={styles.attachRow}>
-              <Ionicons name={attachmentIcon(a.kind)} size={18} color="#64748b" />
-              <Text style={styles.attachLabel}>{a.label}</Text>
-            </View>
-          ))}
-        </View>
-      ) : (
-        <Text style={styles.attachEmpty}>{t("treatmentGuide.inquiry.attachments.noneHint")}</Text>
-      )}
+      <ClinicInquiryAttachmentsPreview
+        attachments={collectInquiryAttachments({
+          documents,
+          dentalPhotoUrl,
+          sessionPhotoUrl: hasDentalPhoto ? dentalPhotoUrl : undefined,
+          t,
+        })}
+        excludedIds={excludedAttachmentIds}
+        onToggleExclude={onToggleAttachmentExclude}
+      />
 
       <Text style={styles.suggestLabel}>{t("treatmentGuide.inquiry.suggestLabel")}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.suggestScroll}>
@@ -194,11 +214,6 @@ const styles = StyleSheet.create({
   },
   resetLink: { alignSelf: "flex-start", marginTop: 8, marginBottom: 12 },
   resetLinkText: { fontSize: 13, fontWeight: "600", color: "#2563eb" },
-  attachBlock: { marginBottom: 12 },
-  attachTitle: { fontSize: 13, fontWeight: "700", color: "#334155", marginBottom: 8 },
-  attachRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
-  attachLabel: { fontSize: 13, color: "#475569", flex: 1 },
-  attachEmpty: { fontSize: 12, color: "#94a3b8", marginBottom: 12, lineHeight: 17 },
   suggestLabel: { fontSize: 12, color: "#64748b", marginBottom: 8 },
   suggestScroll: { marginBottom: 16, maxHeight: 44 },
   suggestChip: {

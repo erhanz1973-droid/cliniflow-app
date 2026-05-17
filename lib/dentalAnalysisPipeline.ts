@@ -242,6 +242,7 @@ export async function analyzePhoto(params: {
   imageUri: string;
   patientId: string;
   token: string;
+  sessionId?: string | null;
   photoType?: string;
   lang?: string;
   forceReanalyze?: boolean;
@@ -251,6 +252,7 @@ export async function analyzePhoto(params: {
     imageUri,
     patientId,
     token,
+    sessionId,
     photoType = "general",
     lang,
     forceReanalyze = false,
@@ -341,6 +343,7 @@ export async function analyzePhoto(params: {
         patientId,
         imageUrl: analyzeImageUrl,
         storagePath: storagePath || undefined,
+        sessionId: sessionId || undefined,
         photoType,
         userLocation,
         preferredCountry: null,

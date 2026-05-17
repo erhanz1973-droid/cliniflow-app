@@ -94,6 +94,12 @@ function normalizeDocuments(raw: unknown): PatientIntakeDocument[] {
           : d.thumbnail_url != null
             ? String(d.thumbnail_url)
             : undefined,
+      mimeType:
+        d.mimeType != null
+          ? String(d.mimeType)
+          : d.mime_type != null
+            ? String(d.mime_type)
+            : undefined,
       uploadedAt:
         d.uploadedAt != null
           ? String(d.uploadedAt)

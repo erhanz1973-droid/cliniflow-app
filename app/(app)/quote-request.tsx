@@ -295,14 +295,29 @@ export default function QuoteRequestScreen() {
     }
   };
 
-  /** Prefill description from Treatment Support clinic inquiry draft. */
+  /** Prefill description + attachment URLs from Treatment Support clinic inquiry draft. */
   useEffect(() => {
     if (phase !== 'form' || prefillStartedRef.current) return;
     let cancelled = false;
     void (async () => {
       const stored = await loadClinicInquiryDraftForQuote();
-      if (cancelled || !stored?.text?.trim()) return;
-      setDescription(stored.text.trim());
+      if (cancelled || !stored) return;
+      if (stored.text?.trim()) setDescription(stored.text.trim());
+      const urls =
+        stored.attachments?.length > 0
+          ? stored.attachments
+              .map((a) => String(a.url || "").trim())
+              .filter((u) => /^https?:\/\//i.test(u))
+          : (stored.photoUrls || []).filter((u) => /^https?:\/\//i.test(String(u)));
+      if (urls.length > 0) {
+        setIntraoralUrls(urls);
+        setAttachment({
+          uri: urls[0],
+          url: urls[0],
+          type: "image",
+          name: stored.attachments?.[0]?.label || "Inquiry attachment",
+        });
+      }
     })();
     return () => {
       cancelled = true;

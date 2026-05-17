@@ -48,6 +48,7 @@ import { goToAiCoordinator } from "../../../lib/aiCoordinator";
 import { goToTreatmentGuide } from "../../../lib/treatmentGuideNavigation";
 import { saveToFiles } from "../../../lib/saveToFiles";
 import { sendMessage } from "../../../lib/sendMessage";
+import { loadClinicInquiryDraftForQuote } from "../../../lib/clinicInquiryDraftStorage";
 import { playInAppNewMessageSoundDebouncedForThread } from "../../../lib/playInAppMessageSound";
 import { isHumanInboundChatMessage } from "../../../lib/chatMessageClassification";
 import { getMessageSoundPreference } from "../../../lib/messageSoundPreference";
@@ -169,6 +170,9 @@ type PendingAttachment = {
   localUri: string;
   fileId: string | null;
   url: string | null;
+  mimeType?: string;
+  label?: string;
+  isPdf?: boolean;
 };
 
 const PRICE_LABEL_TR: Record<string, string> = {
@@ -291,6 +295,7 @@ export default function MessagesScreen() {
     offerPrefillImage?: string;
     prefillComposer?: string;
     prefillText?: string;
+    prefillInquiry?: string;
   }>();
   const { selectedClinic, ready: selectedClinicReady } = useSelectedChatClinic(user, {
     clinicId: routeParams.clinicId,
@@ -362,43 +367,101 @@ export default function MessagesScreen() {
     setText(t("messages.defaultComposerText"));
   }, [t]);
 
-  // Deep link: prefill image + optional composer text
+  // Deep link: prefill image + clinic inquiry draft (text + all uploaded documents)
   useEffect(() => {
-    const raw =
-      typeof routeParams.offerPrefillImage === "string"
-        ? routeParams.offerPrefillImage.trim()
-        : "";
-    if (raw) {
-      setLastCapturedImage(raw);
-      setPendingAttachments((prev) => [
-        ...prev,
-        {
-          localUri: raw,
-          fileId: null,
-          url: /^https?:\/\//i.test(raw) ? raw : null,
-        },
-      ]);
-    }
-    const pt =
-      typeof routeParams.prefillText === "string"
-        ? routeParams.prefillText.trim()
-        : "";
-    if (routeParams.prefillComposer === "1" && !pt) {
-      setText(t("messages.defaultComposerText"));
-    } else if (pt) {
-      setText(pt);
-    }
-    if (raw || pt || routeParams.prefillComposer === "1") {
-      navigation.setParams({
-        offerPrefillImage: undefined,
-        prefillComposer: undefined,
-        prefillText: undefined,
-      } as any);
-    }
+    let cancelled = false;
+    void (async () => {
+      const raw =
+        typeof routeParams.offerPrefillImage === "string"
+          ? routeParams.offerPrefillImage.trim()
+          : "";
+      if (raw) {
+        setLastCapturedImage(raw);
+        setPendingAttachments((prev) => [
+          ...prev,
+          {
+            localUri: raw,
+            fileId: null,
+            url: /^https?:\/\//i.test(raw) ? raw : null,
+          },
+        ]);
+      }
+
+      const pt =
+        typeof routeParams.prefillText === "string"
+          ? routeParams.prefillText.trim()
+          : "";
+      if (routeParams.prefillComposer === "1" && !pt) {
+        setText(t("messages.defaultComposerText"));
+      } else if (pt) {
+        setText(pt);
+      }
+
+      const loadInquiry =
+        routeParams.prefillInquiry === "1" || routeParams.prefillComposer === "1";
+      if (loadInquiry) {
+        const stored = await loadClinicInquiryDraftForQuote();
+        if (cancelled) return;
+        if (stored?.text?.trim() && !pt) {
+          setText(stored.text.trim());
+        }
+        if (stored?.attachments?.length) {
+          const pendingFromInquiry = stored.attachments
+            .filter((a) => /^https?:\/\//i.test(String(a.url || "")))
+            .map((a) => ({
+              localUri: String(a.thumbnailUrl || a.url),
+              fileId:
+                a.id.startsWith("session_") || a.id.startsWith("legacy_") ? null : a.id,
+              url: String(a.url),
+              mimeType: a.mimeType,
+              label: a.label,
+              isPdf: a.kind === "pdf",
+            }));
+          if (pendingFromInquiry.length > 0) {
+            setPendingAttachments((prev) => {
+              const seen = new Set(prev.map((p) => String(p.url || p.localUri).split("?")[0]));
+              const merged = [...prev];
+              for (const p of pendingFromInquiry) {
+                const key = String(p.url || p.localUri).split("?")[0];
+                if (seen.has(key)) continue;
+                seen.add(key);
+                merged.push(p);
+              }
+              return merged;
+            });
+          }
+        } else if (stored?.photoUrls?.length) {
+          setPendingAttachments((prev) => {
+            const seen = new Set(prev.map((p) => String(p.url || "").split("?")[0]));
+            const merged = [...prev];
+            for (const url of stored.photoUrls!) {
+              const key = url.split("?")[0];
+              if (seen.has(key)) continue;
+              seen.add(key);
+              merged.push({ localUri: url, fileId: null, url });
+            }
+            return merged;
+          });
+        }
+      }
+
+      if (raw || pt || routeParams.prefillComposer === "1" || routeParams.prefillInquiry === "1") {
+        navigation.setParams({
+          offerPrefillImage: undefined,
+          prefillComposer: undefined,
+          prefillText: undefined,
+          prefillInquiry: undefined,
+        } as any);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [
     routeParams.offerPrefillImage,
     routeParams.prefillComposer,
     routeParams.prefillText,
+    routeParams.prefillInquiry,
     navigation,
     t,
   ]);
@@ -1466,11 +1529,20 @@ export default function MessagesScreen() {
               >
                 {pendingAttachments.map((att, idx) => (
                   <View key={`${att.localUri}-${idx}`} style={s.previewChip}>
-                    <Image
-                      source={{ uri: att.localUri }}
-                      style={s.previewChipImg}
-                      resizeMode="cover"
-                    />
+                    {att.isPdf || String(att.mimeType || "").includes("pdf") ? (
+                      <View style={s.previewChipDoc}>
+                        <Text style={s.previewChipDocIcon}>📄</Text>
+                        <Text style={s.previewChipDocName} numberOfLines={2}>
+                          {att.label || "PDF"}
+                        </Text>
+                      </View>
+                    ) : (
+                      <Image
+                        source={{ uri: att.localUri }}
+                        style={s.previewChipImg}
+                        resizeMode="cover"
+                      />
+                    )}
                     <TouchableOpacity
                       style={s.previewChipRemove}
                       onPress={() =>
@@ -2445,6 +2517,16 @@ const s = StyleSheet.create({
     marginRight: 8,
   },
   previewChipImg: { width: "100%", height: "100%" },
+  previewChipDoc: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#f1f5f9",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 6,
+  },
+  previewChipDocIcon: { fontSize: 22, marginBottom: 4 },
+  previewChipDocName: { fontSize: 9, color: "#475569", textAlign: "center" },
   previewChipRemove: {
     position: "absolute",
     top: 4,

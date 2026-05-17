@@ -50,6 +50,7 @@ export type PatientIntakeDocument = {
   documentTypeLabel?: string;
   fileUrl?: string;
   thumbnailUrl?: string;
+  mimeType?: string;
   uploadedAt?: string;
   reviewStatus?: string;
 };

@@ -24,7 +24,10 @@ import {
   type AnalyzePhotoResult,
 } from "../../../lib/dentalAnalysisPipeline";
 import { getLocalizedDentalAnalysis } from "../../../lib/dentalAnalysisView";
-import { normalizeAnalyzeApiPayload } from "../../../lib/dentalAnalysisNormalize";
+import {
+  normalizeAnalyzeApiPayload,
+  hasVisibleAnalysisContent,
+} from "../../../lib/dentalAnalysisNormalize";
 import { goToDentalCamera } from "../../../lib/dentalPhotoNavigation";
 import { pickIntakeImageFromLibrary } from "../../../lib/treatmentGuide/uploadDocument";
 import { GuidePhotoStart } from "../../../components/treatmentGuide/GuidePhotoStart";
@@ -38,6 +41,11 @@ import { UploadGuidance } from "../../../components/treatmentGuide/UploadGuidanc
 import { ClinicNetworkHint } from "../../../components/treatmentGuide/ClinicNetworkHint";
 import { ClinicInquiryDraftPanel } from "../../../components/treatmentGuide/ClinicInquiryDraftPanel";
 import { saveClinicInquiryDraftForQuote } from "../../../lib/clinicInquiryDraftStorage";
+import {
+  collectInquiryAttachments,
+  filterIncludedInquiryAttachments,
+  type InquiryAttachment,
+} from "../../../lib/treatmentGuide/collectInquiryAttachments";
 import { saveTreatmentGuideWorkspace } from "../../../lib/treatmentGuide/workspaceApi";
 import {
   chipIdsToTags,
@@ -118,6 +126,10 @@ export default function TreatmentGuideScreen() {
   const [savingGoals, setSavingGoals] = useState(false);
   const [goalsError, setGoalsError] = useState<string | null>(null);
   const [inquiryDraftText, setInquiryDraftText] = useState("");
+  const [excludedInquiryAttachmentIds, setExcludedInquiryAttachmentIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const includedInquiryAttachmentsRef = useRef<InquiryAttachment[]>([]);
 
   const flags = intake.operationalIntakeFlags;
   const serverTags = flags?.patientReportedTags || intake.leadData.patientReportedTags || [];
@@ -129,6 +141,11 @@ export default function TreatmentGuideScreen() {
   const localized = useMemo(
     () => getLocalizedDentalAnalysis(analysisPayload, currentLanguage),
     [analysisPayload, currentLanguage],
+  );
+
+  const hasSavedGuidance = useMemo(
+    () => hasVisibleAnalysisContent(analysisPayload),
+    [analysisPayload],
   );
 
   const photoUiPhase = useMemo((): PhotoAnalysisUiPhase => {
@@ -248,9 +265,10 @@ export default function TreatmentGuideScreen() {
       _fingerprint: string,
       contentHash?: string | null,
       aliasFingerprints: string[] = [],
+      opts?: { savedAt?: string | null; skipWorkspaceSave?: boolean },
     ) => {
       const norm = normalizeAnalyzeApiPayload(aiData);
-      if (!norm) return;
+      if (!hasVisibleAnalysisContent(norm)) return;
 
       const stableFingerprint = normalizeImageFingerprint(fileUrl);
       analyzedFingerprintRef.current = stableFingerprint;
@@ -261,6 +279,7 @@ export default function TreatmentGuideScreen() {
       setAnalysisPayload(norm);
       setPhase("done");
       setErrorText(null);
+      analyzeFetchFailedRef.current = false;
 
       const aliases = [
         localImageFingerprintRef.current,
@@ -290,9 +309,9 @@ export default function TreatmentGuideScreen() {
         });
       }
 
-      const analyzedAt = new Date().toISOString();
+      const analyzedAt = opts?.savedAt || new Date().toISOString();
       setGuidanceSavedAt(analyzedAt);
-      if (sessionId) {
+      if (sessionId && !opts?.skipWorkspaceSave) {
         void saveTreatmentGuideWorkspace({
           sessionId,
           photoUrl: fileUrl,
@@ -308,6 +327,24 @@ export default function TreatmentGuideScreen() {
     [patientId, sessionId, patientNarrative, inquiryDraftText],
   );
 
+  const restoreSavedGuidance = useCallback(
+    (
+      photoUrl: string,
+      aiData: Record<string, unknown>,
+      contentHash?: string | null,
+      savedAt?: string | null,
+    ): boolean => {
+      if (!hasVisibleAnalysisContent(aiData)) return false;
+      const fp = normalizeImageFingerprint(photoUrl);
+      applyAnalysisResult(photoUrl, aiData, fp, contentHash, [], {
+        savedAt: savedAt || undefined,
+        skipWorkspaceSave: true,
+      });
+      return true;
+    },
+    [applyAnalysisResult],
+  );
+
   const restoreAnalysisOnly = useCallback(
     async (fingerprint: string, contentHash?: string | null): Promise<boolean> => {
       const hash = normalizeContentHash(contentHash);
@@ -316,18 +353,17 @@ export default function TreatmentGuideScreen() {
         contentHash: hash,
       });
       if (!cached?.aiData) return false;
-      const norm = normalizeAnalyzeApiPayload(cached.aiData);
-      if (!norm) return false;
-      applyAnalysisResult(
+      const savedAt = cached.cachedAt
+        ? new Date(cached.cachedAt).toISOString()
+        : undefined;
+      return restoreSavedGuidance(
         cached.fileUrl,
-        norm,
-        fingerprint,
+        cached.aiData,
         hash || cached.contentHash,
-        [localImageFingerprintRef.current].filter(Boolean) as string[],
+        savedAt,
       );
-      return true;
     },
-    [patientId, applyAnalysisResult],
+    [patientId, restoreSavedGuidance],
   );
 
   /** Restore saved workspace from server + local cache — never auto-run analysis. */
@@ -361,51 +397,42 @@ export default function TreatmentGuideScreen() {
           contentHash: hash || ws?.contentHash || null,
         });
         if (cached?.aiData) {
-          const norm = normalizeAnalyzeApiPayload(cached.aiData);
-          if (norm) {
-            applyAnalysisResult(cached.fileUrl, norm, fp, hash || cached.contentHash, [fp]);
-            return;
-          }
+          restoreSavedGuidance(cached.fileUrl, cached.aiData, hash || cached.contentHash);
+          return;
+        }
+        if (ws?.analysisSnapshot && ws.photoUrl) {
+          restoreSavedGuidance(ws.photoUrl, ws.analysisSnapshot, ws.contentHash, ws.analysisSavedAt);
+          return;
         }
         setPhase("idle");
         setAnalysisPayload(null);
         return;
       }
 
-      if (ws?.analysisSnapshot && !analysisPayload) {
-        const norm = normalizeAnalyzeApiPayload(ws.analysisSnapshot);
+      if (ws?.analysisSnapshot) {
         const photo = photoFromServer || ws.photoUrl || "";
-        if (norm && photo) {
-          applyAnalysisResult(
-            photo,
-            norm,
-            normalizeImageFingerprint(photo),
-            ws.contentHash,
-          );
-          if (ws.analysisSavedAt) setGuidanceSavedAt(ws.analysisSavedAt);
+        if (photo) {
+          restoreSavedGuidance(photo, ws.analysisSnapshot, ws.contentHash, ws.analysisSavedAt);
         }
-      } else if (photoFromServer) {
+      }
+
+      if (!hasVisibleAnalysisContent(analysisPayload) && photoFromServer) {
         const cached = await loadTreatmentGuideAnalysisCacheAny(patientId, {
           fingerprint: normalizeImageFingerprint(photoFromServer),
           contentHash: ws?.contentHash || null,
         });
         if (cancelled) return;
         if (cached?.aiData) {
-          const norm = normalizeAnalyzeApiPayload(cached.aiData);
-          if (norm) {
-            applyAnalysisResult(
-              cached.fileUrl,
-              norm,
-              normalizeImageFingerprint(photoFromServer),
-              ws?.contentHash,
-            );
-          } else {
-            setPhase("idle");
-          }
-        } else {
+          restoreSavedGuidance(
+            cached.fileUrl,
+            cached.aiData,
+            ws?.contentHash,
+            ws?.analysisSavedAt,
+          );
+        } else if (!hasVisibleAnalysisContent(analysisPayload)) {
           setPhase("idle");
         }
-      } else {
+      } else if (!hasVisibleAnalysisContent(analysisPayload)) {
         const last = await loadLastGuideImage(patientId);
         if (cancelled || !last?.displayUri) {
           setPhase("skipped");
@@ -418,11 +445,8 @@ export default function TreatmentGuideScreen() {
           contentHash: last.contentHash,
         });
         if (cached?.aiData) {
-          const norm = normalizeAnalyzeApiPayload(cached.aiData);
-          if (norm) {
-            applyAnalysisResult(cached.fileUrl, norm, last.fingerprint, last.contentHash);
-          }
-        } else {
+          restoreSavedGuidance(cached.fileUrl, cached.aiData, last.contentHash);
+        } else if (!hasVisibleAnalysisContent(analysisPayload)) {
           setPhase("idle");
         }
       }
@@ -443,7 +467,19 @@ export default function TreatmentGuideScreen() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- bootstrap once per session load
-  }, [patientId, sessionId, intakeLoading, intake.treatmentGuideWorkspace]);
+  }, [patientId, sessionId, intakeLoading, intake.treatmentGuideWorkspace, restoreSavedGuidance]);
+
+  /** Re-apply guidance when intake refresh returns workspace (e.g. after focus) without wiping UI. */
+  useEffect(() => {
+    if (!workspaceHydratedRef.current || hasSavedGuidance) return;
+    const ws = intake.treatmentGuideWorkspace;
+    if (!ws?.analysisSnapshot || !ws.photoUrl) return;
+    restoreSavedGuidance(ws.photoUrl, ws.analysisSnapshot, ws.contentHash, ws.analysisSavedAt);
+  }, [
+    intake.treatmentGuideWorkspace,
+    hasSavedGuidance,
+    restoreSavedGuidance,
+  ]);
 
   useEffect(() => {
     if (!sessionId || !workspaceHydratedRef.current) return;
@@ -454,8 +490,9 @@ export default function TreatmentGuideScreen() {
         inquiryDraftText,
         photoUrl: displayImageUri?.startsWith("http") ? displayImageUri : null,
         contentHash: analyzedContentHashRef.current,
-        analysisSnapshot: analysisPayload,
-        analysisSavedAt: guidanceSavedAt,
+        ...(hasSavedGuidance && analysisPayload
+          ? { analysisSnapshot: analysisPayload, analysisSavedAt: guidanceSavedAt }
+          : {}),
       });
     }, 900);
     return () => clearTimeout(tid);
@@ -466,6 +503,8 @@ export default function TreatmentGuideScreen() {
     displayImageUri,
     analysisPayload,
     guidanceSavedAt,
+    hasSavedGuidance,
+    analysisPayload,
   ]);
 
   const runPhotoAnalysis = useCallback(
@@ -474,9 +513,23 @@ export default function TreatmentGuideScreen() {
       if (analysisInFlightRef.current) return;
 
       const force = opts.forceReanalyze === true;
-      if (!force && analyzedFingerprintRef.current === imageFingerprint && analysisPayload) {
+      if (!force && hasSavedGuidance) {
         setPhase("done");
         return;
+      }
+
+      const ws = intake.treatmentGuideWorkspace;
+      if (!force && ws?.analysisSnapshot && ws.photoUrl) {
+        if (
+          restoreSavedGuidance(
+            ws.photoUrl,
+            ws.analysisSnapshot,
+            ws.contentHash,
+            ws.analysisSavedAt,
+          )
+        ) {
+          return;
+        }
       }
 
       analysisInFlightRef.current = true;
@@ -501,6 +554,7 @@ export default function TreatmentGuideScreen() {
           imageUri,
           patientId,
           token,
+          sessionId,
           photoType: "general",
           lang: currentLanguage,
           forceReanalyze: force,
@@ -549,7 +603,9 @@ export default function TreatmentGuideScreen() {
       refreshIntake,
       resolveContentHash,
       t,
-      analysisPayload,
+      hasSavedGuidance,
+      intake.treatmentGuideWorkspace,
+      restoreSavedGuidance,
     ],
   );
 
@@ -601,44 +657,70 @@ export default function TreatmentGuideScreen() {
     return parts.join(" ");
   }, [localized.summary, localized.recommendation]);
 
-  const collectInquiryPhotoUrls = useCallback((): string[] => {
-    const urls = new Set<string>();
+  const dentalPhotoHttpUrl = useMemo(() => {
     const uri = String(displayImageUri || "").trim();
-    if (/^https?:\/\//i.test(uri)) urls.add(uri.split("?")[0]);
-    for (const doc of intake.documents) {
-      const u = String(doc.fileUrl || "").trim();
-      if (/^https?:\/\//i.test(u)) urls.add(u.split("?")[0]);
-    }
-    return [...urls];
-  }, [displayImageUri, intake.documents]);
+    return /^https?:\/\//i.test(uri) ? uri : undefined;
+  }, [displayImageUri]);
+
+  const buildIncludedInquiryAttachments = useCallback((): InquiryAttachment[] => {
+    const all = collectInquiryAttachments({
+      documents: intake.documents,
+      dentalPhotoUrl: dentalPhotoHttpUrl,
+      sessionPhotoUrl: dentalPhotoHttpUrl,
+      t,
+    });
+    return filterIncludedInquiryAttachments(all, excludedInquiryAttachmentIds);
+  }, [intake.documents, dentalPhotoHttpUrl, excludedInquiryAttachmentIds, t]);
+
+  const handleToggleInquiryAttachment = useCallback((id: string) => {
+    setExcludedInquiryAttachmentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const persistInquiryDraft = useCallback(async () => {
     const text = inquiryDraftText.trim();
-    if (!text) return;
+    const attachments = buildIncludedInquiryAttachments();
+    if (!text && attachments.length === 0) return;
     await saveClinicInquiryDraftForQuote({
       text,
-      photoUrls: collectInquiryPhotoUrls(),
+      attachments,
       savedAt: Date.now(),
     });
-  }, [inquiryDraftText, collectInquiryPhotoUrls]);
+  }, [inquiryDraftText, buildIncludedInquiryAttachments]);
 
   const handleReviewInquiry = useCallback(() => {
     void (async () => {
+      const attachments =
+        includedInquiryAttachmentsRef.current.length > 0
+          ? includedInquiryAttachmentsRef.current
+          : buildIncludedInquiryAttachments();
       await persistInquiryDraft();
       if (hasClinic && linkedClinicId) {
         router.push({
           pathname: "/(patient)/messages",
           params: {
             clinicId: linkedClinicId,
-            prefillText: inquiryDraftText.trim().slice(0, 2000),
+            prefillText: inquiryDraftText.trim().slice(0, 4000),
             prefillComposer: "1",
+            prefillInquiry: attachments.length > 0 ? "1" : undefined,
           },
         } as never);
         return;
       }
       router.push("/clinic-onboarding" as never);
     })();
-  }, [persistInquiryDraft, hasClinic, linkedClinicId, router, inquiryDraftText]);
+  }, [
+    persistInquiryDraft,
+    hasClinic,
+    linkedClinicId,
+    router,
+    inquiryDraftText,
+    buildIncludedInquiryAttachments,
+  ]);
 
   const handleShareInquiryWithClinic = useCallback(() => {
     void handleReviewInquiry();
@@ -675,7 +757,9 @@ export default function TreatmentGuideScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.flowIntro}>{t("treatmentGuide.flow.intro")}</Text>
-        {intake.treatmentGuideWorkspace?.photoUrl || intake.treatmentGuideWorkspace?.analysisSnapshot ? (
+        {hasSavedGuidance ? (
+          <Text style={styles.savedWorkspaceHint}>{t("treatmentGuide.workspace.guidanceSaved")}</Text>
+        ) : intake.treatmentGuideWorkspace?.photoUrl ? (
           <Text style={styles.savedWorkspaceHint}>{t("treatmentGuide.workspace.savedHint")}</Text>
         ) : null}
 
@@ -691,13 +775,13 @@ export default function TreatmentGuideScreen() {
             onUploadPhoto={() => void uploadPhotoFromLibrary()}
             uploading={isPhotoBusy}
             showAnalyzeGuidance={
-              !!displayImageUri && !analysisPayload && !isPhotoBusy && phase !== "error"
+              !!displayImageUri && !hasSavedGuidance && !isPhotoBusy && phase !== "error"
             }
             onAnalyzeGuidance={() => {
               analyzeFetchFailedRef.current = false;
               void runPhotoAnalysis({ forceReanalyze: false });
             }}
-            showAnalyzeAgain={!!analysisPayload && phase === "done"}
+            showAnalyzeAgain={hasSavedGuidance && !isPhotoBusy}
             onAnalyzeAgain={() => {
               analyzeFetchFailedRef.current = false;
               void runPhotoAnalysis({ forceReanalyze: true });
@@ -796,11 +880,16 @@ export default function TreatmentGuideScreen() {
             patientNarrative={patientNarrative}
             photoGuidanceSummary={photoGuidanceSummary || undefined}
             hasDentalPhoto={!!displayImageUri}
-            dentalPhotoUrl={/^https?:\/\//i.test(displayImageUri || "") ? displayImageUri : undefined}
+            dentalPhotoUrl={dentalPhotoHttpUrl}
             draftText={inquiryDraftText}
             onDraftTextChange={(v) => {
               inquiryRestoredRef.current = true;
               setInquiryDraftText(v);
+            }}
+            excludedAttachmentIds={excludedInquiryAttachmentIds}
+            onToggleAttachmentExclude={handleToggleInquiryAttachment}
+            onIncludedAttachmentsChange={(atts) => {
+              includedInquiryAttachmentsRef.current = atts;
             }}
             onReviewInquiry={handleReviewInquiry}
             onShareWithClinic={handleShareInquiryWithClinic}
