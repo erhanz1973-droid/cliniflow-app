@@ -43,6 +43,10 @@ interface Patient {
   avatar_url?: string;
   hasRisk?: boolean;
   riskFlags?: RiskFlag[];
+  /** From GET /api/doctor/patients — false when patient left clinic or thread archived */
+  messagingActive?: boolean;
+  conversationArchived?: boolean;
+  leftClinic?: boolean;
 }
 
 type FilterTab = 'All' | 'Approved' | 'Pending' | 'Rejected';
@@ -106,6 +110,23 @@ function fmtDate(iso?: string | number) {
 /** Match `thread-summary` `patientDbId` (patients.id UUID, lowercased). */
 function patientRowDbKey(p: Patient): string {
   return String(p.id || '').trim().toLowerCase();
+}
+
+function patientCanReceiveMessages(p: Patient): boolean {
+  if (p.messagingActive === false) return false;
+  if (p.leftClinic === true || p.conversationArchived === true) return false;
+  return true;
+}
+
+function patientArchivedLabel(p: Patient, t: (key: string) => string): string {
+  if (p.leftClinic) {
+    return t('doctor.patients.leftClinic') !== 'doctor.patients.leftClinic'
+      ? t('doctor.patients.leftClinic')
+      : 'Patient left clinic';
+  }
+  return t('doctor.patients.conversationArchived') !== 'doctor.patients.conversationArchived'
+    ? t('doctor.patients.conversationArchived')
+    : 'Conversation archived';
 }
 
 type PatientsPageCache = {
@@ -189,37 +210,43 @@ const PatientCard = memo(function PatientCard({
           <Text style={styles.actionBtnText}>{t('doctor.patients.files')}</Text>
         </Pressable>
         {(p.patient_id || p.patientId || p.id) ? (
-          <Pressable
-            style={[styles.actionBtn, styles.actionBtnMsg, styles.actionBtnMsgWrap, shared && styles.actionBtnMsgShared]}
-            onPress={() => onChat(p)}
-            accessibilityLabel={
-              shared
-                ? `${t('doctor.patients.messages')} — ${t('doctor.patients.sharedThreadA11y')}`
-                : t('doctor.patients.messages')
-            }
-          >
-            <View style={styles.msgBtnLabelRow}>
-              <Text style={[styles.actionBtnText, { color: '#fff' }]}>
-                💬 {t('doctor.patients.messages') || 'Messages'}
-              </Text>
-              {shared ? (
-                <Text style={styles.msgSharedInline}> · {t('doctor.patients.sharedThreadShort')}</Text>
-              ) : null}
-            </View>
-            {msgActivity && msgActivity.unread > 0 ? (
-              <View style={styles.msgUnreadBadge} accessibilityLabel={t('doctor.patients.unreadA11y')}>
-                <Text style={styles.msgUnreadBadgeTxt}>
-                  {msgActivity.unread > 99 ? '99+' : String(msgActivity.unread)}
+          patientCanReceiveMessages(p) ? (
+            <Pressable
+              style={[styles.actionBtn, styles.actionBtnMsg, styles.actionBtnMsgWrap, shared && styles.actionBtnMsgShared]}
+              onPress={() => onChat(p)}
+              accessibilityLabel={
+                shared
+                  ? `${t('doctor.patients.messages')} — ${t('doctor.patients.sharedThreadA11y')}`
+                  : t('doctor.patients.messages')
+              }
+            >
+              <View style={styles.msgBtnLabelRow}>
+                <Text style={[styles.actionBtnText, { color: '#fff' }]}>
+                  💬 {t('doctor.patients.messages') || 'Messages'}
                 </Text>
+                {shared ? (
+                  <Text style={styles.msgSharedInline}> · {t('doctor.patients.sharedThreadShort')}</Text>
+                ) : null}
               </View>
-            ) : null}
-            {msgActivity && msgActivity.unread === 0 && msgActivity.hasClinicSideActivity ? (
-              <View style={styles.msgActivityDot} accessibilityLabel={t('doctor.patients.activityDotA11y')} />
-            ) : null}
-            {shared && (msgActivity?.unread ?? 0) === 0 && !msgActivity?.hasClinicSideActivity ? (
-              <View style={styles.msgSharedDot} accessibilityLabel={t('doctor.patients.sharedThreadA11y')} />
-            ) : null}
-          </Pressable>
+              {msgActivity && msgActivity.unread > 0 ? (
+                <View style={styles.msgUnreadBadge} accessibilityLabel={t('doctor.patients.unreadA11y')}>
+                  <Text style={styles.msgUnreadBadgeTxt}>
+                    {msgActivity.unread > 99 ? '99+' : String(msgActivity.unread)}
+                  </Text>
+                </View>
+              ) : null}
+              {msgActivity && msgActivity.unread === 0 && msgActivity.hasClinicSideActivity ? (
+                <View style={styles.msgActivityDot} accessibilityLabel={t('doctor.patients.activityDotA11y')} />
+              ) : null}
+              {shared && (msgActivity?.unread ?? 0) === 0 && !msgActivity?.hasClinicSideActivity ? (
+                <View style={styles.msgSharedDot} accessibilityLabel={t('doctor.patients.sharedThreadA11y')} />
+              ) : null}
+            </Pressable>
+          ) : (
+            <View style={[styles.actionBtn, styles.actionBtnArchived, styles.actionBtnMsgWrap]}>
+              <Text style={styles.actionBtnArchivedText}>💬 {patientArchivedLabel(p, t)}</Text>
+            </View>
+          )
         ) : null}
       </View>
     </View>
@@ -391,6 +418,7 @@ export default function DoctorPatientsScreen() {
 
   const openChat = useCallback(
     (p: Patient) => {
+      if (!patientCanReceiveMessages(p)) return;
       const patientId = resolveDoctorPatientRouteId({
         id: p.id,
         patient_id: p.patient_id,
@@ -617,6 +645,17 @@ const styles = StyleSheet.create({
   actionBtnGray: { backgroundColor: '#374151' },
   actionBtnPurple: { backgroundColor: '#7C3AED' },
   actionBtnMsg: { backgroundColor: '#2563EB' },
+  actionBtnArchived: {
+    backgroundColor: '#E5E7EB',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  actionBtnArchivedText: {
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
   actionBtnMsgWrap: { position: 'relative' },
   actionBtnMsgShared: {
     borderWidth: 2,

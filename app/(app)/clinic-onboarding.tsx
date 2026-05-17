@@ -15,6 +15,11 @@ import {
   Alert,
   Modal,
   Pressable,
+  KeyboardAvoidingView,
+  ScrollView,
+  Platform,
+  Keyboard,
+  type KeyboardEvent,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import * as Location from "expo-location";
@@ -33,6 +38,10 @@ import {
 import { buildJoinClinicPatchBody } from "../../lib/patientJoinClinic";
 import { invalidatePatientClinicMembership } from "../../lib/patientClinicMembershipSync";
 import { refreshActiveClinicFromApi } from "../../lib/fetchPatientMyClinic";
+import {
+  loadFindClinicDiscoveryPrefs,
+  saveFindClinicDiscoveryPrefs,
+} from "../../lib/findClinicDiscoveryPrefs";
 
 /** Set `true` when GET /api/clinics/nearby is verified in production. */
 const isNearbyEnabled = false;
@@ -112,9 +121,33 @@ export default function ClinicOnboardingScreen() {
   const [countryModalVisible, setCountryModalVisible] = useState(false);
   /** Same key as PATCH body `referral_code` — deep link or manual entry before "Katıl". */
   const [joinReferralInput, setJoinReferralInput] = useState("");
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [discoveryPrefsHydrated, setDiscoveryPrefsHydrated] = useState(false);
+  const didAutoDiscoverySearchRef = React.useRef(false);
+  const listRef = React.useRef<FlatList<ClinicRow>>(null);
+
   useEffect(() => {
     if (referralFromRoute) setJoinReferralInput(referralFromRoute);
   }, [referralFromRoute]);
+
+  useEffect(() => {
+    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const onShow = (e: KeyboardEvent) => setKeyboardHeight(e.endCoordinates?.height ?? 0);
+    const onHide = () => setKeyboardHeight(0);
+    const subShow = Keyboard.addListener(showEvt, onShow);
+    const subHide = Keyboard.addListener(hideEvt, onHide);
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, []);
+
+  const keyboardListPadding = keyboardHeight + Math.max(insets.bottom, 12) + 24;
+  const keyboardVerticalOffset = Platform.OS === "ios" ? insets.top + 4 : 0;
+  const isDiscoveryMode = !isNearbyEnabled || listMode === "all";
+  const useScrollableResults =
+    isDiscoveryMode && (hasPerformedDiscoverySearch || clinics.length > 0);
 
   /** Stable translated strings — avoid re-invoking `t` on unrelated state churn (typing, spinner, etc.). */
   const headerCopy = useMemo(
@@ -429,6 +462,35 @@ export default function ClinicOnboardingScreen() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const prefs = await loadFindClinicDiscoveryPrefs();
+      if (cancelled) return;
+      if (prefs.country) setDiscoveryCountry(prefs.country);
+      if (prefs.city) setDiscoveryCity(prefs.city);
+      setDiscoveryPrefsHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!discoveryPrefsHydrated) return;
+    void saveFindClinicDiscoveryPrefs({
+      country: discoveryCountry,
+      city: discoveryCity,
+    });
+  }, [discoveryCountry, discoveryCity, discoveryPrefsHydrated]);
+
+  useEffect(() => {
+    if (!discoveryPrefsHydrated || didAutoDiscoverySearchRef.current) return;
+    if (!normalizeCountryCode(discoveryCountry)) return;
+    didAutoDiscoverySearchRef.current = true;
+    void fetchDiscoveryClinics();
+  }, [discoveryPrefsHydrated, discoveryCountry, fetchDiscoveryClinics]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
       try {
         const res = await fetch(`${API_BASE}/api/discovery/countries`);
         const data = (await res.json()) as { ok?: boolean; countries?: string[] };
@@ -449,8 +511,118 @@ export default function ClinicOnboardingScreen() {
     };
   }, []);
 
+  const discoveryFilters = (
+    <>
+      <View style={styles.field}>
+        <Text style={styles.label}>Ülke</Text>
+        <TouchableOpacity
+          style={styles.countryCompactButton}
+          onPress={() => setCountryModalVisible(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Ülke seç"
+        >
+          <Text
+            style={[
+              styles.countryCompactButtonText,
+              !discoveryCountry && styles.countryCompactButtonPlaceholder,
+            ]}
+          >
+            {discoveryCountry ? formatCountryDisplay(discoveryCountry) : "Ülke seçin"}
+          </Text>
+          <Text style={styles.countryCompactChevron}>▾</Text>
+        </TouchableOpacity>
+        {!discoveryCountry ? (
+          <Text style={[styles.err, { marginTop: 6, textAlign: "left", fontSize: 12 }]}>
+            Lütfen ülke seçin
+          </Text>
+        ) : null}
+      </View>
+      <View style={styles.field}>
+        <Text style={styles.label}>Şehir (isteğe bağlı)</Text>
+        <TextInput
+          value={discoveryCity}
+          onChangeText={setDiscoveryCity}
+          style={styles.searchInput}
+          autoCapitalize="words"
+          autoCorrect={false}
+          clearButtonMode="while-editing"
+          returnKeyType="search"
+          onSubmitEditing={() => {
+            if (discoveryCountry) void fetchDiscoveryClinics();
+          }}
+        />
+      </View>
+      <TouchableOpacity
+        style={[styles.retry, { marginHorizontal: 16, alignSelf: "flex-start", marginBottom: 8 }]}
+        disabled={!discoveryCountry}
+        onPress={() => void fetchDiscoveryClinics()}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !discoveryCountry }}
+      >
+        <Text style={styles.retryText}>Ara</Text>
+      </TouchableOpacity>
+    </>
+  );
+
+  const listSearchFields =
+    clinics.length > 0 ? (
+      <>
+        <View style={styles.field}>
+          <Text style={styles.label}>{headerCopy.search_clinic}</Text>
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            style={styles.searchInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+            clearButtonMode="while-editing"
+          />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Referans kodu (isteğe bağlı)</Text>
+          <TextInput
+            value={joinReferralInput}
+            onChangeText={setJoinReferralInput}
+            style={styles.searchInput}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            placeholder="R_…"
+            clearButtonMode="while-editing"
+          />
+        </View>
+      </>
+    ) : null;
+
+  const listHeader = (
+    <>
+      {discoveryFilters}
+      {listSearchFields}
+      <Text style={styles.hint}>
+        {listMode === "nearby" && isNearbyEnabled
+          ? headerCopy.header_nearby_intro
+          : headerCopy.header_all_intro}
+        {clinics.length > 0
+          ? filteredClinics.length === clinics.length
+            ? t("clinic_list.footer_hint", {
+                count: String(clinics.length),
+                get_offer: headerCopy.get_offer,
+                sign_up: headerCopy.sign_up,
+              })
+            : t("clinic_list.filter_result_hint", {
+                filtered: String(filteredClinics.length),
+                total: String(clinics.length),
+              })
+          : null}
+      </Text>
+    </>
+  );
+
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom }]}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={keyboardVerticalOffset}
+    >
         <View
           style={[
             styles.header,
@@ -508,56 +680,33 @@ export default function ClinicOnboardingScreen() {
             </TouchableOpacity>
           </View>
         </View>
-        {(!isNearbyEnabled || listMode === "all") && (
-          <>
-            <View style={styles.field}>
-              <Text style={styles.label}>Ülke</Text>
-              <TouchableOpacity
-                style={styles.countryCompactButton}
-                onPress={() => setCountryModalVisible(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Ülke seç"
-              >
-                <Text
-                  style={[
-                    styles.countryCompactButtonText,
-                    !discoveryCountry && styles.countryCompactButtonPlaceholder,
-                  ]}
-                >
-                  {discoveryCountry
-                    ? formatCountryDisplay(discoveryCountry)
-                    : "Ülke seçin"}
-                </Text>
-                <Text style={styles.countryCompactChevron}>▾</Text>
-              </TouchableOpacity>
-              {!discoveryCountry ? (
-                <Text style={[styles.err, { marginTop: 6, textAlign: "left", fontSize: 12 }]}>
-                  Lütfen ülke seçin
-                </Text>
-              ) : null}
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Şehir (isteğe bağlı)</Text>
-              <TextInput
-                value={discoveryCity}
-                onChangeText={setDiscoveryCity}
-                style={styles.searchInput}
-                autoCapitalize="words"
-                autoCorrect={false}
-                clearButtonMode="while-editing"
-              />
-            </View>
-            <TouchableOpacity
-              style={[styles.retry, { marginHorizontal: 16, alignSelf: "flex-start" }]}
-              disabled={!discoveryCountry}
-              onPress={() => void fetchDiscoveryClinics()}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: !discoveryCountry }}
-            >
-              <Text style={styles.retryText}>Ara</Text>
-            </TouchableOpacity>
-          </>
-        )}
+        {isDiscoveryMode && !useScrollableResults ? (
+          <ScrollView
+            style={styles.preSearchScroll}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            contentContainerStyle={[styles.preSearchScrollContent, { paddingBottom: keyboardListPadding }]}
+          >
+            {discoveryFilters}
+            {loading && clinics.length === 0 ? (
+              <View style={styles.centerInline}>
+                <ActivityIndicator size="large" color="#2563eb" />
+                <Text style={styles.muted}>{statusMessage || "Klinikler yükleniyor…"}</Text>
+              </View>
+            ) : error ? (
+              <View style={styles.centerInline}>
+                <Text style={styles.err}>{error}</Text>
+                <TouchableOpacity style={styles.retry} onPress={() => void fetchDiscoveryClinics()}>
+                  <Text style={styles.retryText}>Yeniden dene</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.centerInline}>
+                <Text style={styles.muted}>Ülke seçip aramaya basın.</Text>
+              </View>
+            )}
+          </ScrollView>
+        ) : null}
         <Modal
           visible={countryModalVisible}
           transparent
@@ -589,83 +738,140 @@ export default function ClinicOnboardingScreen() {
             </Pressable>
           </Pressable>
         </Modal>
-        {loading && clinics.length === 0 ? (
-          <View style={styles.center}>
-            <ActivityIndicator size="large" color="#2563eb" />
-            <Text style={styles.muted}>
-              {statusMessage || "Klinikler yükleniyor…"}
-            </Text>
-          </View>
-        ) : error ? (
-          <View style={styles.center}>
-            <Text style={styles.err}>{error}</Text>
-            <TouchableOpacity
-              style={styles.retry}
-              onPress={() => {
-                if (isNearbyEnabled && listMode === "nearby") void loadNearbyList();
-                else void fetchDiscoveryClinics();
-              }}
-            >
-              <Text style={styles.retryText}>Yeniden dene</Text>
-            </TouchableOpacity>
-          </View>
-        ) : clinics.length === 0 ? (
-          <View style={styles.center}>
-            {(!isNearbyEnabled || listMode === "all") && !hasPerformedDiscoverySearch ? (
-              <Text style={styles.muted}>Ülke seçip aramaya basın.</Text>
-            ) : (
-              <>
-                <Text style={styles.emptyTitle}>
-                  {statusMessage || "Henüz kayıtlı klinik yok"}
-                </Text>
-                <Text style={styles.muted}>
-                  {statusMessage
-                    ? "Aktif klinikler eklendikçe burada görünecek; klinik kodu ile de katılabilirsiniz."
-                    : "Aktif klinikler burada listelenir. Yakında daha fazla seçenek eklenecek veya klinik kodu ile katılabilirsiniz."}
-                </Text>
-              </>
-            )}
-          </View>
-        ) : (
-          <View style={styles.listSection}>
-            <View style={styles.field}>
-              <Text style={styles.label}>{headerCopy.search_clinic}</Text>
-              <TextInput
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                style={styles.searchInput}
-                autoCapitalize="none"
-                autoCorrect={false}
-                clearButtonMode="while-editing"
-              />
+        {isNearbyEnabled && listMode === "nearby" ? (
+          loading && clinics.length === 0 ? (
+            <View style={styles.center}>
+              <ActivityIndicator size="large" color="#2563eb" />
+              <Text style={styles.muted}>{statusMessage || "Klinikler yükleniyor…"}</Text>
             </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Referans kodu (isteğe bağlı)</Text>
-              <TextInput
-                value={joinReferralInput}
-                onChangeText={setJoinReferralInput}
-                style={styles.searchInput}
-                autoCapitalize="characters"
-                autoCorrect={false}
-                placeholder="R_…"
-                clearButtonMode="while-editing"
-              />
+          ) : error ? (
+            <View style={styles.center}>
+              <Text style={styles.err}>{error}</Text>
+              <TouchableOpacity style={styles.retry} onPress={() => void loadNearbyList()}>
+                <Text style={styles.retryText}>Yeniden dene</Text>
+              </TouchableOpacity>
             </View>
+          ) : (
             <FlatList
+              ref={listRef}
+              style={styles.listFlex}
               data={filteredClinics}
               keyExtractor={(item) => item.id}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
               refreshControl={
-                <RefreshControl
-                  refreshing={loading}
-                  onRefresh={() => {
-                    if (isNearbyEnabled && listMode === "nearby") void loadNearbyList();
-                    else void fetchDiscoveryClinics();
-                  }}
-                />
+                <RefreshControl refreshing={loading} onRefresh={() => void loadNearbyList()} />
               }
-              contentContainerStyle={styles.listPad}
+              contentContainerStyle={[styles.listPad, { paddingBottom: keyboardListPadding }]}
+              ListHeaderComponent={
+                <>
+                  <View style={styles.field}>
+                    <Text style={styles.label}>{headerCopy.search_clinic}</Text>
+                    <TextInput
+                      value={searchQuery}
+                      onChangeText={setSearchQuery}
+                      style={styles.searchInput}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      clearButtonMode="while-editing"
+                    />
+                  </View>
+                  <Text style={styles.hint}>{headerCopy.header_nearby_intro}</Text>
+                </>
+              }
               renderItem={({ item }) => (
+                <View style={styles.card}>
+                  <View style={styles.cardRow}>
+                    <View style={styles.cardText}>
+                      <Text style={styles.name}>{item.name}</Text>
+                      <Text style={styles.sub}>
+                        {[
+                          item.city ? formatClinicCityLabel(item.city, t) : null,
+                          item.country ? formatCountryDisplay(item.country) : null,
+                        ]
+                          .filter((p): p is string => Boolean(p && String(p).trim() && p !== "—"))
+                          .join(", ") || "—"}
+                        {item.clinicCode ? ` · ${item.clinicCode}` : ""}
+                        {item.distance_km != null ? ` · 📍 ${item.distance_km} km` : ""}
+                      </Text>
+                      {item.rating != null ? (
+                        <Text style={styles.rating}>★ {item.rating.toFixed(1)}</Text>
+                      ) : null}
+                    </View>
+                  </View>
+                  <View style={styles.actionsRow}>
+                    <TouchableOpacity
+                      style={styles.actionLink}
+                      onPress={() => handleRequestQuotePress(item)}
+                    >
+                      <Text style={styles.actionLinkText}>{headerCopy.get_offer}</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.actionSep}>·</Text>
+                    <TouchableOpacity
+                      style={styles.actionLink}
+                      onPress={() => handleJoinClinicPress(item)}
+                      disabled={joiningClinicId === item.id}
+                    >
+                      <Text style={styles.actionLinkText}>{headerCopy.sign_up}</Text>
+                    </TouchableOpacity>
+                    {joiningClinicId === item.id ? (
+                      <ActivityIndicator size="small" color="#2563eb" style={styles.cardSpinner} />
+                    ) : null}
+                  </View>
+                </View>
+              )}
+              ListEmptyComponent={
+                <Text style={styles.emptyFilter}>{headerCopy.no_match_search}</Text>
+              }
+            />
+          )
+        ) : useScrollableResults ? (
+          <FlatList
+            ref={listRef}
+            style={styles.listFlex}
+            data={filteredClinics}
+            keyExtractor={(item) => item.id}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+            refreshControl={
+              <RefreshControl
+                refreshing={loading}
+                onRefresh={() => void fetchDiscoveryClinics()}
+              />
+            }
+            contentContainerStyle={[styles.listPad, { paddingBottom: keyboardListPadding }]}
+            ListHeaderComponent={
+              <>
+                {listHeader}
+                {loading ? (
+                  <View style={styles.centerInline}>
+                    <ActivityIndicator size="large" color="#2563eb" />
+                    <Text style={styles.muted}>{statusMessage || "Klinikler yükleniyor…"}</Text>
+                  </View>
+                ) : error ? (
+                  <View style={styles.centerInline}>
+                    <Text style={styles.err}>{error}</Text>
+                    <TouchableOpacity style={styles.retry} onPress={() => void fetchDiscoveryClinics()}>
+                      <Text style={styles.retryText}>Yeniden dene</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : clinics.length === 0 ? (
+                  <View style={styles.centerInline}>
+                    <Text style={styles.emptyTitle}>
+                      {statusMessage || "Henüz kayıtlı klinik yok"}
+                    </Text>
+                    <Text style={styles.muted}>
+                      {statusMessage
+                        ? "Aktif klinikler eklendikçe burada görünecek; klinik kodu ile de katılabilirsiniz."
+                        : "Bu arama için sonuç yok. Şehri değiştirin veya aramayı temizleyin."}
+                    </Text>
+                  </View>
+                ) : null}
+              </>
+            }
+            renderItem={({ item }) => (
                 <View style={styles.card}>
                   <View style={styles.cardRow}>
                     <View style={styles.cardText}>
@@ -718,32 +924,14 @@ export default function ClinicOnboardingScreen() {
                   </View>
                 </View>
               )}
-              ListHeaderComponent={
-                <Text style={styles.hint}>
-                  {listMode === "nearby" && isNearbyEnabled
-                    ? headerCopy.header_nearby_intro
-                    : headerCopy.header_all_intro}
-                  {filteredClinics.length === clinics.length
-                    ? t("clinic_list.footer_hint", {
-                        count: String(clinics.length),
-                        get_offer: headerCopy.get_offer,
-                        sign_up: headerCopy.sign_up,
-                      })
-                    : t("clinic_list.filter_result_hint", {
-                        filtered: String(filteredClinics.length),
-                        total: String(clinics.length),
-                      })}
-                </Text>
-              }
-              ListEmptyComponent={
-                searchQuery.trim() ? (
-                  <Text style={styles.emptyFilter}>{headerCopy.no_match_search}</Text>
-                ) : null
-              }
-            />
-          </View>
-        )}
-    </View>
+            ListEmptyComponent={
+              searchQuery.trim() && clinics.length > 0 ? (
+                <Text style={styles.emptyFilter}>{headerCopy.no_match_search}</Text>
+              ) : null
+            }
+          />
+        ) : null}
+    </KeyboardAvoidingView>
   );
 }
 
@@ -799,7 +987,16 @@ const styles = StyleSheet.create({
   modeChipText: { fontSize: 13, fontWeight: "600", color: "#64748b", textAlign: "center" },
   modeChipTextActive: { color: "#1d4ed8" },
   modeChipTextDisabled: { color: "#94a3b8", fontWeight: "500", fontSize: 12 },
-  listSection: { flex: 1 },
+  listSection: { flex: 1, minHeight: 0 },
+  listFlex: { flex: 1, minHeight: 0 },
+  preSearchScroll: { flex: 1 },
+  preSearchScrollContent: { flexGrow: 1, paddingTop: 4 },
+  centerInline: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 28,
+    paddingHorizontal: 16,
+  },
   field: { marginHorizontal: 16, marginBottom: 8, gap: 6 },
   label: { fontSize: 13, color: "#94a3b8" },
   countryCompactButton: {

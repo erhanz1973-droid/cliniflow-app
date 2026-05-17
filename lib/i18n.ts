@@ -1245,6 +1245,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "doctor.patients.history": "Geçmiş",
     "doctor.patients.files": "Dosyalar",
     "doctor.patients.messages": "Mesajlar",
+    "doctor.patients.leftClinic": "Hasta klinikten ayrıldı",
+    "doctor.patients.conversationArchived": "Sohbet arşivlendi",
     "doctor.pending.checking": "Durum kontrol ediliyor...",
     "doctor.pending.title": "Başvurunuz Değerlendiriliyor",
     "doctor.pending.subtitle": "Doktor başvurunuz incelenmektedir. Onaylandığında bildirim alacaksınız.",
@@ -1479,7 +1481,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "treatmentGuide.flow.step3.hint": "Hedeflerinizi seçin veya kısaca yazın.",
     "treatmentGuide.flow.step3.prompt": "Ne hissettiğinizi veya neyi iyileştirmek istediğinizi paylaşın — size uygun gelen kadarını yazmanız yeterli.",
     "treatmentGuide.flow.step4.title": "Tedavi desteğinize devam edin",
-    "treatmentGuide.flow.step4.hint": "Klinik mesaj taslağınızı gözden geçirin; isteğe bağlı asistan.",
+    "treatmentGuide.flow.step4.hint": "Taslağınızı düzenleyin ve kliniklerden teklif alın.",
     "treatmentGuide.flow.step4.uploadHint":
       "Varsa başka diş fotoğrafı ve röntgeninizi yükleyin — klinik mesajınıza eklenir.",
     "treatmentGuide.upload.archive.title": "Fotoğraf arşiviniz",
@@ -1528,6 +1530,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "treatmentGuide.inquiry.cta.review": "Mesajı gözden geçir",
     "treatmentGuide.inquiry.cta.prepare": "Klinik mesajını hazırla",
     "treatmentGuide.inquiry.cta.shareLinked": "Kliniğe paylaş",
+    "treatmentGuide.inquiry.cta.requestOffers": "Kliniklerden teklif al",
     "treatmentGuide.subtitle": "Sorularınız, fotoğraflarınız ve sonraki adımlar için rehberli destek",
     "treatmentGuide.clinicalDisclaimer":
       "Son klinik değerlendirme lisanslı diş hekimleri tarafından yapılır. Bu rehber teşhis veya tedavi garantisi vermez.",
@@ -3095,6 +3098,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "doctor.patients.history": "History",
     "doctor.patients.files": "Files",
     "doctor.patients.messages": "Messages",
+    "doctor.patients.leftClinic": "Patient left clinic",
+    "doctor.patients.conversationArchived": "Conversation archived",
     "doctor.pending.checking": "Checking status...",
     "doctor.pending.title": "Application Under Review",
     "doctor.pending.subtitle": "Your doctor application is being reviewed. You will be notified when approved.",
@@ -3329,7 +3334,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "treatmentGuide.flow.step3.hint": "Select goals or write a short note.",
     "treatmentGuide.flow.step3.prompt": "Share what you feel or what you would like to improve — as much or as little as you like.",
     "treatmentGuide.flow.step4.title": "Continue your treatment support",
-    "treatmentGuide.flow.step4.hint": "Review your clinic inquiry draft; assistant chat is optional below.",
+    "treatmentGuide.flow.step4.hint": "Edit your draft and request offers from clinics.",
     "treatmentGuide.flow.step4.uploadHint":
       "If you have other dental photos or X-rays, upload them here — they will be included in your clinic message.",
     "treatmentGuide.upload.archive.title": "Your photo archive",
@@ -3379,6 +3384,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "treatmentGuide.inquiry.cta.review": "Review inquiry",
     "treatmentGuide.inquiry.cta.prepare": "Prepare clinic message",
     "treatmentGuide.inquiry.cta.shareLinked": "Share with clinic",
+    "treatmentGuide.inquiry.cta.requestOffers": "Get offers from clinics",
     "treatmentGuide.subtitle": "Guided help for your questions, photos, and next steps",
     "treatmentGuide.clinicalDisclaimer":
       "Final clinical evaluation is performed by licensed dental professionals. This guide does not diagnose or guarantee treatment.",

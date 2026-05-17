@@ -33,9 +33,7 @@ type Props = {
   excludedAttachmentIds: ReadonlySet<string>;
   onToggleAttachmentExclude: (id: string) => void;
   onIncludedAttachmentsChange?: (attachments: InquiryAttachment[]) => void;
-  onReviewInquiry: () => void;
-  onShareWithClinic: () => void;
-  hasLinkedClinic: boolean;
+  onRequestOffers: () => void;
 };
 
 export function ClinicInquiryDraftPanel({
@@ -51,9 +49,7 @@ export function ClinicInquiryDraftPanel({
   excludedAttachmentIds,
   onToggleAttachmentExclude,
   onIncludedAttachmentsChange,
-  onReviewInquiry,
-  onShareWithClinic,
-  hasLinkedClinic,
+  onRequestOffers,
 }: Props) {
   const { t } = useLanguage();
   const userEditedRef = useRef(false);
@@ -176,16 +172,8 @@ export function ClinicInquiryDraftPanel({
         ))}
       </ScrollView>
 
-      <TouchableOpacity style={styles.primaryBtn} onPress={onReviewInquiry} activeOpacity={0.9}>
-        <Text style={styles.primaryBtnText}>{t("treatmentGuide.inquiry.cta.review")}</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.secondaryBtn} onPress={onShareWithClinic} activeOpacity={0.88}>
-        <Text style={styles.secondaryBtnText}>
-          {hasLinkedClinic
-            ? t("treatmentGuide.inquiry.cta.shareLinked")
-            : t("treatmentGuide.inquiry.cta.prepare")}
-        </Text>
+      <TouchableOpacity style={styles.primaryBtn} onPress={onRequestOffers} activeOpacity={0.9}>
+        <Text style={styles.primaryBtnText}>{t("treatmentGuide.inquiry.cta.requestOffers")}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -233,13 +221,4 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   primaryBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  secondaryBtn: {
-    backgroundColor: "#f8fafc",
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  secondaryBtnText: { color: "#334155", fontSize: 15, fontWeight: "600" },
 });

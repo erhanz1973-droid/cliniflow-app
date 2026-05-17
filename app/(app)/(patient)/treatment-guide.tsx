@@ -35,7 +35,6 @@ import { GuideFlowSection } from "../../../components/treatmentGuide/GuideFlowSe
 import { IntakeProgressSummary } from "../../../components/treatmentGuide/IntakeProgressSummary";
 import { leaveToPatientHome } from "../../../lib/safePatientNavigation";
 import { getStableTreatmentGuideSessionId } from "../../../lib/treatmentGuide/stableSession";
-import { AiCoordinatorChatView } from "../../../components/aiCoordinator/AiCoordinatorChatView";
 import { GoalChips } from "../../../components/treatmentGuide/GoalChips";
 import { UploadGuidance } from "../../../components/treatmentGuide/UploadGuidance";
 import { ClinicNetworkHint } from "../../../components/treatmentGuide/ClinicNetworkHint";
@@ -640,17 +639,9 @@ export default function TreatmentGuideScreen() {
     router.setParams({ imageUri: uri } as never);
   }, [router]);
 
-  const handleIntakeUpdate = useCallback(
-    (next: Parameters<typeof applyIntakeState>[0]) => {
-      applyIntakeState(next);
-    },
-    [applyIntakeState],
-  );
-
   const isPhotoBusy =
     phase === "uploading" || phase === "analyzing" || phase === "restoring";
 
-  const chatInitialDraft = useMemo(() => patientNarrative.trim(), [patientNarrative]);
 
   const photoGuidanceSummary = useMemo(() => {
     const parts = [localized.summary, localized.recommendation].map((s) => String(s || "").trim()).filter(Boolean);
@@ -692,39 +683,12 @@ export default function TreatmentGuideScreen() {
     });
   }, [inquiryDraftText, buildIncludedInquiryAttachments]);
 
-  const handleReviewInquiry = useCallback(() => {
+  const handleRequestOffers = useCallback(() => {
     void (async () => {
-      const attachments =
-        includedInquiryAttachmentsRef.current.length > 0
-          ? includedInquiryAttachmentsRef.current
-          : buildIncludedInquiryAttachments();
       await persistInquiryDraft();
-      if (hasClinic && linkedClinicId) {
-        router.push({
-          pathname: "/(patient)/messages",
-          params: {
-            clinicId: linkedClinicId,
-            prefillText: inquiryDraftText.trim().slice(0, 4000),
-            prefillComposer: "1",
-            prefillInquiry: attachments.length > 0 ? "1" : undefined,
-          },
-        } as never);
-        return;
-      }
       router.push("/clinic-onboarding" as never);
     })();
-  }, [
-    persistInquiryDraft,
-    hasClinic,
-    linkedClinicId,
-    router,
-    inquiryDraftText,
-    buildIncludedInquiryAttachments,
-  ]);
-
-  const handleShareInquiryWithClinic = useCallback(() => {
-    void handleReviewInquiry();
-  }, [handleReviewInquiry]);
+  }, [persistInquiryDraft, router]);
 
   return (
     <KeyboardAvoidingView
@@ -892,29 +856,8 @@ export default function TreatmentGuideScreen() {
             onIncludedAttachmentsChange={(atts) => {
               includedInquiryAttachmentsRef.current = atts;
             }}
-            onReviewInquiry={handleReviewInquiry}
-            onShareWithClinic={handleShareInquiryWithClinic}
-            hasLinkedClinic={hasClinic}
+            onRequestOffers={handleRequestOffers}
           />
-
-          <View style={styles.chatBlock}>
-            <Text style={styles.chatLabel}>{t("treatmentGuide.chat.title")}</Text>
-            <Text style={styles.chatHint}>{t("treatmentGuide.chat.subtitle")}</Text>
-            {sessionId ? (
-              <AiCoordinatorChatView
-                embedded
-                contextMode="treatment_guide"
-                clinicId={clinicId}
-                patientId={patientId || null}
-                sessionId={sessionId}
-                initialDraft={chatInitialDraft}
-                priorLeadData={intake.leadData}
-                onIntakeUpdate={handleIntakeUpdate}
-              />
-            ) : (
-              <ActivityIndicator size="small" color="#2563eb" style={styles.chatLoader} />
-            )}
-          </View>
 
           <ClinicNetworkHint
             embedded
@@ -1001,8 +944,4 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
   },
   secondaryBtnText: { color: "#334155", fontSize: 15, fontWeight: "600" },
-  chatBlock: { marginTop: 20 },
-  chatLabel: { fontSize: 15, fontWeight: "700", color: "#0f172a", marginBottom: 4 },
-  chatHint: { fontSize: 13, color: "#64748b", lineHeight: 18, marginBottom: 12 },
-  chatLoader: { marginVertical: 16 },
 });
