@@ -3,22 +3,22 @@ import { ActivityIndicator, View, StyleSheet } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 /** Legacy route — forwards to unified Treatment Guide. */
-export default function DentalAnalysisRedirect() {
+export default function AiCoordinatorRedirect() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ imageUri?: string; clinicId?: string; clinic_id?: string }>();
+  const params = useLocalSearchParams<{ clinicId?: string; clinic_id?: string; imageUri?: string }>();
 
   useEffect(() => {
     router.replace({
       pathname: "/(patient)/treatment-guide",
       params: {
+        ...(params.clinicId ? { clinicId: String(params.clinicId) } : {}),
+        ...(params.clinic_id ? { clinic_id: String(params.clinic_id) } : {}),
         ...(typeof params.imageUri === "string" && params.imageUri.trim()
           ? { imageUri: params.imageUri.trim() }
           : {}),
-        ...(params.clinicId ? { clinicId: String(params.clinicId) } : {}),
-        ...(params.clinic_id ? { clinic_id: String(params.clinic_id) } : {}),
       },
     } as never);
-  }, [router, params.imageUri, params.clinicId, params.clinic_id]);
+  }, [router, params.clinicId, params.clinic_id, params.imageUri]);
 
   return (
     <View style={styles.center}>

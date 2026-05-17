@@ -44,6 +44,8 @@ import { setLastCapturedImage } from "../../../lib/lastCapturedImage";
 import { analyzePhoto, type AnalyzePhotoResult } from "../../../lib/dentalAnalysisPipeline";
 import { goToAnalysis } from "../../../lib/dentalPhotoNavigation";
 import { goToChat, openFilePicker } from "../../../lib/chatFlow";
+import { goToAiCoordinator } from "../../../lib/aiCoordinator";
+import { goToTreatmentGuide } from "../../../lib/treatmentGuideNavigation";
 import { saveToFiles } from "../../../lib/saveToFiles";
 import { sendMessage } from "../../../lib/sendMessage";
 import { playInAppNewMessageSoundDebouncedForThread } from "../../../lib/playInAppMessageSound";
@@ -1344,8 +1346,24 @@ export default function MessagesScreen() {
       <View style={s.container}>
         {/* Header */}
         <View style={s.header}>
-          <Text style={s.headerTitle}>{t("messages.title")}</Text>
-          <Text style={s.headerSub}>{t("messages.subtitle")}</Text>
+          <View style={s.headerTopRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.headerTitle}>{t("messages.title")}</Text>
+              <Text style={s.headerSub}>{t("messages.subtitle")}</Text>
+            </View>
+            <TouchableOpacity
+              style={s.aiAssistChip}
+              onPress={() => {
+                const cid = String(chatClinicId || user?.clinicId || "").trim();
+                goToAiCoordinator(router, cid ? { clinicId: cid } : undefined);
+              }}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={t("aiCoordinator.title")}
+            >
+              <Text style={s.aiAssistChipText}>✨ {t("aiCoordinator.short")}</Text>
+            </TouchableOpacity>
+          </View>
           {hasClinic && !!careDoctorDisplay ? (
             <View style={s.careStrip}>
               <Text style={s.careStripPrimary}>
@@ -1803,12 +1821,10 @@ function AiResultBubble({ msg }: { msg: Message }) {
   };
 
   /** Teklif / klinik akışına giderken analiz veya simülasyon görselini quote-request için sakla. */
-  const goToClinicOnboardingForQuote = useCallback(async () => {
-    const url = (simulatedSmileUrl || result?.originalImageUrl || "").trim();
-    if (url) await safeSetItem(QUOTE_REQUEST_PREFILL_IMAGE_KEY, url);
-    else await safeRemoveItem(QUOTE_REQUEST_PREFILL_IMAGE_KEY);
-    router.push("/clinic-onboarding" as any);
-  }, [simulatedSmileUrl, result?.originalImageUrl, router]);
+  const openTreatmentGuide = useCallback(() => {
+    const cid = user?.clinicId ? String(user.clinicId).trim() : "";
+    goToTreatmentGuide(router, cid ? { clinicId: cid } : undefined);
+  }, [router, user?.clinicId]);
 
   return (
     <View style={[s.bubbleWrap, s.bubbleLeft]}>
@@ -1817,7 +1833,7 @@ function AiResultBubble({ msg }: { msg: Message }) {
 
         {/* ── Header ── */}
         <View style={ai.header}>
-          <Text style={ai.headerTitle}>Klinifly Diş Analizi</Text>
+          <Text style={ai.headerTitle}>{t("treatmentGuide.bubbleTitle")}</Text>
           {result.confidence && (
             <View style={[ai.confidenceBadge, { backgroundColor: CONFIDENCE_COLOR[conf] + "22" }]}>
               <Text style={[ai.confidenceText, { color: CONFIDENCE_COLOR[conf] }]}>
@@ -2018,13 +2034,13 @@ function AiResultBubble({ msg }: { msg: Message }) {
             )}
           </View>
 
-          {/* ── CTA akışı ── */}
+          {/* ── CTA — Treatment Guide (non-tourism) ── */}
           <TouchableOpacity
             style={ai.ctaPrimary}
-            onPress={() => void goToClinicOnboardingForQuote()}
+            onPress={openTreatmentGuide}
             activeOpacity={0.88}
           >
-            <Text style={ai.ctaPrimaryText}>Detaylı Tedavi Planı Oluştur</Text>
+            <Text style={ai.ctaPrimaryText}>{t("treatmentGuide.openFromMessages")}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -2034,7 +2050,7 @@ function AiResultBubble({ msg }: { msg: Message }) {
                 result.clinics?.[0]?.id ||
                 (user?.clinicId ? String(user.clinicId) : "");
               if (!String(cid).trim()) {
-                Alert.alert(t("common.error"), t("messages.chatRequiresClinic"));
+                openTreatmentGuide();
                 return;
               }
               goToChat(router, {
@@ -2044,14 +2060,14 @@ function AiResultBubble({ msg }: { msg: Message }) {
             }}
             activeOpacity={0.88}
           >
-            <Text style={ai.ctaSecondaryText}>
-              {t("messages.requestOffersFromClinics")}
-            </Text>
+            <Text style={ai.ctaSecondaryText}>{t("treatmentGuide.messageClinicShort")}</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={ai.linkRow} onPress={handleSendToClinic} activeOpacity={0.7}>
-            <Text style={ai.linkRowText}>Sonucu mesaj olarak bir kliniğe gönder</Text>
-          </TouchableOpacity>
+          {result.clinics && result.clinics.length > 0 ? (
+            <TouchableOpacity style={ai.linkRow} onPress={handleSendToClinic} activeOpacity={0.7}>
+              <Text style={ai.linkRowText}>{t("treatmentGuide.shareResultToClinic")}</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         <Text style={s.bubbleTime}>{fmtTime(msg.createdAt, "tr-TR")}</Text>
@@ -2286,6 +2302,21 @@ const s = StyleSheet.create({
     paddingTop: 60, paddingBottom: 16,
     borderBottomWidth: 1, borderBottomColor: "#e5e7eb",
   },
+  headerTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  aiAssistChip: {
+    backgroundColor: "#ecfdf5",
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "#a7f3d0",
+    marginTop: 2,
+  },
+  aiAssistChipText: { fontSize: 12, fontWeight: "700", color: "#047857" },
   headerTitle: { fontSize: 20, fontWeight: "800", color: "#111827" },
   headerSub:   { fontSize: 12, color: "#6b7280", marginTop: 2 },
   careStrip: {

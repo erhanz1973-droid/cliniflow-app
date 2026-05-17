@@ -112,7 +112,15 @@ export default function PatientTabsLayout() {
         options={{ href: null }}
       />
       <Tabs.Screen
+        name="treatment-guide"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
         name="dental-analysis"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="ai-coordinator"
         options={{ href: null }}
       />
       <Tabs.Screen

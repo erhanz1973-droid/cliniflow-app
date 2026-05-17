@@ -31,6 +31,8 @@ import { SecondaryCard } from "../../../components/home/SecondaryCard";
 import { ActionCard } from "../../../components/home/ActionCard";
 import { track } from "../../../lib/analytics";
 import { goToOfferChat, offerChatLastStorageKey } from "../../../lib/goToOfferChat";
+import { subscribeOfferUnreadEvents } from "../../../lib/offerUnreadEvents";
+import { invalidatePatientInboxUnreadCache } from "../../../lib/patientInboxUnread";
 import { ClinicHeader } from "../../../components/ClinicHeader";
 import { ClinicHubCard } from "../../../components/home/ClinicHubCard";
 import { useClinicStore, type ActiveClinic } from "../../../store/useClinicStore";
@@ -865,14 +867,28 @@ export default function Home() {
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         doctor_messages?: number;
+        new_offers?: number;
+        offers_unread?: number;
+        total_unread?: number;
       };
       if (data?.ok === false) return;
-      const n = Number(data.doctor_messages) || 0;
+      const n =
+        Number(data.total_unread ?? data.offers_unread) ||
+        (Number(data.doctor_messages) || 0) + (Number(data.new_offers) || 0);
       setInboxDoctorUnread(Number.isFinite(n) ? n : 0);
     } catch {
       /* keep previous count */
     }
   };
+
+  useEffect(() => {
+    if (!user?.token) return;
+    return subscribeOfferUnreadEvents((ev) => {
+      if (ev.recipient !== "patient") return;
+      invalidatePatientInboxUnreadCache();
+      void loadInboxSummary(user.token);
+    });
+  }, [user?.token]);
 
   const loadMessagePreview = async (patientId: string, token: string, clinicPk?: string | null) => {
     try {
