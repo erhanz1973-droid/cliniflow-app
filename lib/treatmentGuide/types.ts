@@ -44,10 +44,21 @@ export type OperationalIntakeFlags = {
   journeyStageLabel?: string;
 };
 
+export type PatientIntakeDocument = {
+  id: string;
+  documentType: string;
+  documentTypeLabel?: string;
+  fileUrl?: string;
+  thumbnailUrl?: string;
+  uploadedAt?: string;
+  reviewStatus?: string;
+};
+
 export type TreatmentGuideIntakeState = {
   leadData: AiLeadData;
   operationalIntakeFlags: OperationalIntakeFlags | null;
   intakeJourney: IntakeJourneyPayload | null;
+  documents: PatientIntakeDocument[];
 };
 
 export type ChecklistItemStatus = "done" | "pending" | "optional";
@@ -57,4 +68,19 @@ export type IntakeChecklistItem = {
   status: ChecklistItemStatus;
   labelKey: string;
   hintKey?: string;
+};
+
+export type UploadGuidanceSlotId = "smile_photos" | "panoramic_xray" | "doctor_review" | "other";
+
+export type UploadGuidanceSlot = {
+  id: UploadGuidanceSlotId;
+  /** Primary document type sent to POST /api/patient/me/ai-documents */
+  documentType: string;
+  titleKey: string;
+  hintKey: string;
+  done: boolean;
+  showUpload: boolean;
+  allowImagePicker: boolean;
+  allowDocumentPicker: boolean;
+  informational?: boolean;
 };

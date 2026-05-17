@@ -1,54 +1,82 @@
-import type { OperationalIntakeFlags } from "./types";
+import type { OperationalIntakeFlags, PatientIntakeDocument, UploadGuidanceSlot } from "./types";
 
-export type UploadGuidanceLine = { key: string; hint?: string };
+const PHOTO_TYPES = new Set(["intraoral_photo", "selfie"]);
+const IMAGING_TYPES = new Set(["panoramic_xray", "ct_scan"]);
+
+function hasDocumentType(documents: PatientIntakeDocument[], types: Set<string>) {
+  return documents.some((d) => types.has(String(d.documentType || "")));
+}
 
 /**
- * Upload copy derived only from backend `operationalIntakeFlags` (tags + missing flags).
+ * Actionable upload rows derived from backend flags + uploaded documents (no frontend workflow engine).
  */
-export function buildUploadGuidanceLines(flags: OperationalIntakeFlags | null): UploadGuidanceLine[] {
+export function buildUploadGuidanceSlots(
+  flags: OperationalIntakeFlags | null,
+  documents: PatientIntakeDocument[],
+): UploadGuidanceSlot[] {
   const f = flags || {};
-  const out: UploadGuidanceLine[] = [];
+  const slots: UploadGuidanceSlot[] = [];
   const missingTypes = new Set((f.missingDocumentTypes || []).map(String));
-  const tags = f.patientReportedTags || [];
+  const hasPhotos = hasDocumentType(documents, PHOTO_TYPES);
+  const hasImaging = hasDocumentType(documents, IMAGING_TYPES);
 
-  const wantsImplant = tags.some((tag) =>
-    ["implant_interest", "full_mouth_restoration_interest", "missing_teeth_count"].includes(tag),
-  );
-  const wantsCosmetic = tags.some((tag) =>
-    ["cosmetic_goal", "veneer_interest", "whitening_interest", "orthodontic_interest"].includes(tag),
-  );
-
-  if (f.missingXray || missingTypes.has("panoramic_xray")) {
-    out.push({
-      key: wantsImplant
-        ? "treatmentGuide.uploadGuide.xrayImplant"
-        : "treatmentGuide.uploadGuide.xrayGeneral",
-      hint: "treatmentGuide.uploadGuide.xrayHint",
+  const photosRelevant =
+    f.missingSmilePhotos === true || missingTypes.has("intraoral_photo") || hasPhotos;
+  if (photosRelevant) {
+    const done = f.missingSmilePhotos !== true;
+    slots.push({
+      id: "smile_photos",
+      documentType: "intraoral_photo",
+      titleKey: "treatmentGuide.upload.slot.photosTitle",
+      hintKey: "treatmentGuide.upload.slot.photosHint",
+      done,
+      showUpload: !done,
+      allowImagePicker: true,
+      allowDocumentPicker: false,
     });
   }
 
-  if (f.missingSmilePhotos || missingTypes.has("intraoral_photo")) {
-    out.push({
-      key: wantsCosmetic
-        ? "treatmentGuide.uploadGuide.photosCosmetic"
-        : "treatmentGuide.uploadGuide.photosGeneral",
-      hint: "treatmentGuide.uploadGuide.photosHint",
+  const xrayRelevant = f.missingXray === true || missingTypes.has("panoramic_xray") || hasImaging;
+  if (xrayRelevant) {
+    const done = f.missingXray !== true;
+    slots.push({
+      id: "panoramic_xray",
+      documentType: "panoramic_xray",
+      titleKey: "treatmentGuide.upload.slot.xrayTitle",
+      hintKey: "treatmentGuide.upload.slot.xrayHint",
+      done,
+      showUpload: !done,
+      allowImagePicker: true,
+      allowDocumentPicker: true,
     });
   }
 
   if (f.doctorReviewNeeded) {
-    out.push({
-      key: "treatmentGuide.uploadGuide.doctorReview",
-      hint: "treatmentGuide.uploadGuide.doctorHint",
+    slots.push({
+      id: "doctor_review",
+      documentType: "other",
+      titleKey: "treatmentGuide.upload.slot.doctorReviewTitle",
+      hintKey: "treatmentGuide.upload.slot.doctorReviewHint",
+      done: false,
+      showUpload: false,
+      allowImagePicker: false,
+      allowDocumentPicker: false,
+      informational: true,
     });
   }
 
-  if (!out.length) {
-    out.push({
-      key: "treatmentGuide.uploadGuide.default",
-      hint: "treatmentGuide.uploadGuide.defaultHint",
+  if (!slots.length || slots.every((s) => s.done && !s.informational)) {
+    slots.push({
+      id: "other",
+      documentType: "other",
+      titleKey: "treatmentGuide.upload.slot.otherTitle",
+      hintKey: "treatmentGuide.upload.slot.otherHint",
+      done: false,
+      showUpload: true,
+      allowImagePicker: true,
+      allowDocumentPicker: true,
     });
   }
 
-  return out;
+  return slots;
 }

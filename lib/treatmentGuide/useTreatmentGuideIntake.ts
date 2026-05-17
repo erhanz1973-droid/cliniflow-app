@@ -8,6 +8,7 @@ const emptyState = (): TreatmentGuideIntakeState => ({
   leadData: emptyLeadData(),
   operationalIntakeFlags: null,
   intakeJourney: null,
+  documents: [],
 });
 
 export function useTreatmentGuideIntake(params: {

@@ -1,6 +1,11 @@
 import { API_BASE, getAuthHeaders } from "../api";
 import { emptyLeadData, mergeLeadData, type AiLeadData } from "../aiCoordinator/leadData";
-import type { IntakeJourneyPayload, OperationalIntakeFlags, TreatmentGuideIntakeState } from "./types";
+import type {
+  IntakeJourneyPayload,
+  OperationalIntakeFlags,
+  PatientIntakeDocument,
+  TreatmentGuideIntakeState,
+} from "./types";
 
 function normalizeTags(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -67,6 +72,42 @@ function normalizeFlags(raw: unknown): OperationalIntakeFlags | null {
   };
 }
 
+function normalizeDocuments(raw: unknown): PatientIntakeDocument[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((row) => {
+    const d = row as Record<string, unknown>;
+    return {
+      id: String(d.id || ""),
+      documentType: String(d.documentType || d.document_type || "other"),
+      documentTypeLabel:
+        d.documentTypeLabel != null
+          ? String(d.documentTypeLabel)
+          : d.document_type_label != null
+            ? String(d.document_type_label)
+            : undefined,
+      fileUrl: d.fileUrl != null ? String(d.fileUrl) : d.file_url != null ? String(d.file_url) : undefined,
+      thumbnailUrl:
+        d.thumbnailUrl != null
+          ? String(d.thumbnailUrl)
+          : d.thumbnail_url != null
+            ? String(d.thumbnail_url)
+            : undefined,
+      uploadedAt:
+        d.uploadedAt != null
+          ? String(d.uploadedAt)
+          : d.uploaded_at != null
+            ? String(d.uploaded_at)
+            : undefined,
+      reviewStatus:
+        d.reviewStatus != null
+          ? String(d.reviewStatus)
+          : d.review_status != null
+            ? String(d.review_status)
+            : undefined,
+    };
+  });
+}
+
 function normalizeJourney(raw: unknown): IntakeJourneyPayload | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
@@ -116,6 +157,7 @@ export function parseIntakeApiPayload(json: Record<string, unknown>): TreatmentG
     }),
     operationalIntakeFlags: mergedFlags,
     intakeJourney: normalizeJourney(json.intakeJourney),
+    documents: normalizeDocuments(json.documents),
   };
 }
 

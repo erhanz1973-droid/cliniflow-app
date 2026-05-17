@@ -305,7 +305,16 @@ export default function TreatmentGuideScreen() {
         </View>
 
         <View style={styles.section}>
-          <UploadGuidance flags={flags} onOpenFiles={goToFiles} />
+          <UploadGuidance
+            flags={flags}
+            documents={intake.documents}
+            sessionId={sessionId}
+            clinicId={clinicId}
+            intake={intake}
+            onIntakeUpdate={applyIntakeState}
+            onRefresh={refreshIntake}
+            onOpenFiles={goToFiles}
+          />
         </View>
 
         {(imageUri || phase !== "skipped") && (
