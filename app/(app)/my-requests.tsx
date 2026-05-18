@@ -17,6 +17,7 @@ import {
   resolveRequestImageUrl,
 } from '../../lib/treatmentRequestDescription';
 import { goToOfferChat } from '../../lib/goToOfferChat';
+import { openRequestCoordinationChat } from '../../lib/patientCoordinationChat';
 
 // DISCLAIMER — always use the translation key; this fallback is only used if i18n is unavailable
 const DISCLAIMER_FALLBACK = 'This is a preliminary estimate. Final diagnosis requires clinical examination.';
@@ -97,6 +98,10 @@ type Request = {
   proposal_waiting_minutes?: number | null;
   created_at: string;
   offers: Offer[];
+  coordination_offer_id?: string | null;
+  can_open_chat?: boolean;
+  coordination_last_message?: string | null;
+  coordination_unread_count?: number;
 };
 
 function firstRouteParam(v: string | string[] | undefined): string {
@@ -134,6 +139,7 @@ export default function MyRequestsScreen() {
   const [error, setError]             = useState<string | null>(null);
   const [expandedId, setExpandedId]   = useState<string | null>(null);
   const [joiningClinic, setJoiningClinic] = useState<string | null>(null); // offer.id being joined
+  const [openingCoordinationId, setOpeningCoordinationId] = useState<string | null>(null);
   // Set of "clinicId:type" (or "offer:offerId:type") keys for already-rated entries
   const [ratedKeys, setRatedKeys]     = useState<Set<RatingKey>>(new Set());
 
@@ -195,6 +201,32 @@ export default function MyRequestsScreen() {
       ]
     );
   }, [user, signIn, t, referralFromRoute]);
+
+  const openCoordination = useCallback(
+    async (req: Request) => {
+      const token = String(user?.token || '').trim();
+      if (!token) {
+        Alert.alert(t('common.error'), t('common.pleaseRetry'));
+        return;
+      }
+      setOpeningCoordinationId(req.id);
+      try {
+        await openRequestCoordinationChat(router, {
+          token,
+          requestId: req.id,
+          clinicName: req.clinic_name,
+          treatmentType: req.preferred_treatment,
+          coordinationOfferId: req.coordination_offer_id,
+        });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        Alert.alert(t('common.error'), msg || t('common.pleaseRetry'));
+      } finally {
+        setOpeningCoordinationId(null);
+      }
+    },
+    [router, t, user?.token],
+  );
 
   /** Safe fetch → JSON: uses text() first so we always get a parseable error. */
   const safeFetch = useCallback(async (url: string, retries = 2): Promise<any> => {
@@ -477,8 +509,32 @@ export default function MyRequestsScreen() {
                         {req.proposal_status_label ||
                           (req.proposal_status && req.proposal_status !== 'quote_sent'
                             ? t('treatReq.preparingEstimate')
-                            : t('treatReq.noOffers'))}
+                            : t('treatReq.coordinationInProgress'))}
                       </Text>
+                      {!!req.coordination_last_message?.trim() && (
+                        <Text style={styles.coordPreview} numberOfLines={2}>
+                          💬 {req.coordination_last_message}
+                        </Text>
+                      )}
+                      <TouchableOpacity
+                        style={[styles.msgBtn, styles.coordChatBtn]}
+                        disabled={openingCoordinationId === req.id}
+                        onPress={() => void openCoordination(req)}
+                      >
+                        {openingCoordinationId === req.id ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <Text style={styles.msgBtnText}>
+                            💬{' '}
+                            {req.coordination_last_message?.trim()
+                              ? t('offerChat.viewMessages')
+                              : t('treatReq.openCoordination')}
+                            {(req.coordination_unread_count ?? 0) > 0
+                              ? ` (${req.coordination_unread_count})`
+                              : ''}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
                     </View>
                   ) : (
                     <>
@@ -754,8 +810,10 @@ const styles = StyleSheet.create({
   details: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
   detailRow: { fontSize: 13, color: '#6B7280', marginBottom: 6 },
 
-  noOffers: { paddingVertical: 16, alignItems: 'center' },
-  noOffersText: { fontSize: 13, color: '#9CA3AF', fontStyle: 'italic' },
+  noOffers: { paddingVertical: 16, alignItems: 'center', gap: 10 },
+  noOffersText: { fontSize: 13, color: '#64748b', textAlign: 'center' },
+  coordPreview: { fontSize: 12, color: '#475569', textAlign: 'center', paddingHorizontal: 8 },
+  coordChatBtn: { marginTop: 4, alignSelf: 'stretch' },
 
   offersTitle: { fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 8, marginTop: 4 },
 

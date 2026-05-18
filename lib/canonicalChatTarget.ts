@@ -20,6 +20,8 @@ export type ResolveCanonicalChatInput = {
   patientId?: string | null;
   patientName?: string;
   offerId?: string | null;
+  /** Pre-proposal coordination workspace (same channel as offer chat). */
+  coordinationOfferId?: string | null;
   requestId?: string | null;
   leadThreadIsLead?: unknown;
   /** Server/bootstrap: patient joined clinic (shared care). */
@@ -152,7 +154,9 @@ function patientChatRouteParams(
  */
 export function resolveCanonicalChatTarget(input: ResolveCanonicalChatInput): CanonicalChatTarget {
   const viewerRole = input.viewerRole;
-  const offerId = String(input.offerId || "").trim();
+  const offerId = String(
+    input.offerId || input.coordinationOfferId || "",
+  ).trim();
   const patientPk = resolvePatientPk(input.patientId);
   const patientName = String(input.patientName || input.otherPartyName || "Patient").trim() || "Patient";
   const enrolled = isEnrolledSharedCare(input);
@@ -277,6 +281,15 @@ export function resolveCanonicalChatTarget(input: ResolveCanonicalChatInput): Ca
     };
   }
 
+  if (String(input.requestId || "").trim()) {
+    return {
+      channel: "none",
+      kind: "redirect_requests",
+      reason: "patient_open_coordination_from_requests",
+      path: "/my-requests",
+    };
+  }
+
   return {
     channel: "none",
     kind: "redirect_home",
@@ -318,7 +331,7 @@ export function pushDataToResolveInput(
   };
   return {
     viewerRole,
-    offerId: first(["offerId", "offer_id"]),
+    offerId: first(["offerId", "offer_id", "coordinationOfferId", "coordination_offer_id"]),
     patientId: first(["patientId", "patient_id"]),
     patientName: first(["patientName", "patient_name"]) || "Patient",
     requestId: first(["requestId", "request_id"]),
