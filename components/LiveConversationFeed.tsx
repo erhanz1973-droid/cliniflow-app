@@ -141,9 +141,9 @@ export function LiveConversationFeed({
   if (!turns.length) {
     return (
       <View style={styles.empty}>
-        <Text style={styles.emptyTitle}>Henüz konuşma yok</Text>
+        <Text style={styles.emptyTitle}>Henüz mesaj yok</Text>
         <Text style={styles.emptyBody}>
-          Hasta, AI koordinatör, doktor ve sistem olayları burada tek zaman çizelgesinde görünür.
+          Hasta veya AI yanıtları burada görünür. Üstteki “Son hasta” özetinde metin varsa ↻ ile yenileyin.
         </Text>
       </View>
     );

@@ -21,7 +21,10 @@ import { InterventionControls } from "@/components/InterventionControls";
 import { LiveConversationFeed } from "@/components/LiveConversationFeed";
 import { OperationalActivityLog } from "@/components/OperationalActivityLog";
 import { PatientContextPanel } from "@/components/PatientContextPanel";
-import { operationalEventsFromFeed } from "@/lib/coordinationFeedUtils";
+import {
+  conversationTurnsFromFeed,
+  operationalEventsFromFeed,
+} from "@/lib/coordinationFeedUtils";
 import { useCoordinationWorkspace } from "@/hooks/useCoordinationWorkspace";
 
 type Props = {
@@ -46,6 +49,7 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
     [data],
   );
 
+  const messageTurns = useMemo(() => conversationTurnsFromFeed(feed), [feed]);
   const stats = useMemo(() => countFeedStats(feed), [feed]);
   const operationalEvents = useMemo(() => operationalEventsFromFeed(feed), [feed]);
 
@@ -190,7 +194,7 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
         </View>
       </View>
       <LiveConversationFeed
-        turns={feed}
+        turns={messageTurns}
         patientName={data.profile.patientName}
         flex={isWide}
         embedInParentScroll={!isWide}
@@ -232,8 +236,8 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
     </View>
   ) : (
     <View style={styles.columnsStacked}>
-      {rightColumn}
       {feedPanel}
+      {rightColumn}
       <Pressable
         style={styles.detailsToggle}
         onPress={() => setShowCoordinationDetails((v) => !v)}

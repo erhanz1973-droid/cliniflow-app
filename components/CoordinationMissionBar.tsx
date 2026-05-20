@@ -61,8 +61,22 @@ export function CoordinationMissionBar({
             {patientName || "Hasta"}
           </Text>
           <Text style={styles.compactStats}>
-            {stats.total} olay · H{stats.patient} · AI{stats.ai}
+            {stats.patient + stats.ai + stats.human} mesaj · H{stats.patient} · AI{stats.ai}
           </Text>
+        </View>
+        <View style={styles.compactPreviewRow}>
+          <View style={styles.compactPreview}>
+            <Text style={styles.compactPreviewLabel}>Son hasta</Text>
+            <Text style={styles.compactPreviewText} numberOfLines={2}>
+              {latestPatientMessage?.trim() || "—"}
+            </Text>
+          </View>
+          <View style={[styles.compactPreview, styles.compactPreviewAi]}>
+            <Text style={styles.compactPreviewLabel}>Son AI</Text>
+            <Text style={styles.compactPreviewText} numberOfLines={2}>
+              {latestAiReply?.trim() || "—"}
+            </Text>
+          </View>
         </View>
         {blocker ? (
           <Text style={styles.compactAlert} numberOfLines={2}>
@@ -176,6 +190,25 @@ const styles = StyleSheet.create({
   compactStats: { fontSize: 11, fontWeight: "600", color: "#64748b" },
   compactAlert: { fontSize: 11, color: "#b91c1c", lineHeight: 15 },
   compactNext: { fontSize: 11, color: "#0369a1", lineHeight: 15 },
+  compactPreviewRow: { flexDirection: "row", gap: 6, marginTop: 4 },
+  compactPreview: {
+    flex: 1,
+    backgroundColor: "#f8fafc",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    padding: 8,
+    minHeight: 52,
+  },
+  compactPreviewAi: { backgroundColor: "#eff6ff", borderColor: "#bfdbfe" },
+  compactPreviewLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    color: "#94a3b8",
+    marginBottom: 2,
+  },
+  compactPreviewText: { fontSize: 11, color: "#1e293b", lineHeight: 15 },
   wrap: { gap: 10, marginBottom: 12 },
   hero: {
     backgroundColor: "#0f172a",
