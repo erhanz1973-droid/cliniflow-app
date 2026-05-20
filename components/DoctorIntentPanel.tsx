@@ -45,6 +45,8 @@ type Props = {
   patientId: string;
   /** From coordination workspace — updates after Devral / refresh. */
   draftGenerationAllowed?: boolean;
+  /** False while AI owns the patient thread (must Devral first). */
+  canSendToPatient?: boolean;
   /** Scroll parent so the focused field stays above the keyboard (mobile). */
   onInputFocus?: (fieldRef: RefObject<View | null>) => void;
   compact?: boolean;
@@ -58,6 +60,7 @@ function intentFromTags(tags: IntentTag[]): string {
 export function DoctorIntentPanel({
   patientId,
   draftGenerationAllowed: draftAllowedProp,
+  canSendToPatient = true,
   onInputFocus,
   compact,
 }: Props) {
@@ -380,10 +383,19 @@ export function DoctorIntentPanel({
         ))}
       </ScrollView>
 
+      {!canSendToPatient ? (
+        <Text style={styles.ownerBlock}>
+          AI konuşmayı yönetiyor. Hastaya mesaj göndermek için önce Devral.
+        </Text>
+      ) : null}
+
       <Pressable
-        style={[styles.btnSend, (busy || !patientDraft || sent || !draftId) && styles.btnDisabled]}
+        style={[
+          styles.btnSend,
+          (busy || !patientDraft || sent || !draftId || !canSendToPatient) && styles.btnDisabled,
+        ]}
         onPress={onSend}
-        disabled={busy || !patientDraft || sent || !draftId}
+        disabled={busy || !patientDraft || sent || !draftId || !canSendToPatient}
       >
         <Text style={styles.btnSendText}>{sent ? "Gönderildi ✓" : "Onayla ve gönder"}</Text>
       </Pressable>
@@ -479,6 +491,15 @@ const styles = StyleSheet.create({
   warnBody: { fontSize: 11, color: "#78350f", marginTop: 4 },
   meta: { fontSize: 11, color: "#64748b", marginTop: 6 },
   error: { marginTop: 10, color: "#b91c1c", fontSize: 13 },
+  ownerBlock: {
+    marginTop: 10,
+    fontSize: 12,
+    color: "#92400e",
+    backgroundColor: "#fffbeb",
+    padding: 10,
+    borderRadius: 8,
+    lineHeight: 17,
+  },
   errorMuted: { color: "#047857" },
   btnNewDraft: {
     marginTop: 10,

@@ -1,11 +1,10 @@
-import { useCallback, useRef, useState, type RefObject } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 
@@ -24,19 +23,28 @@ type PatchAiResponse = {
     draftGenerationAllowed?: boolean;
     autoReplyAllowed?: boolean;
     aiEscalationRequired?: boolean;
+    conversationOwner?: string;
+    canSendPatientMessageAsDoctor?: boolean;
     statusLabel?: string;
   };
 };
 
 function patchToAiState(json: PatchAiResponse): Partial<AiState> {
   const d = json.delegation;
+  const owner = d?.conversationOwner === "doctor" ? "doctor" : "ai";
   return {
+    conversationOwner: owner,
+    conversationOwnerLabel:
+      owner === "doctor"
+        ? "Doktor konuşmayı yönetiyor"
+        : "AI konuşmayı yönetiyor",
     aiPaused: json.aiPaused,
     aiEscalationRequired: json.aiEscalationRequired ?? d?.aiEscalationRequired,
     responderMode: json.responderMode,
     responderModeLabel: json.responderModeLabel,
     draftGenerationAllowed: d?.draftGenerationAllowed,
     autoReplyAllowed: d?.autoReplyAllowed,
+    canSendPatientMessageAsDoctor: d?.canSendPatientMessageAsDoctor,
     handlingStateLabel: d?.statusLabel,
   };
 }
@@ -47,7 +55,6 @@ type Props = {
   onRefresh: () => void;
   onAiPatch?: (patch: Partial<AiState>) => void;
   onGuideAi: () => void;
-  onInputFocus?: (fieldRef: RefObject<View | null>) => void;
   compact?: boolean;
 };
 
@@ -57,15 +64,13 @@ export function InterventionControls({
   onRefresh,
   onAiPatch,
   onGuideAi,
-  onInputFocus,
   compact,
 }: Props) {
   const [saving, setSaving] = useState(false);
-  const [drafting, setDrafting] = useState(false);
-  const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const draftInputRef = useRef<TextInput>(null);
-  const draftFieldRef = useRef<View>(null);
+
+  const doctorOwns = aiState?.conversationOwner === "doctor";
+  const aiOwns = aiState?.conversationOwner === "ai" || !doctorOwns;
 
   const patch = useCallback(
     async (body: Record<string, unknown>) => {
@@ -93,90 +98,48 @@ export function InterventionControls({
     [patientId, onRefresh, onAiPatch],
   );
 
-  const suggestRewrite = useCallback(async () => {
-    setDrafting(true);
-    setError(null);
-    try {
-      const json = await apiFetchJson<{ ok?: boolean; suggestedReply?: string; message?: string }>(
-        `/api/doctor/patients/${encodeURIComponent(patientId)}/suggest-reply`,
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", timeoutMs: 45_000 },
-      );
-      if (!json.ok) throw new Error(json.message || "Taslak oluşturulamadı");
-      setDraft(json.suggestedReply || "");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Taslak oluşturulamadı");
-    } finally {
-      setDrafting(false);
-    }
-  }, [patientId]);
-
   const takeOver = useCallback(async () => {
     await patch({ action: "takeOver" });
     setTimeout(() => onGuideAi?.(), Platform.OS === "ios" ? 350 : 200);
   }, [patch, onGuideAi]);
 
-  const guideAiHybrid = useCallback(async () => {
-    await patch({ action: "setHybrid", primaryResponderType: "doctor" });
-    setTimeout(() => onGuideAi?.(), Platform.OS === "ios" ? 350 : 200);
-  }, [patch, onGuideAi]);
+  const resumeAi = useCallback(() => {
+    void patch({ action: "resumeAi", clearEscalation: true });
+  }, [patch]);
+
+  const ownerLabel =
+    aiState?.conversationOwnerLabel ||
+    (doctorOwns ? "Doktor konuşmayı yönetiyor" : "AI konuşmayı yönetiyor");
 
   return (
     <View style={[styles.wrap, compact && styles.wrapCompact]}>
-      <Text style={[styles.title, compact && styles.titleCompact]}>👨‍⚕️ Doktor müdahalesi</Text>
+      <View style={[styles.ownerBanner, doctorOwns ? styles.ownerDoctor : styles.ownerAi]}>
+        <Text style={styles.ownerTitle}>Konuşma sahibi</Text>
+        <Text style={styles.ownerText}>{ownerLabel}</Text>
+        <Text style={styles.ownerHint}>
+          {doctorOwns
+            ? "Hastaya giden tüm mesajlar doktor adına. AI hastaya yazmaz; yalnızca öneri üretebilir."
+            : "AI hastayla konuşur. Doktor izler; dahili not ve rehberlik Intent Panel'den."}
+        </Text>
+      </View>
+
       <View style={styles.row}>
-        <ActionBtn
-          label="AI duraklat"
-          onPress={() => patch({ pauseAi: true })}
-          disabled={saving}
-          variant="secondary"
-        />
-        <ActionBtn
-          label="Yeniden yaz"
-          onPress={suggestRewrite}
-          disabled={drafting || saving}
-          variant="secondary"
-        />
         <ActionBtn
           label="Devral"
           onPress={() => void takeOver()}
-          disabled={saving}
+          disabled={saving || doctorOwns}
           variant="primary"
         />
         <ActionBtn
-          label="AI'ye rehberlik"
-          onPress={() => void guideAiHybrid()}
-          disabled={saving}
-          variant="guide"
-        />
-        <ActionBtn
-          label="AI devam"
-          onPress={() => patch({ action: "resumeAi", clearEscalation: true })}
-          disabled={saving}
-          variant="muted"
+          label="AI devam etsin"
+          onPress={resumeAi}
+          disabled={saving || aiOwns}
+          variant="secondary"
         />
       </View>
-
-      <View ref={draftFieldRef} collapsable={false}>
-        <TextInput
-          ref={draftInputRef}
-          style={[styles.draftInput, compact && styles.draftInputCompact]}
-          multiline
-          placeholder="Manuel yanıt veya AI taslağı — Gönder için Intent Panel'i kullanın"
-          value={draft}
-          onChangeText={setDraft}
-          onFocus={() => onInputFocus?.(draftFieldRef)}
-          blurOnSubmit={false}
-          textAlignVertical="top"
-        />
-      </View>
-      {draft ? (
-        <Pressable style={styles.guideLink} onPress={onGuideAi}>
-          <Text style={styles.guideLinkText}>Taslağı Intent Panel'de düzenle ve gönder →</Text>
-        </Pressable>
-      ) : null}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      {(saving || drafting) && <ActivityIndicator size="small" color="#2563eb" style={{ marginTop: 8 }} />}
+      {saving ? <ActivityIndicator size="small" color="#2563eb" style={{ marginTop: 8 }} /> : null}
     </View>
   );
 }
@@ -190,16 +153,9 @@ function ActionBtn({
   label: string;
   onPress: () => void;
   disabled?: boolean;
-  variant: "primary" | "secondary" | "guide" | "muted";
+  variant: "primary" | "secondary";
 }) {
-  const bg =
-    variant === "primary"
-      ? "#2563eb"
-      : variant === "guide"
-        ? "#7c3aed"
-        : variant === "muted"
-          ? "#9ca3af"
-          : "#64748b";
+  const bg = variant === "primary" ? "#2563eb" : "#0f766e";
   return (
     <Pressable
       style={[styles.btn, { backgroundColor: bg }, disabled && styles.btnDisabled]}
@@ -221,24 +177,22 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   wrapCompact: { padding: 10, marginBottom: 8, borderRadius: 10 },
-  title: { fontSize: 14, fontWeight: "700", color: "#111827", marginBottom: 10 },
-  titleCompact: { fontSize: 13, marginBottom: 6 },
-  row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  btn: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 8 },
-  btnDisabled: { opacity: 0.45 },
-  btnText: { color: "#fff", fontSize: 12, fontWeight: "600" },
-  draftInput: {
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    borderRadius: 8,
-    padding: 10,
-    minHeight: 64,
-    fontSize: 14,
-    textAlignVertical: "top",
+  ownerBanner: { borderRadius: 10, padding: 12, marginBottom: 12 },
+  ownerAi: { backgroundColor: "#eff6ff", borderWidth: 1, borderColor: "#bfdbfe" },
+  ownerDoctor: { backgroundColor: "#f0fdf4", borderWidth: 1, borderColor: "#bbf7d0" },
+  ownerTitle: {
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    color: "#6b7280",
+    marginBottom: 4,
   },
-  draftInputCompact: { marginTop: 8, minHeight: 52, fontSize: 13, padding: 8 },
-  guideLink: { marginTop: 8 },
-  guideLinkText: { fontSize: 12, color: "#7c3aed", fontWeight: "600" },
+  ownerText: { fontSize: 15, fontWeight: "700", color: "#111827" },
+  ownerHint: { fontSize: 12, color: "#4b5563", marginTop: 6, lineHeight: 17 },
+  row: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  btn: { flex: 1, minWidth: 120, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 8 },
+  btnDisabled: { opacity: 0.45 },
+  btnText: { color: "#fff", fontSize: 13, fontWeight: "700", textAlign: "center" },
   error: { marginTop: 8, fontSize: 12, color: "#b91c1c" },
 });

@@ -29,6 +29,8 @@ export type OperationalEvent = {
 };
 
 export type AiState = {
+  conversationOwner?: "ai" | "doctor";
+  conversationOwnerLabel?: string | null;
   responderMode?: string | null;
   responderModeLabel?: string | null;
   primaryResponderLabel?: string | null;
@@ -36,6 +38,7 @@ export type AiState = {
   aiPaused?: boolean;
   autoReplyAllowed?: boolean;
   draftGenerationAllowed?: boolean;
+  canSendPatientMessageAsDoctor?: boolean;
   aiEscalationRequired?: boolean;
   coordinationMode?: string | null;
 };

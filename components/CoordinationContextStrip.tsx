@@ -16,6 +16,11 @@ type Props = {
 };
 
 export function CoordinationContextStrip({ aiState, leadHeat, strategy }: Props) {
+  const doctorOwns = aiState?.conversationOwner === "doctor";
+  const ownerLabel =
+    aiState?.conversationOwnerLabel ||
+    (doctorOwns ? "Doktor konuşmayı yönetiyor" : "AI konuşmayı yönetiyor");
+
   const heatColor = leadHeat?.isHot
     ? "#dc2626"
     : (leadHeat?.score ?? 0) >= 60
@@ -24,21 +29,12 @@ export function CoordinationContextStrip({ aiState, leadHeat, strategy }: Props)
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>AI durumu</Text>
-        <Text style={styles.primary}>
-          {aiState?.primaryResponderLabel || "—"} · {aiState?.responderModeLabel || "—"}
-        </Text>
-        {aiState?.handlingStateLabel ? (
-          <Text style={styles.sub}>{aiState.handlingStateLabel}</Text>
+      <View style={[styles.ownerCard, doctorOwns ? styles.ownerDoctor : styles.ownerAi]}>
+        <Text style={styles.ownerEyebrow}>Tek aktif konuşmacı</Text>
+        <Text style={styles.ownerMain}>{ownerLabel}</Text>
+        {aiState?.aiEscalationRequired ? (
+          <Chip label="İnsan incelemesi gerekli" tone="danger" />
         ) : null}
-        <View style={styles.chips}>
-          {aiState?.aiPaused ? <Chip label="AI duraklatıldı" tone="warn" /> : null}
-          {aiState?.aiEscalationRequired ? <Chip label="Escalation" tone="danger" /> : null}
-          {aiState?.autoReplyAllowed === false ? (
-            <Chip label="Otomatik yanıt kapalı" tone="muted" />
-          ) : null}
-        </View>
       </View>
 
       <View style={styles.card}>
@@ -118,6 +114,22 @@ function Chip({
 
 const styles = StyleSheet.create({
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
+  ownerCard: {
+    flexBasis: "100%",
+    borderRadius: 10,
+    padding: 12,
+  },
+  ownerAi: { backgroundColor: "#eff6ff", borderWidth: 1, borderColor: "#93c5fd" },
+  ownerDoctor: { backgroundColor: "#ecfdf5", borderWidth: 1, borderColor: "#6ee7b7" },
+  ownerEyebrow: {
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    color: "#6b7280",
+    marginBottom: 4,
+  },
+  ownerMain: { fontSize: 16, fontWeight: "800", color: "#111827" },
   card: {
     flexGrow: 1,
     flexBasis: "30%",
@@ -141,6 +153,6 @@ const styles = StyleSheet.create({
   sub: { fontSize: 11, color: "#6b7280", marginTop: 2 },
   heat: { fontSize: 16, fontWeight: "700" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 },
-  chip: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3 },
+  chip: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3, marginTop: 6 },
   chipText: { fontSize: 10, fontWeight: "600" },
 });

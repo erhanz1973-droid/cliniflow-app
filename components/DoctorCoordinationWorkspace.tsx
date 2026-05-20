@@ -181,6 +181,7 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
       <DoctorIntentPanel
         patientId={patientId}
         draftGenerationAllowed={aiState?.draftGenerationAllowed}
+        canSendToPatient={aiState?.conversationOwner === "doctor"}
         onInputFocus={scrollFieldIntoView}
         compact={!isWide}
       />
