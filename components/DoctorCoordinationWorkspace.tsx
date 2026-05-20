@@ -36,7 +36,7 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
   const lastFocusedFieldRef = useRef<RefObject<View | null> | null>(null);
   const insets = useSafeAreaInsets();
   const [keyboardInset, setKeyboardInset] = useState(0);
-  const [showCoordinationDetails, setShowCoordinationDetails] = useState(false);
+  const [showCoordinationDetails, setShowCoordinationDetails] = useState(true);
   const { width } = useWindowDimensions();
   const isWide = width >= 960;
   const { data, loading, error, refresh } = useCoordinationWorkspace(patientId);
