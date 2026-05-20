@@ -78,10 +78,18 @@ export function DoctorIntentPanel({
   const patientDraftFieldRef = useRef<View>(null);
 
   useEffect(() => {
+    let cancelled = false;
     fetchIntentTags()
-      .then(setIntentTags)
-      .catch(() => setIntentTags([]));
-  }, []);
+      .then((tags) => {
+        if (!cancelled) setIntentTags(tags);
+      })
+      .catch(() => {
+        if (!cancelled) setIntentTags([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [patientId]);
 
   useEffect(() => {
     if (draftAllowedProp !== undefined) {

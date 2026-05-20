@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
@@ -43,7 +43,12 @@ export default function DoctorCoordinationScreen() {
         </Text>
         <View style={styles.topSpacer} />
       </View>
-      {patientId ? (
+      {!token ? (
+        <View style={styles.missing}>
+          <ActivityIndicator size="large" color="#2563eb" />
+          <Text style={[styles.missingText, { marginTop: 12 }]}>Oturum doğrulanıyor…</Text>
+        </View>
+      ) : patientId ? (
         <View style={styles.workspace}>
           <DoctorCoordinationWorkspace patientId={patientId} />
         </View>
