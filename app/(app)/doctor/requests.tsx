@@ -13,6 +13,7 @@ import { API_BASE, setAuthToken } from '../../../lib/api';
 import { isEnrolledSharedCare } from '../../../lib/canonicalChatTarget';
 import { startIncomingRequestChat } from '../../../lib/incomingRequestStartChat';
 import { openDoctorPatientChat } from '../../../lib/navigateCanonicalChat';
+import { openDoctorCoordinationWorkspace } from '../../../lib/navigateDoctorCoordination';
 import { fetchRequestMessagingMeta } from '../../../lib/offerMessagingMeta';
 import { invalidateDoctorThreadSummaryCacheOnly } from '../../../lib/doctorMessaging';
 import { doctorPatientPrimaryKey } from '../../../lib/doctorPatientId';
@@ -22,7 +23,7 @@ import {
 } from '../../../lib/treatmentRequestDescription';
 import { useDeferredFocusRefresh } from '../../../hooks/use-deferred-focus-refresh';
 import { focusPerfMark, focusPerfStart } from '../../../lib/perfFocus';
-import { peekCachedResource, setCachedResource } from '../../../lib/resourceCache';
+import { peekCachedResource } from '../../../lib/resourceCache';
 import {
   DOCTOR_REQUESTS_LIST_CACHE_KEY,
   type DoctorRequestRow,
@@ -40,6 +41,10 @@ import {
   sortDoctorRequestsForInbox,
   syncDoctorRequestUnreadFromServer,
 } from '../../../lib/doctorRequestsUnread';
+import {
+  hydrateDoctorRequestsFromDisk,
+  persistDoctorRequestsList,
+} from '../../../lib/doctorRequestsPersistence';
 
 // ── Quick treatment presets ───────────────────────────────────────────────────
 const QUICK = [
@@ -463,6 +468,7 @@ const RequestCard = memo(function RequestCard({
   onOfferSent,
   onLeadOfferChat,
   onOpenEnrolledPatientMessaging,
+  onOpenCoordination,
   isChatsFilter,
   startingChat,
 }: {
@@ -474,6 +480,8 @@ const RequestCard = memo(function RequestCard({
   startingChat?: boolean;
   /** Canonical enrolled / shared-care messaging (Patients → patient-chat). */
   onOpenEnrolledPatientMessaging: (request: Request) => void;
+  /** AI coordination supervision feed for this request's patient. */
+  onOpenCoordination: (request: Request) => void;
   isChatsFilter?: boolean;
 }) {
   const { t } = useLanguage();
@@ -622,6 +630,25 @@ const RequestCard = memo(function RequestCard({
           </View>
         )}
       </View>
+
+      <TouchableOpacity
+        style={cs.coordinationBtn}
+        onPress={() => onOpenCoordination(req)}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel={
+          t('doctor.requests.openCoordination') !== 'doctor.requests.openCoordination'
+            ? t('doctor.requests.openCoordination')
+            : 'AI koordinasyon süpervizyonu'
+        }
+      >
+        <Text style={cs.coordinationBtnText}>
+          🤖{' '}
+          {t('doctor.requests.openCoordination') !== 'doctor.requests.openCoordination'
+            ? t('doctor.requests.openCoordination')
+            : 'AI koordinasyon süpervizyonu'}
+        </Text>
+      </TouchableOpacity>
 
       {/* Quick action buttons — only for pending requests (not enrolled clinic patients) */}
       {isPending && !hasMyOffer && !enrolledShared && (
@@ -779,6 +806,8 @@ export default function DoctorRequestsScreen() {
   const [requests, setRequests] = useState<DoctorRequestRow[]>(cachedList ?? []);
   const [loading, setLoading] = useState(cachedList == null);
   const hasDisplayedContentRef = useRef((cachedList?.length ?? 0) > 0);
+  const diskHydrateStartedRef = useRef(false);
+  const skipFocusRefreshOnceRef = useRef(true);
   const firstPaintMarkedRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -802,31 +831,45 @@ export default function DoctorRequestsScreen() {
       setError(null);
       const endFetch = focusPerfStart('doctor:requests:fetch');
       try {
-        const res = await fetch(`${API_BASE}/api/doctor/treatment-requests`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(
+          `${API_BASE}/api/doctor/treatment-requests?lite=1`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
         const data = await res.json();
         if (!data?.ok) throw new Error(data?.error || 'error');
-        const normalized = normalizeDoctorRequests(
-          Array.isArray(data.requests) ? data.requests : [],
+        const rows = sortDoctorRequestsForInbox(
+          normalizeDoctorRequests(Array.isArray(data.requests) ? data.requests : []),
         );
-        const byOffer = await fetchDoctorOfferUnreadMap(token);
-        const rows = sortDoctorRequestsForInbox(mergeUnreadMapIntoRows(normalized, byOffer));
 
         const applyRows = (next: DoctorRequestRow[]) => {
-          setRequests(sortDoctorRequestsForInbox(next));
-          setCachedResource(DOCTOR_REQUESTS_LIST_CACHE_KEY, next);
+          const sorted = sortDoctorRequestsForInbox(next);
+          setRequests(sorted);
+          persistDoctorRequestsList(sorted);
           hasDisplayedContentRef.current = next.length > 0 || hasDisplayedContentRef.current;
           focusPerfMark('doctor:requests:data_ready', { count: next.length });
         };
 
+        const patchUnreadBadges = () => {
+          void fetchDoctorOfferUnreadMap(token).then((byOffer) => {
+            if (!byOffer || !Object.keys(byOffer).length) return;
+            setRequests((prev) => {
+              const merged = sortDoctorRequestsForInbox(mergeUnreadMapIntoRows(prev, byOffer));
+              persistDoctorRequestsList(merged);
+              return merged;
+            });
+          });
+        };
+
         if (blocking && rows.length > 0) {
           applyRows(stripRequestPhotosForPaint(rows));
+          patchUnreadBadges();
           InteractionManager.runAfterInteractions(() => {
             applyRows(rows);
+            patchUnreadBadges();
           });
         } else {
           applyRows(rows);
+          patchUnreadBadges();
         }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : t('common.error');
@@ -848,16 +891,37 @@ export default function DoctorRequestsScreen() {
   }, [cachedList]);
 
   useEffect(() => {
-    if (!token) return;
-    const task = InteractionManager.runAfterInteractions(() => {
-      void load({ blocking: !hasDisplayedContentRef.current });
+    if (diskHydrateStartedRef.current) return;
+    if (cachedList?.length) return;
+    diskHydrateStartedRef.current = true;
+    let cancelled = false;
+    void hydrateDoctorRequestsFromDisk().then((rows) => {
+      if (cancelled || !rows?.length || hasDisplayedContentRef.current) return;
+      setRequests(sortDoctorRequestsForInbox(rows));
+      hasDisplayedContentRef.current = true;
+      setLoading(false);
+      focusPerfMark('doctor:requests:data_ready', { count: rows.length, source: 'disk' });
+      markFirstPaint('disk');
     });
-    return () => task.cancel?.();
+    return () => {
+      cancelled = true;
+    };
+  }, [cachedList, markFirstPaint]);
+
+  useEffect(() => {
+    if (!token) return;
+    void load({ blocking: !hasDisplayedContentRef.current });
   }, [token, load]);
 
   useDeferredFocusRefresh(
     'doctor:requests:focus',
-    () => load({ blocking: false }),
+    () => {
+      if (skipFocusRefreshOnceRef.current) {
+        skipFocusRefreshOnceRef.current = false;
+        return;
+      }
+      return load({ blocking: false });
+    },
     { enabled: !!token, minIntervalMs: 55_000 }
   );
 
@@ -879,11 +943,6 @@ export default function DoctorRequestsScreen() {
       const next = handleDoctorOfferUnreadEvent(ev);
       if (next) applyUnreadSync(next);
     });
-  }, [token, applyUnreadSync]);
-
-  useEffect(() => {
-    if (!token) return;
-    void syncDoctorRequestUnreadFromServer(token, requestsRef.current).then(applyUnreadSync);
   }, [token, applyUnreadSync]);
 
   const onRefresh = useCallback(() => {
@@ -917,6 +976,24 @@ export default function DoctorRequestsScreen() {
       });
     },
     [router, token],
+  );
+
+  const handleOpenCoordination = useCallback(
+    (req: Request) => {
+      if (!token) return;
+      setAuthToken(token);
+      openDoctorCoordinationWorkspace(
+        router,
+        {
+          requestId: req.id,
+          patientId: req.patient_id,
+          patientName: req.patient_name || 'Patient',
+        },
+        token,
+        t,
+      );
+    },
+    [router, token, t],
   );
 
   const handleLeadOfferChatPress = useCallback(
@@ -1033,6 +1110,7 @@ export default function DoctorRequestsScreen() {
         onOfferSent={handleOfferSent}
         onLeadOfferChat={handleLeadOfferChatPress}
         onOpenEnrolledPatientMessaging={openEnrolledPatientMessaging}
+        onOpenCoordination={handleOpenCoordination}
         startingChat={startingChatRequestId === item.id}
       />
     ),
@@ -1043,6 +1121,7 @@ export default function DoctorRequestsScreen() {
       handleOfferSent,
       handleLeadOfferChatPress,
       openEnrolledPatientMessaging,
+      handleOpenCoordination,
     ]
   );
 
@@ -1269,6 +1348,17 @@ const cs = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 7,
   },
   resendBtnText: { fontSize: 12, fontWeight: '600', color: '#374151' },
+  coordinationBtn: {
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#c4b5fd',
+    backgroundColor: '#f5f3ff',
+    alignItems: 'center',
+  },
+  coordinationBtnText: { fontSize: 13, fontWeight: '700', color: '#5b21b6' },
   // Chat-focused full-width button (shown in "My Chats" filter)
   chatBtnFull: {
     backgroundColor: '#2563EB', borderRadius: 10, paddingVertical: 12,

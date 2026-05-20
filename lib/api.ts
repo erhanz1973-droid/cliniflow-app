@@ -264,3 +264,60 @@ export async function apiPut<T>(path: string, body: any): Promise<T> {
   }
 }
 
+// =====================
+// Generic JSON fetch (doctor coordination workspace, clinical guidance)
+// =====================
+
+export async function apiFetchJson<T>(
+  path: string,
+  init?: RequestInit & { timeoutMs?: number },
+): Promise<T> {
+  const { timeoutMs, ...rest } = init ?? {};
+  const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
+  const ms = timeoutMs ?? TIMEOUT_GET;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), ms);
+  const baseHeaders: Record<string, string> = {
+    Accept: "application/json",
+    ...authHeaders(),
+  };
+  const extra = (rest.headers as Record<string, string> | undefined) ?? {};
+  try {
+    const res = await fetch(url, {
+      ...rest,
+      headers: {
+        ...baseHeaders,
+        ...extra,
+      },
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let body: unknown = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      throw new Error(`Invalid JSON from ${url}: ${text.slice(0, 200)}`);
+    }
+    if (!res.ok) {
+      const errPayload =
+        body && typeof body === "object" && !Array.isArray(body)
+          ? (body as { error?: string; message?: string })
+          : {};
+      const detail =
+        errPayload.message || errPayload.error || text.slice(0, 200) || res.statusText;
+      const err = new Error(`HTTP ${res.status}: ${detail}`) as Error & {
+        status?: number;
+        code?: string;
+        body?: unknown;
+      };
+      err.status = res.status;
+      err.code = errPayload.error;
+      err.body = body;
+      throw err;
+    }
+    return body as T;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
