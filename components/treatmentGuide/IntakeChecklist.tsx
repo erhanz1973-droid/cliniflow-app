@@ -7,6 +7,8 @@ import type { OperationalIntakeFlags } from "../../lib/treatmentGuide/types";
 type Props = {
   flags: OperationalIntakeFlags | null;
   embedded?: boolean;
+  /** Cap visible rows to reduce upload fatigue (pending items first). */
+  maxVisible?: number;
 };
 
 function StatusIcon({ status }: { status: "done" | "pending" | "optional" }) {
@@ -15,9 +17,17 @@ function StatusIcon({ status }: { status: "done" | "pending" | "optional" }) {
   return <Text style={styles.iconPending}>○</Text>;
 }
 
-export function IntakeChecklist({ flags, embedded }: Props) {
+export function IntakeChecklist({ flags, embedded, maxVisible }: Props) {
   const { t } = useLanguage();
-  const items = useMemo(() => buildIntakeChecklist(flags), [flags]);
+  const items = useMemo(() => {
+    const all = buildIntakeChecklist(flags);
+    if (!maxVisible || maxVisible >= all.length) return all;
+    const pending = all.filter((i) => i.status === "pending");
+    const rest = all.filter((i) => i.status !== "pending");
+    return [...pending, ...rest].slice(0, maxVisible);
+  }, [flags, maxVisible]);
+  const totalCount = useMemo(() => buildIntakeChecklist(flags).length, [flags]);
+  const hiddenCount = maxVisible && totalCount > maxVisible ? totalCount - maxVisible : 0;
 
   if (!items.length) return null;
 
@@ -46,6 +56,11 @@ export function IntakeChecklist({ flags, embedded }: Props) {
           </View>
         </View>
       ))}
+      {hiddenCount > 0 ? (
+        <Text style={styles.moreHint}>
+          {t("treatmentGuide.checklist.moreItems", { count: String(hiddenCount) })}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -75,4 +90,5 @@ const styles = StyleSheet.create({
   labelDone: { color: "#047857" },
   labelPending: { color: "#475569" },
   hint: { fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 17 },
+  moreHint: { fontSize: 12, color: "#94a3b8", marginTop: 4, fontStyle: "italic" },
 });

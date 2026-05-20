@@ -2,7 +2,7 @@
  * Doctor dashboard home — tek kaynak: GET /api/doctor/dashboard (timeline: todayAppointments / tomorrowAppointments).
  * Route: /doctor
  */
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   View,
   Text,
@@ -10,17 +10,36 @@ import {
   TouchableOpacity,
   Pressable,
   StyleSheet,
-  ActivityIndicator,
   RefreshControl,
   Alert,
   Modal,
+  InteractionManager,
 } from "react-native";
-import { useRouter, useFocusEffect } from "expo-router";
+import { useRouter } from "expo-router";
+import { useDeferredFocusRefresh } from "../../../hooks/use-deferred-focus-refresh";
+import { focusPerfStart } from "../../../lib/perfFocus";
+import {
+  hydrateDoctorDashboardFromDisk,
+  persistDoctorDashboardSecondary,
+  persistDoctorDashboardVm,
+} from "../../../lib/doctorDashboardPersistence";
+import {
+  markDoctorHome,
+  startDoctorHomeTimer,
+  markStartupOnce,
+} from "../../../lib/startupPerf";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAuth } from "../../../lib/auth";
+import { useAuth, useAuthSession } from "../../../lib/auth";
 import { useLanguage } from "../../../lib/language-context";
 import { API_BASE, setAuthToken } from "../../../lib/api";
 import { fetchDoctorUnreadTotalOnly } from "../../../lib/doctorMessaging";
+import {
+  DOCTOR_DASHBOARD_SECONDARY_CACHE_KEY,
+  DOCTOR_DASHBOARD_VM_CACHE_KEY,
+  type DashboardSecondarySnapshot,
+  type DoctorDashboardViewModel,
+} from "../../../lib/doctorDashboardViewModel";
+import { peekCachedResource } from "../../../lib/resourceCache";
 
 type DashboardAppt = {
   appointmentId?: string;
@@ -525,32 +544,194 @@ function formatYmdInTimeZone(d: Date, ianaTz: string): string {
   return `${y}-${m}-${day}`;
 }
 
+/** CPU-heavy dashboard normalize — run after first paint (InteractionManager). */
+function buildDashboardViewModel(
+  data: Record<string, unknown>,
+  fallbackDoctorName: string
+): DoctorDashboardViewModel {
+  const d = asObj(data.doctor) ?? {};
+  const doctorName = String(d.name ?? fallbackDoctorName ?? "Doctor");
+  const st = asObj(data.stats) ?? {};
+  const stats: Stats = {
+    planned: Number(st.planned) || 0,
+    in_progress: Number(st.in_progress ?? st.inProgress) || 0,
+    done: Number(st.done) || 0,
+    today: Number(st.today) || 0,
+    waiting: Number(st.waiting) || 0,
+  };
+
+  const dc = asObj(data.dashboardCalendar) ?? asObj(data.dashboard_calendar);
+  const apiCalTz = dc ? String(dc.timezone ?? "").trim() : "";
+  const todayYmdApi = dc ? String(dc.todayYmd ?? "").trim() : "";
+  const tomorrowYmdApi = dc ? String(dc.tomorrowYmd ?? "").trim() : "";
+
+  const { today: rawToday, tomorrow: rawTomorrow } = pickAppointmentArrays(data);
+  const attachTz = (row: unknown) => {
+    const n = normalizeApptRaw(row);
+    return apiCalTz && !n.timezone ? ({ ...n, timezone: apiCalTz } as DashboardAppt) : n;
+  };
+  let todayList = sortPlansByStart(
+    dedupePlanRows(
+      rawToday.map((row) => mapApptToPlanWithSource(attachTz(row), "today")),
+      "today raw"
+    )
+  );
+  let tomorrowList = sortPlansByStart(
+    dedupePlanRows(
+      rawTomorrow.map((row) => mapApptToPlanWithSource(attachTz(row), "tomorrow")),
+      "tomorrow raw"
+    )
+  );
+
+  const upcomingList: PlanRow[] = [];
+  const devNow = new Date();
+  const calTz = apiCalTz || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const fallbackTodayYmd = todayYmdApi || formatYmdInTimeZone(devNow, calTz);
+  const devTom = new Date(devNow);
+  devTom.setDate(devTom.getDate() + 1);
+  const fallbackTomorrowYmd = tomorrowYmdApi || formatYmdInTimeZone(devTom, calTz);
+
+  const legacyRaw = Array.isArray(data.recentTreatmentPlans)
+    ? data.recentTreatmentPlans
+    : Array.isArray(data.recent_treatment_plans)
+      ? data.recent_treatment_plans
+      : [];
+  const legacy = legacyRaw.map((x: Record<string, unknown>) => normalizeLegacyPlan(x));
+
+  if (todayList.length === 0 && tomorrowList.length === 0 && legacy.length > 0) {
+    legacy.forEach((plan) => {
+      const dateStr = plan.scheduled_date || plan.date || plan.created_at;
+      if (!dateStr) {
+        upcomingList.push(plan);
+        return;
+      }
+      const planDate = parseScheduleLocal(dateStr);
+      if (!planDate) {
+        warnUnparseableSchedule("legacy (fill today/tomorrow)", dateStr, plan.id, {
+          procedure: plan.procedure_name,
+        });
+        upcomingList.push(plan);
+        return;
+      }
+      const ymd = formatYmdInTimeZone(planDate, calTz);
+      if (ymd === fallbackTodayYmd) todayList.push(plan);
+      else if (ymd === fallbackTomorrowYmd) tomorrowList.push(plan);
+      else if (ymd > fallbackTodayYmd) upcomingList.push(plan);
+    });
+  } else {
+    legacy.forEach((plan) => {
+      const dateStr = plan.scheduled_date || plan.date || plan.created_at;
+      if (!dateStr) {
+        upcomingList.push(plan);
+        return;
+      }
+      const planDate = parseScheduleLocal(dateStr);
+      if (!planDate) {
+        warnUnparseableSchedule("legacy (upcoming path)", dateStr, plan.id, {
+          procedure: plan.procedure_name,
+        });
+        upcomingList.push(plan);
+        return;
+      }
+      const ymd = formatYmdInTimeZone(planDate, calTz);
+      if (ymd === fallbackTodayYmd || ymd === fallbackTomorrowYmd) return;
+      if (ymd > fallbackTomorrowYmd) upcomingList.push(plan);
+    });
+  }
+
+  todayList = sortPlansByStart(dedupePlanRows(todayList, "today list")).map(stripInternalPlanFields);
+  tomorrowList = sortPlansByStart(dedupePlanRows(tomorrowList, "tomorrow list")).map(
+    stripInternalPlanFields
+  );
+
+  const rp = Array.isArray(data.recentPatients)
+    ? data.recentPatients
+    : Array.isArray(data.recent_patients)
+      ? data.recent_patients
+      : [];
+
+  return {
+    doctorName,
+    stats,
+    todayPlans: todayList,
+    tomorrowPlans: tomorrowList,
+    upcomingPlans: upcomingList.map(stripInternalPlanFields),
+    recentPatients: rp.map((p: Record<string, unknown>) => ({
+      id: String(p.id ?? ""),
+      name: String(p.name ?? "Hasta"),
+      hasRisk: Boolean(p.hasRisk),
+      riskFlags: normalizeRecentRiskFlags(p.riskFlags),
+      lastVisit: p.lastVisit != null ? String(p.lastVisit) : null,
+    })),
+    rebucketFromApiOtherCount: 0,
+  };
+}
+
+function deferDashboardTransform(work: () => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(() => {
+        try {
+          work();
+          resolve();
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+  });
+}
+
+function DashboardSkeleton({ children }: { children?: ReactNode }) {
+  return (
+    <View style={styles.skeletonBlock}>
+      {children ?? <View style={styles.skeletonLine} />}
+    </View>
+  );
+}
+
 export default function DoctorDashboardHome() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
+  const { token, signOut, isDoctor } = useAuthSession();
   const { t } = useLanguage();
-  const token = user?.token ?? "";
 
-  const [loading, setLoading] = useState(true);
+  const initialVm = peekCachedResource<DoctorDashboardViewModel>(DOCTOR_DASHBOARD_VM_CACHE_KEY);
+  const initialSecondary = peekCachedResource<DashboardSecondarySnapshot>(
+    DOCTOR_DASHBOARD_SECONDARY_CACHE_KEY
+  );
+
+  const [loading, setLoading] = useState(!initialVm);
+  const hasDisplayedContentRef = useRef(!!initialVm);
+  const firstPaintMarkedRef = useRef(false);
+  const interactiveMarkedRef = useRef(false);
+  const diskHydrateStartedRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [doctorName, setDoctorName] = useState("");
-  const [stats, setStats] = useState<Stats>({
-    planned: 0,
-    in_progress: 0,
-    done: 0,
-    today: 0,
-    waiting: 0,
-  });
-  const [todayPlans, setTodayPlans] = useState<PlanRow[]>([]);
-  const [tomorrowPlans, setTomorrowPlans] = useState<PlanRow[]>([]);
-  const [upcomingPlans, setUpcomingPlans] = useState<PlanRow[]>([]);
-  const [recentPatients, setRecentPatients] = useState<RecentPatient[]>([]);
-  /** Internal: count of rows from API rebucket "other" (hint only; not on PlanRow) */
-  const [rebucketFromApiOtherCount, setRebucketFromApiOtherCount] = useState(0);
-  const [pendingRequestCount, setPendingRequestCount] = useState(0);
-  const [unreadMsgCount, setUnreadMsgCount] = useState(0);
+  const [doctorName, setDoctorName] = useState(initialVm?.doctorName ?? "");
+  const [stats, setStats] = useState<Stats>(
+    initialVm?.stats ?? {
+      planned: 0,
+      in_progress: 0,
+      done: 0,
+      today: 0,
+      waiting: 0,
+    }
+  );
+  const [todayPlans, setTodayPlans] = useState<PlanRow[]>(initialVm?.todayPlans ?? []);
+  const [tomorrowPlans, setTomorrowPlans] = useState<PlanRow[]>(initialVm?.tomorrowPlans ?? []);
+  const [upcomingPlans, setUpcomingPlans] = useState<PlanRow[]>(initialVm?.upcomingPlans ?? []);
+  const [recentPatients, setRecentPatients] = useState<RecentPatient[]>(
+    initialVm?.recentPatients ?? []
+  );
+  const [rebucketFromApiOtherCount, setRebucketFromApiOtherCount] = useState(
+    initialVm?.rebucketFromApiOtherCount ?? 0
+  );
+  const [pendingRequestCount, setPendingRequestCount] = useState(
+    initialSecondary?.pendingRequestCount ?? 0
+  );
+  const [unreadMsgCount, setUnreadMsgCount] = useState(initialSecondary?.unreadMsgCount ?? 0);
   const [scheduleTextModal, setScheduleTextModal] = useState<{ open: boolean; text: string }>({
     open: false,
     text: "",
@@ -562,195 +743,166 @@ export default function DoctorDashboardHome() {
     setScheduleTextModal((prev) => ({ ...prev, open: false }));
   }, []);
 
-  const load = useCallback(async () => {
+  const applyDashboardViewModel = useCallback((vm: DoctorDashboardViewModel) => {
+    setDoctorName(vm.doctorName);
+    setStats(vm.stats);
+    setTodayPlans(vm.todayPlans);
+    setTomorrowPlans(vm.tomorrowPlans);
+    setUpcomingPlans(vm.upcomingPlans);
+    setRecentPatients(vm.recentPatients);
+    setRebucketFromApiOtherCount(vm.rebucketFromApiOtherCount);
+    hasDisplayedContentRef.current = true;
+    setLoading(false);
+  }, []);
+
+  const markFirstPaint = useCallback((source: string) => {
+    if (firstPaintMarkedRef.current) return;
+    firstPaintMarkedRef.current = true;
+    markDoctorHome("first_paint", { source });
+  }, []);
+
+  const markInteractive = useCallback(() => {
+    if (interactiveMarkedRef.current) return;
+    interactiveMarkedRef.current = true;
+    markDoctorHome("interactive");
+  }, []);
+
+  useEffect(() => {
+    startDoctorHomeTimer("first_paint");
+    startDoctorHomeTimer("data_ready");
+    startDoctorHomeTimer("interactive");
+    markStartupOnce("doctor_dashboard_mount");
+    if (initialVm) {
+      markDoctorHome("data_ready", { source: "memory" });
+    }
+  }, [initialVm]);
+
+  useEffect(() => {
+    if (diskHydrateStartedRef.current) return;
+    if (initialVm) return;
+    diskHydrateStartedRef.current = true;
+    let cancelled = false;
+    void hydrateDoctorDashboardFromDisk().then(({ vm, secondary }) => {
+      if (cancelled) return;
+      if (vm && !hasDisplayedContentRef.current) {
+        applyDashboardViewModel(vm);
+        markDoctorHome("data_ready", { source: "disk" });
+        markFirstPaint("disk");
+      }
+      if (secondary) {
+        setPendingRequestCount(secondary.pendingRequestCount);
+        setUnreadMsgCount(secondary.unreadMsgCount);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialVm, applyDashboardViewModel, markFirstPaint]);
+
+  const fallbackDoctorName = user?.name ?? "Doctor";
+
+  const loadSecondary = useCallback(async () => {
     if (!token) return;
-    setError(null);
+    const endFetch = focusPerfStart("doctor:dashboard:secondary");
     try {
-      setAuthToken(token);
-
-      const res = await fetch(`${API_BASE}/api/doctor/dashboard`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const [pending, unread] = await Promise.all([
+        fetch(`${API_BASE}/api/doctor/treatment-requests`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then((r) => r.json())
+          .then((reqData) => {
+            const list = (reqData?.requests ?? []) as { status?: string }[];
+            return list.filter((r) => r.status === "pending").length;
+          })
+          .catch(() => 0),
+        fetchDoctorUnreadTotalOnly(token).catch(() => 0),
+      ]);
+      setPendingRequestCount(pending);
+      setUnreadMsgCount(unread);
+      persistDoctorDashboardSecondary({
+        pendingRequestCount: pending,
+        unreadMsgCount: unread,
       });
-      const data = (await res.json()) as Record<string, unknown>;
-      if (!data?.ok) throw new Error(String(data?.error || data?.message || `HTTP ${res.status}`));
+    } finally {
+      endFetch();
+    }
+  }, [token]);
 
-      const apiPayload = data as {
-        todayAppointments?: unknown[] | null;
-        tomorrowAppointments?: unknown[] | null;
-      };
-      if (__DEV__) {
-        console.log("🧪 API todayAppointments:", apiPayload.todayAppointments?.length);
-        console.log("🧪 API tomorrowAppointments:", apiPayload.tomorrowAppointments?.length);
-        console.log("🧪 API sample:", apiPayload.todayAppointments?.[0]);
-      }
+  const scheduleSecondaryHydration = useCallback(() => {
+    InteractionManager.runAfterInteractions(() => {
+      void loadSecondary();
+    });
+  }, [loadSecondary]);
 
-      const d = asObj(data.doctor) ?? {};
-      setDoctorName(String(d.name ?? user?.name ?? "Doctor"));
-
-      const st = asObj(data.stats) ?? {};
-      setStats({
-        planned: Number(st.planned) || 0,
-        in_progress: Number(st.in_progress ?? st.inProgress) || 0,
-        done: Number(st.done) || 0,
-        today: Number(st.today) || 0,
-        waiting: Number(st.waiting) || 0,
-      });
-
-      const dc = asObj(data.dashboardCalendar) ?? asObj(data.dashboard_calendar);
-      const apiCalTz = dc ? String(dc.timezone ?? "").trim() : "";
-      const todayYmdApi = dc ? String(dc.todayYmd ?? "").trim() : "";
-      const tomorrowYmdApi = dc ? String(dc.tomorrowYmd ?? "").trim() : "";
-
-      const { today: rawToday, tomorrow: rawTomorrow } = pickAppointmentArrays(data);
-      const attachTz = (row: unknown) => {
-        const n = normalizeApptRaw(row);
-        return apiCalTz && !n.timezone ? ({ ...n, timezone: apiCalTz } as DashboardAppt) : n;
-      };
-      let todayList = sortPlansByStart(
-        dedupePlanRows(
-          rawToday.map((row) => mapApptToPlanWithSource(attachTz(row), "today")),
-          "today raw"
-        )
-      );
-      let tomorrowList = sortPlansByStart(
-        dedupePlanRows(
-          rawTomorrow.map((row) => mapApptToPlanWithSource(attachTz(row), "tomorrow")),
-          "tomorrow raw"
-        )
-      );
-
-      setRebucketFromApiOtherCount(0);
-
-      const upcomingList: PlanRow[] = [];
-
-      const devNow = new Date();
-      const calTz = apiCalTz || Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const fallbackTodayYmd = todayYmdApi || formatYmdInTimeZone(devNow, calTz);
-      const devTom = new Date(devNow);
-      devTom.setDate(devTom.getDate() + 1);
-      const fallbackTomorrowYmd = tomorrowYmdApi || formatYmdInTimeZone(devTom, calTz);
-
-      const legacyRaw = Array.isArray(data.recentTreatmentPlans)
-        ? data.recentTreatmentPlans
-        : Array.isArray(data.recent_treatment_plans)
-          ? data.recent_treatment_plans
-          : [];
-      const legacy = legacyRaw.map((x: Record<string, unknown>) => normalizeLegacyPlan(x));
-
-      if (todayList.length === 0 && tomorrowList.length === 0 && legacy.length > 0) {
-        legacy.forEach((plan) => {
-          const dateStr = plan.scheduled_date || plan.date || plan.created_at;
-          if (!dateStr) {
-            upcomingList.push(plan);
-            return;
-          }
-          const planDate = parseScheduleLocal(dateStr);
-          if (!planDate) {
-            warnUnparseableSchedule("legacy (fill today/tomorrow)", dateStr, plan.id, { procedure: plan.procedure_name });
-            upcomingList.push(plan);
-            return;
-          }
-          const ymd = formatYmdInTimeZone(planDate, calTz);
-          if (ymd === fallbackTodayYmd) todayList.push(plan);
-          else if (ymd === fallbackTomorrowYmd) tomorrowList.push(plan);
-          else if (ymd > fallbackTodayYmd) upcomingList.push(plan);
-        });
-      } else {
-        legacy.forEach((plan) => {
-          const dateStr = plan.scheduled_date || plan.date || plan.created_at;
-          if (!dateStr) {
-            upcomingList.push(plan);
-            return;
-          }
-          const planDate = parseScheduleLocal(dateStr);
-          if (!planDate) {
-            warnUnparseableSchedule("legacy (upcoming path)", dateStr, plan.id, { procedure: plan.procedure_name });
-            upcomingList.push(plan);
-            return;
-          }
-          const ymd = formatYmdInTimeZone(planDate, calTz);
-          if (ymd === fallbackTodayYmd || ymd === fallbackTomorrowYmd) return;
-          if (ymd > fallbackTomorrowYmd) upcomingList.push(plan);
-        });
-      }
-
-      todayList = sortPlansByStart(dedupePlanRows(todayList, "today list")).map(stripInternalPlanFields);
-      tomorrowList = sortPlansByStart(dedupePlanRows(tomorrowList, "tomorrow list")).map(
-        stripInternalPlanFields
-      );
-
-      const topTodayLen = apiPayload.todayAppointments?.length ?? 0;
-      const topTomorrowLen = apiPayload.tomorrowAppointments?.length ?? 0;
-      if (__DEV__) {
-        if (topTodayLen > 0 && todayList.length === 0) {
-          console.log("⚠️ UI EMPTY BUT DATA EXISTS (todayAppointments from API, mapped today list empty)");
-        }
-        if (topTomorrowLen > 0 && tomorrowList.length === 0) {
-          console.log("⚠️ UI EMPTY BUT DATA EXISTS (tomorrowAppointments from API, mapped tomorrow list empty)");
-        }
-        if (todayList.length === 0 && Number(st.today) > 0) {
-          console.log("⚠️ UI EMPTY BUT DATA EXISTS (stats.today > 0 but today list is empty)");
-        }
-      }
-
-      setTodayPlans(todayList);
-      setTomorrowPlans(tomorrowList);
-      setUpcomingPlans(upcomingList.map(stripInternalPlanFields));
-
-      const rp = Array.isArray(data.recentPatients)
-        ? data.recentPatients
-        : Array.isArray(data.recent_patients)
-          ? data.recent_patients
-          : [];
-      setRecentPatients(
-        rp.map((p: Record<string, unknown>) => ({
-          id: String(p.id ?? ""),
-          name: String(p.name ?? "Hasta"),
-          hasRisk: Boolean(p.hasRisk),
-          riskFlags: normalizeRecentRiskFlags(p.riskFlags),
-          lastVisit: p.lastVisit != null ? String(p.lastVisit) : null,
-        }))
-      );
-
-      // Pending (unanswered) treatment request count for dashboard badge
+  const loadCritical = useCallback(
+    async (opts?: { blocking?: boolean }) => {
+      if (!token) return;
+      const blocking = opts?.blocking === true && !hasDisplayedContentRef.current;
+      if (blocking) setLoading(true);
+      setError(null);
+      const endFetch = focusPerfStart("doctor:dashboard:fetch");
       try {
-        const reqRes = await fetch(`${API_BASE}/api/doctor/treatment-requests`, {
+        setAuthToken(token);
+        const res = await fetch(`${API_BASE}/api/doctor/dashboard`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const reqData = await reqRes.json();
-        const pending = (reqData?.requests ?? []).filter(
-          (r: { status?: string }) => r.status === "pending"
-        ).length;
-        setPendingRequestCount(pending);
-      } catch {
-        // non-critical — badge stays at 0
-      }
+        const rawText = await res.text();
+        let data: Record<string, unknown>;
+        try {
+          data = JSON.parse(rawText) as Record<string, unknown>;
+        } catch {
+          throw new Error(`Invalid dashboard JSON (HTTP ${res.status})`);
+        }
+        if (!data?.ok) {
+          throw new Error(String(data?.error || data?.message || `HTTP ${res.status}`));
+        }
 
-      // Unread patient messages badge (deduped client-side with poll — fetchDoctorUnreadTotalOnly)
-      try {
-        const n = await fetchDoctorUnreadTotalOnly(token);
-        setUnreadMsgCount(n);
-      } catch {
-        // non-critical
-      }
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Dashboard error");
-      setTodayPlans([]);
-      setTomorrowPlans([]);
-      setUpcomingPlans([]);
-      setRebucketFromApiOtherCount(0);
-      setRecentPatients([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [token, user?.name]);
+        await deferDashboardTransform(() => {
+          const vm = buildDashboardViewModel(data, fallbackDoctorName);
+          applyDashboardViewModel(vm);
+          persistDoctorDashboardVm(vm);
+          markDoctorHome("data_ready", { source: "network" });
+        });
 
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true);
-      void load();
-    }, [load])
+        scheduleSecondaryHydration();
+      } catch (e: unknown) {
+        if (!hasDisplayedContentRef.current) {
+          setError(e instanceof Error ? e.message : "Dashboard error");
+          setTodayPlans([]);
+          setTomorrowPlans([]);
+          setUpcomingPlans([]);
+          setRebucketFromApiOtherCount(0);
+          setRecentPatients([]);
+        }
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+        endFetch();
+      }
+    },
+    [token, fallbackDoctorName, applyDashboardViewModel, scheduleSecondaryHydration]
+  );
+
+  useEffect(() => {
+    if (!token) return;
+    const runFetch = () => {
+      if (hasDisplayedContentRef.current) {
+        scheduleSecondaryHydration();
+        void loadCritical({ blocking: false });
+        return;
+      }
+      void loadCritical({ blocking: true });
+    };
+    const task = InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(runFetch);
+    });
+    return () => task.cancel?.();
+  }, [token, loadCritical, scheduleSecondaryHydration]);
+
+  useDeferredFocusRefresh(
+    "doctor:dashboard:focus",
+    () => loadCritical({ blocking: false }),
+    { enabled: !!token, minIntervalMs: 60_000 }
   );
 
   useEffect(() => {
@@ -761,20 +913,33 @@ export default function DoctorDashboardHome() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    void load();
+    void loadCritical({ blocking: false });
   };
 
-  // Poll unread message count every 30 s (lightweight — totalOnly=1)
+  // Poll unread after home is interactive — not on cold-start critical path
   useEffect(() => {
     if (!token) return;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let startId: ReturnType<typeof setTimeout> | null = null;
     const fetchUnread = async () => {
       try {
         const n = await fetchDoctorUnreadTotalOnly(token);
         setUnreadMsgCount(n);
-      } catch { /* non-critical */ }
+      } catch {
+        /* non-critical */
+      }
     };
-    const id = setInterval(fetchUnread, 30_000);
-    return () => clearInterval(id);
+    const task = InteractionManager.runAfterInteractions(() => {
+      startId = setTimeout(() => {
+        void fetchUnread();
+        intervalId = setInterval(() => void fetchUnread(), 30_000);
+      }, 4_000);
+    });
+    return () => {
+      task.cancel?.();
+      if (startId) clearTimeout(startId);
+      if (intervalId) clearInterval(intervalId);
+    };
   }, [token]);
 
   const greeting = () => {
@@ -1014,8 +1179,7 @@ export default function DoctorDashboardHome() {
     );
   };
 
-  const isDoctor = user?.type === "doctor" || user?.role === "DOCTOR";
-  if (!user || !isDoctor) {
+  if (!token || !isDoctor) {
     return (
       <View style={[styles.screen, { paddingTop: insets.top + 24 }]}>
         <Text style={styles.muted}>{t("common.unauthorized") || "Unauthorized"}</Text>
@@ -1025,19 +1189,25 @@ export default function DoctorDashboardHome() {
 
   const hasUpcoming = upcomingPlans.length > 0;
 
-  if (loading) {
-    return (
-      <View style={[styles.screen, styles.loadingWrap, { paddingTop: insets.top }]}>
-        <ActivityIndicator size="large" color="#2563eb" />
-        <Text style={styles.loadingText}>{t("common.loading")}</Text>
-      </View>
-    );
-  }
+  const showContentSkeleton =
+    loading &&
+    !hasDisplayedContentRef.current &&
+    todayPlans.length === 0 &&
+    tomorrowPlans.length === 0 &&
+    recentPatients.length === 0;
 
   const displayName = doctorName || user?.name || "Doctor";
 
   return (
-    <View style={styles.rootWithTabs}>
+    <View
+      style={styles.rootWithTabs}
+      onLayout={() => {
+        markFirstPaint(hasDisplayedContentRef.current ? "cache" : "shell");
+        InteractionManager.runAfterInteractions(() => {
+          requestAnimationFrame(() => markInteractive());
+        });
+      }}
+    >
       <ScrollView
         style={styles.container}
         showsVerticalScrollIndicator={false}
@@ -1064,29 +1234,40 @@ export default function DoctorDashboardHome() {
       {error ? (
         <View style={styles.errBanner}>
           <Text style={styles.errBannerTxt}>{error}</Text>
-          <TouchableOpacity onPress={() => { setLoading(true); void load(); }}>
+          <TouchableOpacity onPress={() => { void loadCritical({ blocking: false }); }}>
             <Text style={styles.retry}>{t("requests.retry") || "Retry"}</Text>
           </TouchableOpacity>
         </View>
       ) : null}
 
       <View style={styles.statsRow}>
-        <View style={[styles.statCard, { borderLeftColor: "#2563eb" }]}>
-          <Text style={styles.statValue}>{stats.planned}</Text>
-          <Text style={styles.statTitle}>{t("doctor.stats.planned")}</Text>
-        </View>
-        <View style={[styles.statCard, { borderLeftColor: "#f59e0b" }]}>
-          <Text style={styles.statValue}>{stats.today}</Text>
-          <Text style={styles.statTitle}>{t("doctor.stats.appointmentsToday")}</Text>
-        </View>
-        <View style={[styles.statCard, { borderLeftColor: "#16a34a" }]}>
-          <Text style={styles.statValue}>{stats.in_progress}</Text>
-          <Text style={styles.statTitle}>{t("doctor.stats.inProgress")}</Text>
-        </View>
-        <View style={[styles.statCard, { borderLeftColor: "#9ca3af" }]}>
-          <Text style={styles.statValue}>{stats.done}</Text>
-          <Text style={styles.statTitle}>{t("doctor.stats.completed")}</Text>
-        </View>
+        {showContentSkeleton ? (
+          <>
+            <DashboardSkeleton />
+            <DashboardSkeleton />
+            <DashboardSkeleton />
+            <DashboardSkeleton />
+          </>
+        ) : (
+          <>
+            <View style={[styles.statCard, { borderLeftColor: "#2563eb" }]}>
+              <Text style={styles.statValue}>{stats.planned}</Text>
+              <Text style={styles.statTitle}>{t("doctor.stats.planned")}</Text>
+            </View>
+            <View style={[styles.statCard, { borderLeftColor: "#f59e0b" }]}>
+              <Text style={styles.statValue}>{stats.today}</Text>
+              <Text style={styles.statTitle}>{t("doctor.stats.appointmentsToday")}</Text>
+            </View>
+            <View style={[styles.statCard, { borderLeftColor: "#16a34a" }]}>
+              <Text style={styles.statValue}>{stats.in_progress}</Text>
+              <Text style={styles.statTitle}>{t("doctor.stats.inProgress")}</Text>
+            </View>
+            <View style={[styles.statCard, { borderLeftColor: "#9ca3af" }]}>
+              <Text style={styles.statValue}>{stats.done}</Text>
+              <Text style={styles.statTitle}>{t("doctor.stats.completed")}</Text>
+            </View>
+          </>
+        )}
       </View>
 
       <View style={styles.section}>
@@ -1341,6 +1522,19 @@ const styles = StyleSheet.create({
   navLabel: { fontSize: 11, color: "#6b7280", fontWeight: "500" },
   navLabelActive: { color: "#2563eb", fontWeight: "700" },
   loadingWrap: { justifyContent: "center", alignItems: "center" },
+  skeletonBlock: {
+    flex: 1,
+    minHeight: 72,
+    backgroundColor: "#e5e7eb",
+    borderRadius: 12,
+    opacity: 0.55,
+  },
+  skeletonLine: {
+    height: 14,
+    borderRadius: 6,
+    backgroundColor: "#d1d5db",
+    marginVertical: 6,
+  },
   loadingText: { marginTop: 10, color: "#6b7280", fontSize: 14 },
   muted: { padding: 24, color: "#64748b" },
   errBanner: {

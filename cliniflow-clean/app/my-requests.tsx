@@ -4,11 +4,12 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   SafeAreaView, ActivityIndicator, RefreshControl, Alert,
 } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/language-context';
 import { API_BASE } from '../lib/api';
 import { saveSelectedChatClinic } from '../lib/selectedChatClinic';
+import { buildJoinClinicPatchBody } from '../../lib/patientJoinClinic';
 
 // DISCLAIMER — always use the translation key; this fallback is only used if i18n is unavailable
 const DISCLAIMER_FALLBACK = 'This is a preliminary estimate. Final diagnosis requires clinical examination.';
@@ -85,6 +86,7 @@ type Offer = {
   id: string;
   clinic_id: string | null;
   clinic_name: string | null;
+  clinic_code?: string | null;
   treatment_type: string;
   price_range: string | null;
   duration: string | null;
@@ -101,6 +103,7 @@ type Request = {
   id: string;
   clinic_id: string | null;
   clinic_name: string | null;
+  clinic_code?: string | null;
   description: string;
   budget: string | null;
   preferred_treatment: string | null;
@@ -108,6 +111,11 @@ type Request = {
   created_at: string;
   offers: Offer[];
 };
+
+function firstRouteParam(v: string | string[] | undefined): string {
+  if (v == null) return '';
+  return String(Array.isArray(v) ? v[0] : v).trim();
+}
 
 function fmtDate(iso: string) {
   try {
@@ -119,6 +127,17 @@ function fmtDate(iso: string) {
 
 export default function MyRequestsScreen() {
   const router = useRouter();
+  const refParams = useLocalSearchParams<{
+    referral_code?: string;
+    referralCode?: string;
+    inviterReferralCode?: string;
+    ref?: string;
+  }>();
+  const referralFromRoute =
+    firstRouteParam(refParams.referral_code) ||
+    firstRouteParam(refParams.referralCode) ||
+    firstRouteParam(refParams.inviterReferralCode) ||
+    firstRouteParam(refParams.ref);
   const { user, signIn } = useAuth();
   const { t } = useLanguage();
 
@@ -135,7 +154,7 @@ export default function MyRequestsScreen() {
   const currentClinicId = String((user as any)?.clinicId || '').trim();
   const hasClinic = !!(currentClinicId || String((user as any)?.clinicCode || '').trim());
 
-  const joinClinic = useCallback(async (clinicId: string, clinicName: string, offerId: string) => {
+  const joinClinic = useCallback(async (clinicCode: string, clinicName: string, offerId: string) => {
     Alert.alert(
       t('treatReq.joinClinic.title') || 'Kliniğe Katıl',
       (t('treatReq.joinClinic.confirm') || '{clinic} kliniği ile devam etmek istiyor musunuz?').replace('{clinic}', clinicName),
@@ -146,13 +165,14 @@ export default function MyRequestsScreen() {
           onPress: async () => {
             setJoiningClinic(offerId);
             try {
+              const patchBody = buildJoinClinicPatchBody(clinicCode, referralFromRoute || undefined);
               const res = await fetch(`${API_BASE}/api/patient/clinic`, {
                 method: 'PATCH',
                 headers: {
                   'Content-Type': 'application/json',
                   Authorization: `Bearer ${user?.token}`,
                 },
-                body: JSON.stringify({ clinic_id: clinicId }),
+                body: JSON.stringify(patchBody),
               });
               const data = await res.json();
               if (!data?.ok) throw new Error(data?.error || 'error');
@@ -163,10 +183,19 @@ export default function MyRequestsScreen() {
                 clinic_code: data.clinic.clinic_code,
                 name: data.clinic.name,
               });
-              Alert.alert(
-                t('treatReq.joinClinic.successTitle') || '✅ Klinik Eklendi',
-                (t('treatReq.joinClinic.successMsg') || '{clinic} kliniğinize eklendi.').replace('{clinic}', data.clinic.name)
+              const refOk = data.referral?.linked === true || data.referral?.duplicate === true;
+              const refBad = data.referral?.attempted && data.referral?.error;
+              const baseMsg = (t('treatReq.joinClinic.successMsg') || '{clinic} kliniğinize eklendi.').replace(
+                '{clinic}',
+                data.clinic.name
               );
+              const msg =
+                refOk
+                  ? `${baseMsg} ${t('treatReq.joinClinic.referralOk') || 'Referans kaydı uygulandı.'}`
+                  : refBad
+                    ? `${baseMsg} ${t('treatReq.joinClinic.referralSkip') || 'Referans kodu uygulanamadı.'}`
+                    : baseMsg;
+              Alert.alert(t('treatReq.joinClinic.successTitle') || '✅ Klinik Eklendi', msg);
             } catch (e: any) {
               Alert.alert(t('common.error'), e.message || t('common.pleaseRetry'));
             } finally {
@@ -176,7 +205,7 @@ export default function MyRequestsScreen() {
         },
       ]
     );
-  }, [user, signIn, t]);
+  }, [user, signIn, t, referralFromRoute]);
 
   /** Safe fetch → JSON: uses text() first so we always get a parseable error. */
   const safeFetch = useCallback(async (url: string, retries = 2): Promise<any> => {
@@ -507,11 +536,17 @@ export default function MyRequestsScreen() {
                                 {/* Action buttons row */}
                                 <View style={styles.actionRow}>
                                   {/* Join Clinic — hidden once the patient has any clinic */}
-                                  {!hasClinic && offer.clinic_id && offer.clinic_id !== currentClinicId && (
+                                  {!hasClinic && !!offer.clinic_code?.trim() && (
                                     <TouchableOpacity
                                       style={[styles.joinBtn, styles.actionBtn]}
                                       disabled={joiningClinic === offer.id}
-                                      onPress={() => joinClinic(offer.clinic_id!, offer.clinic_name || t('treatReq.clinic') || 'Clinic', offer.id)}
+                                      onPress={() =>
+                                        joinClinic(
+                                          String(offer.clinic_code).trim(),
+                                          offer.clinic_name || t('treatReq.clinic') || 'Clinic',
+                                          offer.id
+                                        )
+                                      }
                                     >
                                       {joiningClinic === offer.id ? (
                                         <ActivityIndicator size="small" color="#fff" />

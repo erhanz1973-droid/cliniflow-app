@@ -1,12 +1,12 @@
 // app/doctor/diagnosis.tsx — Doctor ICD-10 Diagnosis Screen
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet,
-  ActivityIndicator, Alert,
+  ActivityIndicator, Alert, InteractionManager,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useAuth } from '../../../lib/auth';
+import { useAuthSession } from '../../../lib/auth';
 import { useLanguage } from '../../../lib/language-context';
 import { getIcdDescription } from '../../../lib/icdLabels';
 import { API_ROUTES } from '../../../lib/api-routes';
@@ -16,6 +16,13 @@ import TeethFDISelector from '../../../components/TeethFDISelector';
 import ICD10Dropdown from '../../../components/ICD10Dropdown';
 import { ErrorScreen, EmptyState } from '../../../components/ScreenFeedback';
 import { normalizeRouteParam } from '../../../lib/doctorPatientId';
+import { focusPerfMark, focusPerfStart } from '../../../lib/perfFocus';
+import {
+  peekDiagnosisScreenCache,
+  writeDiagnosisScreenCache,
+  type DiagnosisScreenCache,
+} from '../../../lib/treatmentPlanCache';
+import { useDeferredFocusRefresh } from '../../../hooks/use-deferred-focus-refresh';
 
 interface DiagnosisItem {
   id?: string;
@@ -35,91 +42,276 @@ interface TreatmentItem {
   notes?: string | null;
 }
 
+const DiagnosisListCard = memo(function DiagnosisListCard({
+  item,
+  label,
+  primaryLabel,
+  toothLabel,
+}: {
+  item: DiagnosisItem;
+  label: string;
+  primaryLabel: string;
+  toothLabel: string;
+}) {
+  return (
+    <View style={styles.diagnosisCard}>
+      <View style={styles.diagnosisCardTop}>
+        <Text style={styles.diagnosisCode} numberOfLines={2}>{label}</Text>
+        {item.is_primary ? (
+          <View style={styles.primaryBadge}>
+            <Text style={styles.primaryBadgeText}>{primaryLabel}</Text>
+          </View>
+        ) : null}
+      </View>
+      {item.tooth_number ? (
+        <Text style={styles.diagnosisTooth}>{toothLabel}</Text>
+      ) : null}
+    </View>
+  );
+});
+
+const TreatmentHistoryCard = memo(function TreatmentHistoryCard({
+  tr,
+  procLabel,
+  statusBg,
+  statusColor,
+  statusLabel,
+  toothLine,
+  chairLine,
+  scheduledLine,
+  notes,
+}: {
+  tr: TreatmentItem;
+  procLabel: string;
+  statusBg: string;
+  statusColor: string;
+  statusLabel: string;
+  toothLine: string | null;
+  chairLine: string | null;
+  scheduledLine: string | null;
+  notes: string | null;
+}) {
+  return (
+    <View style={styles.treatmentCard}>
+      <View style={styles.treatmentCardTop}>
+        <Text style={styles.treatmentProc} numberOfLines={2}>{procLabel}</Text>
+        <View style={[styles.treatmentStatus, { backgroundColor: statusBg }]}>
+          <Text style={[styles.treatmentStatusText, { color: statusColor }]}>{statusLabel}</Text>
+        </View>
+      </View>
+      {toothLine ? <Text style={styles.treatmentSub}>{toothLine}</Text> : null}
+      {chairLine ? <Text style={styles.treatmentSub}>{chairLine}</Text> : null}
+      {scheduledLine ? <Text style={styles.treatmentSub}>{scheduledLine}</Text> : null}
+      {notes ? <Text style={styles.treatmentNotes} numberOfLines={2}>{notes}</Text> : null}
+    </View>
+  );
+});
+
 export default function DoctorDiagnosisScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ patientId?: string; encounterId?: string; patientName?: string }>();
   const patientId = normalizeRouteParam(params.patientId);
   const encounterId = normalizeRouteParam(params.encounterId);
   const patientName = typeof params.patientName === "string" ? params.patientName : Array.isArray(params.patientName) ? params.patientName[0] : "";
-  const { user } = useAuth();
+  const { token } = useAuthSession();
   const { t, currentLanguage } = useLanguage();
   const insets = useSafeAreaInsets();
 
-  const [loading, setLoading] = useState(false);
+  const initialCache = patientId ? peekDiagnosisScreenCache(patientId) : null;
+  const hasDisplayedContentRef = useRef(Boolean(initialCache));
+  const firstPaintLoggedRef = useRef(false);
+
+  const [loadingCritical, setLoadingCritical] = useState(!initialCache);
+  const [loadingTreatments, setLoadingTreatments] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [proceeding, setProceeding] = useState(false);
-  const [diagnoses, setDiagnoses] = useState<DiagnosisItem[]>([]);
-  const [treatments, setTreatments] = useState<TreatmentItem[]>([]);
+  const [diagnoses, setDiagnoses] = useState<DiagnosisItem[]>(
+    (initialCache?.diagnoses as DiagnosisItem[]) ?? [],
+  );
+  const [treatments, setTreatments] = useState<TreatmentItem[]>(
+    (initialCache?.treatments as TreatmentItem[]) ?? [],
+  );
+  const [showTreatmentHistory, setShowTreatmentHistory] = useState(
+    (initialCache?.treatments?.length ?? 0) > 0,
+  );
   const [selectedTooth, setSelectedTooth] = useState('');
   const [selectedCode, setSelectedCode] = useState('');
   const [selectedDescription, setSelectedDescription] = useState('');
-  const [activeEncounterId, setActiveEncounterId] = useState(encounterId);
+  const [activeEncounterId, setActiveEncounterId] = useState(
+    encounterId || initialCache?.encounterId || '',
+  );
+
+  const diagnosesRef = useRef(diagnoses);
+  const treatmentsRef = useRef(treatments);
+  diagnosesRef.current = diagnoses;
+  treatmentsRef.current = treatments;
+
+  const persistCache = useCallback(
+    (patch: Partial<DiagnosisScreenCache>) => {
+      if (!patientId) return;
+      writeDiagnosisScreenCache(patientId, {
+        diagnoses: diagnosesRef.current,
+        treatments: treatmentsRef.current,
+        encounterId: activeEncounterId || patch.encounterId,
+        ...patch,
+      });
+    },
+    [patientId, activeEncounterId],
+  );
 
   useEffect(() => {
     if (encounterId) setActiveEncounterId(encounterId);
   }, [encounterId]);
 
-  // ── Load ALL diagnoses + treatments for this patient ──
-  const loadDiagnoses = useCallback(async () => {
-    if (!patientId) return;
-    setLoadError(null);
-    try {
-      setLoading(true);
-      const [diagRes, treatRes] = await Promise.all([
-        secureGet(API_ROUTES.doctor.patientDiagnoses(patientId), user?.token),
-        secureGet(API_ROUTES.doctor.patientTreatments(patientId), user?.token).catch(() => null),
-      ]);
-      setDiagnoses(diagRes?.diagnoses || []);
-      setTreatments(treatRes?.treatments || []);
-    } catch (err) {
-      console.error('[Diagnosis] load error:', err);
-      setLoadError(classifyApiError(err));
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (!patientId || !token) return;
+    if (!firstPaintLoggedRef.current) {
+      firstPaintLoggedRef.current = true;
+      focusPerfMark('doctor:diagnosis:first_paint', {
+        patientId,
+        cached: Boolean(initialCache),
+        diagnoses: diagnoses.length,
+        treatments: treatments.length,
+      });
     }
-  }, [patientId, user?.token]);
+  }, [patientId, token, initialCache, diagnoses.length, treatments.length]);
 
-  // ── Ensure encounter exists (needed for saving new diagnoses) ───────────────
+  const loadCritical = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!patientId || !token) return;
+      const silent = opts?.silent === true;
+      if (!silent && !hasDisplayedContentRef.current) setLoadingCritical(true);
+      setLoadError(null);
+      const endFetch = focusPerfStart(
+        silent ? 'doctor:diagnosis:fetch-silent' : 'doctor:diagnosis:fetch',
+      );
+      try {
+        const diagRes = await secureGet(API_ROUTES.doctor.patientDiagnoses(patientId), token);
+        const nextDx = diagRes?.diagnoses || [];
+        setDiagnoses(nextDx);
+        hasDisplayedContentRef.current = nextDx.length > 0 || hasDisplayedContentRef.current;
+        persistCache({ diagnoses: nextDx });
+        focusPerfMark('doctor:diagnosis:data_ready', {
+          diagnoses: nextDx.length,
+          treatments: treatmentsRef.current.length,
+        });
+      } catch (err) {
+        console.error('[Diagnosis] load critical:', err);
+        if (!hasDisplayedContentRef.current) setLoadError(classifyApiError(err));
+      } finally {
+        setLoadingCritical(false);
+        endFetch();
+      }
+    },
+    [patientId, token, persistCache],
+  );
+
+  const loadTreatmentsSecondary = useCallback(
+    async () => {
+      if (!patientId || !token) return;
+      const endFetch = focusPerfStart('doctor:diagnosis:treatments');
+      setLoadingTreatments(true);
+      try {
+        const treatRes = await secureGet(
+          API_ROUTES.doctor.patientTreatments(patientId),
+          token,
+        ).catch(() => null);
+        const nextTx = treatRes?.treatments || [];
+        setTreatments(nextTx);
+        setShowTreatmentHistory(nextTx.length > 0);
+        persistCache({ treatments: nextTx });
+      } catch {
+        /* non-critical */
+      } finally {
+        setLoadingTreatments(false);
+        endFetch();
+      }
+    },
+    [patientId, token, persistCache],
+  );
+
+  const scheduleSecondaryHydration = useCallback(() => {
+    InteractionManager.runAfterInteractions(() => {
+      void loadTreatmentsSecondary();
+    });
+  }, [loadTreatmentsSecondary]);
+
   const ensureEncounter = useCallback(async (): Promise<string> => {
     if (activeEncounterId) return activeEncounterId;
-    if (!patientId) return '';
+    if (!patientId || !token) return '';
     try {
       const existing = await secureGet(
         API_ROUTES.doctor.encountersByPatient(patientId),
-        user?.token,
+        token,
       );
-      const list: any[] = existing?.encounters || [];
+      const list: unknown[] = existing?.encounters || [];
       if (list.length > 0) {
-        const sorted = [...list].sort((a, b) =>
-          new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+        const sorted = [...list].sort(
+          (a: { created_at?: string }, b: { created_at?: string }) =>
+            new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime(),
         );
-        const id = sorted[0].id || '';
+        const id = String((sorted[0] as { id?: string })?.id || '');
         setActiveEncounterId(id);
+        persistCache({ encounterId: id });
         return id;
       }
       const res = await securePost(
         API_ROUTES.doctor.encounters,
         { patient_id: patientId, notes: 'Diagnosis session' },
-        user?.token,
+        token,
       );
       const id = res?.encounter?.id || res?.id || '';
       setActiveEncounterId(id);
+      persistCache({ encounterId: id });
       return id;
     } catch (err) {
       console.error('[Diagnosis] ensureEncounter error:', err);
       return '';
     }
-  }, [activeEncounterId, patientId, user?.token]);
+  }, [activeEncounterId, patientId, token, persistCache]);
 
   useEffect(() => {
-    if (!user) return;
-    loadDiagnoses();
-  }, [user, patientId]);
+    if (!token || !patientId) return;
+    if (hasDisplayedContentRef.current) {
+      void loadCritical({ silent: true });
+      scheduleSecondaryHydration();
+    } else {
+      void loadCritical({ silent: false }).then(() => scheduleSecondaryHydration());
+    }
+    if (!activeEncounterId) {
+      InteractionManager.runAfterInteractions(() => {
+        void ensureEncounter();
+      });
+    }
+  }, [token, patientId, loadCritical, scheduleSecondaryHydration, activeEncounterId, ensureEncounter]);
 
-  // ── Save diagnosis ──────────────────────────────────────────────────────────
+  useDeferredFocusRefresh(
+    'doctor:diagnosis:focus',
+    () => {
+      void loadCritical({ silent: true });
+      scheduleSecondaryHydration();
+    },
+    { enabled: !!token && !!patientId, minIntervalMs: 45_000 },
+  );
+
+  const handleToothChange = useCallback((id: string) => {
+    setSelectedTooth(id);
+    setSelectedCode('');
+    setSelectedDescription('');
+  }, []);
+
+  const teethDiagnosesProp = useMemo(
+    () =>
+      diagnoses.map((d) => ({
+        id: String(d.id || d.icd10_code),
+        tooth_number: d.tooth_number,
+      })),
+    [diagnoses],
+  );
+
   const handleSave = async () => {
-    if (saving) return; // guard against multiple taps
+    if (saving) return;
     if (!selectedTooth) {
       Alert.alert('', t('diagnosis.selectToothFirst'));
       return;
@@ -129,9 +321,7 @@ export default function DoctorDiagnosisScreen() {
       return;
     }
 
-    // Lock immediately — before any async work so rapid taps are ignored
     setSaving(true);
-
     try {
       const eid = await ensureEncounter();
       if (!eid) {
@@ -156,17 +346,19 @@ export default function DoctorDiagnosisScreen() {
           diagnoses: [newItem],
           toothNumbers: [selectedTooth],
         },
-        user?.token,
+        token,
       );
 
-      // Optimistic update — no second network round-trip needed
-      setDiagnoses((prev) => [...prev, newItem]);
+      setDiagnoses((prev) => {
+        const next = [...prev, newItem];
+        diagnosesRef.current = next;
+        persistCache({ diagnoses: next });
+        return next;
+      });
       setSelectedCode('');
       setSelectedDescription('');
       Alert.alert('', t('diagnosis.saved'));
-
-      // Sync in background to pick up server-assigned id / dedup
-      loadDiagnoses();
+      void loadCritical({ silent: true });
     } catch (err) {
       console.error('[Diagnosis] save error:', err);
       Alert.alert(t('common.error'), t('diagnosis.saveError'));
@@ -175,79 +367,155 @@ export default function DoctorDiagnosisScreen() {
     }
   };
 
-  // ── Proceed to treatment plan ───────────────────────────────────────────────
-  const handleProceed = async () => {
-    if (proceeding) return; // guard against double-tap
+  const handleProceed = () => {
+    if (proceeding) return;
     if (diagnoses.length === 0) {
       Alert.alert('', t('diagnosis.noDiagnosisYet'));
       return;
     }
+    if (!patientId) {
+      Alert.alert(t('common.error'), t('diagnosis.encounterError'));
+      return;
+    }
+
     setProceeding(true);
-    try {
-      const eid = await ensureEncounter();
-      if (!eid) {
-        Alert.alert(t('common.error'), t('diagnosis.encounterError'));
-        return;
-      }
-      router.replace({
-        pathname: '/treatment-plan',
-        params: { patientId: patientId || '', encounterId: eid, patientName: patientName || '' },
-      });
-    } finally {
+    const endNav = focusPerfStart('treatment_plan_nav');
+    focusPerfMark('treatment_plan_nav:press', { patientId });
+
+    writeDiagnosisScreenCache(patientId, {
+      diagnoses,
+      treatments,
+      encounterId: activeEncounterId,
+    });
+
+    router.replace({
+      pathname: '/treatment-plan',
+      params: {
+        patientId,
+        encounterId: activeEncounterId || '',
+        patientName: patientName || '',
+      },
+    });
+
+    focusPerfMark('treatment_plan_nav:router_called');
+    requestAnimationFrame(() => {
+      endNav();
+      focusPerfMark('treatment_plan_nav:frame_after_router');
       setProceeding(false);
+    });
+
+    if (!activeEncounterId) {
+      void ensureEncounter();
     }
   };
 
-  // ── Helpers ─────────────────────────────────────────────────────────────────
-  const toothDiagnoses = diagnoses.filter(
-    (d) => String(d.tooth_number) === selectedTooth,
-  );
+  const showListBlockingLoader =
+    loadingCritical && !hasDisplayedContentRef.current && diagnoses.length === 0;
+
+  const diagnosisCards = useMemo(() => {
+    const toothWord = t('diagnosis.tooth');
+    const primaryWord = t('diagnosis.primary');
+    return diagnoses.map((d, i) => {
+      const localDesc = getIcdDescription(d.icd10_code, d.icd10_description, currentLanguage);
+      const label = d.icd10_code ? `${d.icd10_code} - ${localDesc}` : localDesc || '—';
+      return (
+        <DiagnosisListCard
+          key={d.id || `${d.icd10_code}-${d.tooth_number}-${i}`}
+          item={d}
+          label={label}
+          primaryLabel={primaryWord}
+          toothLabel={d.tooth_number ? `${toothWord}: ${d.tooth_number}` : ''}
+        />
+      );
+    });
+  }, [diagnoses, currentLanguage, t]);
+
+  const treatmentCards = useMemo(() => {
+    if (!showTreatmentHistory || treatments.length === 0) return null;
+    const locale =
+      currentLanguage === 'tr'
+        ? 'tr-TR'
+        : currentLanguage === 'ru'
+          ? 'ru-RU'
+          : currentLanguage === 'ka'
+            ? 'ka-GE'
+            : 'en-US';
+    return treatments.map((tr, i) => {
+      const st = String(tr.status || '').toLowerCase();
+      const isCompleted = st === 'completed' || st === 'done';
+      const isInProgress = st === 'in_progress' || st === 'active';
+      const statusBg = isCompleted ? '#D1FAE5' : isInProgress ? '#FEF3C7' : '#EFF6FF';
+      const statusColor = isCompleted ? '#065F46' : isInProgress ? '#92400E' : '#1D4ED8';
+      const statusLabel = isCompleted
+        ? t('doctor.status.completed') || 'Tamamlandı'
+        : isInProgress
+          ? t('doctor.status.inProgress') || 'Devam Ediyor'
+          : t('doctor.status.scheduled') || 'Planlandı';
+      const procKey = `treatmentPlan.proc.${tr.procedure_type}`;
+      const procTr = t(procKey);
+      const procLabel = procTr !== procKey ? procTr : tr.procedure_type;
+      return (
+        <TreatmentHistoryCard
+          key={tr.id || `tx-${i}`}
+          tr={tr}
+          procLabel={procLabel}
+          statusBg={statusBg}
+          statusColor={statusColor}
+          statusLabel={statusLabel}
+          toothLine={tr.tooth_number ? `${t('diagnosis.tooth') || 'Diş'}: ${tr.tooth_number}` : null}
+          chairLine={tr.chair ? `${t('doctor.chair') || 'Koltuk'}: ${tr.chair}` : null}
+          scheduledLine={
+            tr.scheduled_at
+              ? `📅 ${new Date(tr.scheduled_at).toLocaleString(locale, {
+                  dateStyle: 'short',
+                  timeStyle: 'short',
+                })}`
+              : null
+          }
+          notes={tr.notes || null}
+        />
+      );
+    });
+  }, [showTreatmentHistory, treatments, currentLanguage, t]);
 
   return (
     <SafeAreaView style={styles.root}>
-      {/* ── Header ── */}
       <View style={styles.header}>
-        <Pressable style={styles.backBtn} onPress={() => {
-          if (router.canGoBack()) {
-            router.back();
-          } else {
-            router.replace('/doctor/patients');
-          }
-        }}>
+        <Pressable
+          style={styles.backBtn}
+          onPress={() => {
+            if (router.canGoBack()) router.back();
+            else router.replace('/doctor/patients');
+          }}
+        >
           <Text style={styles.backBtnText}>←</Text>
         </Pressable>
         <View style={{ alignItems: 'center' }}>
           <Text style={styles.headerTitle}>{t('diagnosis.addNew')}</Text>
-          {patientName ? <Text style={styles.headerSub}>{decodeURIComponent(patientName)}</Text> : null}
+          {patientName ? (
+            <Text style={styles.headerSub}>{decodeURIComponent(patientName)}</Text>
+          ) : null}
         </View>
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-
-        {/* ── Tooth chart ── */}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
         <TeethFDISelector
           value={selectedTooth || undefined}
-          onChange={(id) => {
-            setSelectedTooth(id);
-            setSelectedCode('');
-            setSelectedDescription('');
-          }}
-          diagnoses={diagnoses.map((d) => ({ id: String(d.id || d.icd10_code), tooth_number: d.tooth_number }))}
+          onChange={handleToothChange}
+          diagnoses={teethDiagnosesProp}
           title={t('diagnosis.toothChart')}
         />
 
-        {/* ── ICD-10 selector ── */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>
-            {t('diagnosis.selectICD10')}
-          </Text>
-
+          <Text style={styles.sectionLabel}>{t('diagnosis.selectICD10')}</Text>
           {!selectedTooth ? (
             <View style={styles.placeholderBox}>
-              <Text style={styles.placeholderText}>
-                {t('diagnosis.selectToothFirst')}
-              </Text>
+              <Text style={styles.placeholderText}>{t('diagnosis.selectToothFirst')}</Text>
             </View>
           ) : (
             <ICD10Dropdown
@@ -261,123 +529,55 @@ export default function DoctorDiagnosisScreen() {
           )}
         </View>
 
-        {/* ── Save button ── */}
         <Pressable
           style={[styles.saveBtn, (!selectedTooth || !selectedCode || saving) && styles.saveBtnDisabled]}
           onPress={handleSave}
           disabled={!selectedTooth || !selectedCode || saving}
         >
-          {saving
-            ? <ActivityIndicator color="#fff" />
-            : <Text style={styles.saveBtnText}>{t('common.save')}</Text>
-          }
+          {saving ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.saveBtnText}>{t('common.save')}</Text>
+          )}
         </Pressable>
 
-        {/* ── Tanılar list ── */}
         <Text style={styles.tanılarTitle}>{t('diagnosis.list')}</Text>
 
-        {loading ? (
+        {showListBlockingLoader ? (
           <ActivityIndicator style={{ marginVertical: 16 }} color="#2563EB" />
-        ) : loadError ? (
-          <ErrorScreen
-            kind={loadError}
-            onRetry={() => { loadDiagnoses(); }}
-            inline
-          />
+        ) : loadError && diagnoses.length === 0 ? (
+          <ErrorScreen kind={loadError} onRetry={() => loadCritical({ silent: false })} inline />
         ) : diagnoses.length === 0 ? (
-          <EmptyState
-            icon="🦷"
-            titleKey="common.noDiagnoses"
-            subKey="common.noDiagnosesSub"
-          />
+          <EmptyState icon="🦷" titleKey="common.noDiagnoses" subKey="common.noDiagnosesSub" />
         ) : (
-          diagnoses.map((d, i) => {
-            const localDesc = getIcdDescription(d.icd10_code, d.icd10_description, currentLanguage);
-            const label = d.icd10_code
-              ? `${d.icd10_code} - ${localDesc}`
-              : localDesc || '—';
-            return (
-              <View key={i} style={styles.diagnosisCard}>
-                <View style={styles.diagnosisCardTop}>
-                  <Text style={styles.diagnosisCode} numberOfLines={2}>{label}</Text>
-                  {d.is_primary && (
-                    <View style={styles.primaryBadge}>
-                      <Text style={styles.primaryBadgeText}>{t('diagnosis.primary')}</Text>
-                    </View>
-                  )}
-                </View>
-                {d.tooth_number ? (
-                  <Text style={styles.diagnosisTooth}>
-                    {t('diagnosis.tooth')}: {d.tooth_number}
-                  </Text>
-                ) : null}
-              </View>
-            );
-          })
+          diagnosisCards
         )}
 
-        {/* ── Treatment History ── */}
-        {treatments.length > 0 && (
+        {(showTreatmentHistory || loadingTreatments) && (
           <>
             <Text style={styles.tanılarTitle}>{t('diagnosis.treatmentHistory')}</Text>
-            {treatments.map((tr, i) => {
-              const st = String(tr.status || '').toLowerCase();
-              const isCompleted = st === 'completed' || st === 'done';
-              const isInProgress = st === 'in_progress' || st === 'active';
-              const statusBg = isCompleted ? '#D1FAE5' : isInProgress ? '#FEF3C7' : '#EFF6FF';
-              const statusColor = isCompleted ? '#065F46' : isInProgress ? '#92400E' : '#1D4ED8';
-              const statusLabel = isCompleted
-                ? (t('doctor.status.completed') || 'Tamamlandı')
-                : isInProgress
-                ? (t('doctor.status.inProgress') || 'Devam Ediyor')
-                : (t('doctor.status.scheduled') || 'Planlandı');
-              return (
-                <View key={tr.id || i} style={styles.treatmentCard}>
-                  <View style={styles.treatmentCardTop}>
-                    <Text style={styles.treatmentProc} numberOfLines={2}>
-                      {t(`treatmentPlan.proc.${tr.procedure_type}`) !== `treatmentPlan.proc.${tr.procedure_type}`
-                        ? t(`treatmentPlan.proc.${tr.procedure_type}`)
-                        : tr.procedure_type}
-                    </Text>
-                    <View style={[styles.treatmentStatus, { backgroundColor: statusBg }]}>
-                      <Text style={[styles.treatmentStatusText, { color: statusColor }]}>{statusLabel}</Text>
-                    </View>
-                  </View>
-                  {tr.tooth_number ? (
-                    <Text style={styles.treatmentSub}>{t('diagnosis.tooth') || 'Diş'}: {tr.tooth_number}</Text>
-                  ) : null}
-                  {tr.chair ? (
-                    <Text style={styles.treatmentSub}>{t('doctor.chair') || 'Koltuk'}: {tr.chair}</Text>
-                  ) : null}
-                  {tr.scheduled_at ? (
-                    <Text style={styles.treatmentSub}>
-                      📅 {new Date(tr.scheduled_at).toLocaleString(
-                        currentLanguage === 'tr' ? 'tr-TR' : currentLanguage === 'ru' ? 'ru-RU' : currentLanguage === 'ka' ? 'ka-GE' : 'en-US',
-                        { dateStyle: 'short', timeStyle: 'short' }
-                      )}
-                    </Text>
-                  ) : null}
-                  {tr.notes ? <Text style={styles.treatmentNotes} numberOfLines={2}>{tr.notes}</Text> : null}
-                </View>
-              );
-            })}
+            {loadingTreatments && treatments.length === 0 ? (
+              <ActivityIndicator style={{ marginVertical: 8 }} color="#94A3B8" size="small" />
+            ) : (
+              treatmentCards
+            )}
           </>
         )}
 
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* ── Proceed to treatment ── */}
       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 14) }]}>
         <Pressable
           style={[styles.proceedBtn, proceeding && styles.proceedBtnDisabled]}
           onPress={handleProceed}
           disabled={proceeding}
         >
-          {proceeding
-            ? <ActivityIndicator color="#fff" />
-            : <Text style={styles.proceedBtnText}>{t('diagnosis.proceedToTreatment')}</Text>
-          }
+          {proceeding ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.proceedBtnText}>{t('diagnosis.proceedToTreatment')}</Text>
+          )}
         </Pressable>
       </View>
     </SafeAreaView>
@@ -386,8 +586,6 @@ export default function DoctorDiagnosisScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#F3F4F6' },
-
-  // Header
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     backgroundColor: '#fff', paddingHorizontal: 14, paddingVertical: 12,
@@ -397,11 +595,8 @@ const styles = StyleSheet.create({
   backBtnText: { fontSize: 22, color: '#111827' },
   headerTitle: { fontSize: 17, fontWeight: '700', color: '#111827' },
   headerSub: { fontSize: 12, color: '#6B7280', marginTop: 1 },
-
   scroll: { flex: 1 },
   scrollContent: { padding: 14, gap: 14 },
-
-  // ICD section
   section: { gap: 8 },
   sectionLabel: { fontSize: 14, fontWeight: '700', color: '#374151' },
   placeholderBox: {
@@ -409,22 +604,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center',
   },
   placeholderText: { fontSize: 14, color: '#9CA3AF' },
-
-  // Save
   saveBtn: {
     backgroundColor: '#16A34A', borderRadius: 12, padding: 16, alignItems: 'center',
   },
   saveBtnDisabled: { backgroundColor: '#86EFAC' },
   saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-
-  // Tanılar
   tanılarTitle: { fontSize: 17, fontWeight: '800', color: '#111827', marginTop: 4 },
-  emptyBox: {
-    backgroundColor: '#fff', borderRadius: 10, padding: 20, alignItems: 'center',
-    borderWidth: 1, borderColor: '#E5E7EB',
-  },
-  emptyText: { fontSize: 14, color: '#9CA3AF' },
-
   diagnosisCard: {
     backgroundColor: '#fff', borderRadius: 10, padding: 14,
     borderWidth: 1, borderColor: '#E5E7EB',
@@ -434,8 +619,6 @@ const styles = StyleSheet.create({
   primaryBadge: { backgroundColor: '#EF4444', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
   primaryBadgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
   diagnosisTooth: { fontSize: 12, color: '#6B7280', marginTop: 4 },
-
-  // Treatment history
   treatmentCard: {
     backgroundColor: '#fff', borderRadius: 10, padding: 14,
     borderWidth: 1, borderColor: '#E5E7EB',
@@ -446,8 +629,6 @@ const styles = StyleSheet.create({
   treatmentStatusText: { fontSize: 11, fontWeight: '700' },
   treatmentSub: { fontSize: 12, color: '#6B7280', marginTop: 2 },
   treatmentNotes: { fontSize: 12, color: '#9CA3AF', marginTop: 4, fontStyle: 'italic' },
-
-  // Bottom
   bottomBar: {
     backgroundColor: '#1F2937',
     paddingHorizontal: 14,

@@ -1,16 +1,25 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
   ActivityIndicator, SafeAreaView, RefreshControl, Modal,
-  TextInput, Alert, KeyboardAvoidingView, Platform,
+  TextInput, Alert, KeyboardAvoidingView, Platform, InteractionManager,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useAuth } from '../../lib/auth';
+import { useAuth, useAuthSession } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
 import { API_ROUTES } from '../../lib/api-routes';
 import { secureGet, securePost } from '../../lib/secure-fetch';
 import { API_BASE } from '../../lib/api';
+import { focusPerfMark, focusPerfStart } from '../../lib/perfFocus';
+import { peekCachedResource, setCachedResource } from '../../lib/resourceCache';
+import { recordCacheMetric } from '../../lib/cacheMetrics';
+import {
+  diagnosisScreenCacheKey,
+  treatmentPlanCacheKey,
+  type TreatmentPlanCachePayload,
+} from '../../lib/treatmentPlanCache';
+import { useDeferredFocusRefresh } from '../../hooks/use-deferred-focus-refresh';
 
 /** Format a Date as local ISO string (no Z / no UTC offset) so the civil date
  *  is preserved regardless of the device's timezone. */
@@ -129,6 +138,29 @@ function fmtDateTime(date: Date | null) {
   const d = date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const t = date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
   return `${d}  ${t}`;
+}
+
+function resolveTreatmentPlanInitialCache(patientId: string): TreatmentPlanCachePayload | null {
+  const pid = String(patientId).trim();
+  if (!pid) return null;
+  const direct = peekCachedResource<TreatmentPlanCachePayload>(treatmentPlanCacheKey(pid));
+  if (direct) {
+    recordCacheMetric('treatment_plan_cache_hit', { source: 'treatment-plan', patientId: pid });
+    return direct;
+  }
+  const fromDx = peekCachedResource<{ diagnoses: Diagnosis[]; treatments: Treatment[] }>(
+    diagnosisScreenCacheKey(pid),
+  );
+  if (fromDx) {
+    recordCacheMetric('treatment_plan_cache_hit', { source: 'diagnosis', patientId: pid });
+    return {
+      treatments: fromDx.treatments || [],
+      diagnoses: fromDx.diagnoses || [],
+      doctors: [],
+    };
+  }
+  recordCacheMetric('treatment_plan_cache_miss', { patientId: pid });
+  return null;
 }
 
 // ── Native date+time picker field ─────────────────────────────────────────
@@ -643,41 +675,149 @@ export default function TreatmentPlanScreen() {
   const router = useRouter();
   const { patientId, patientName } = useLocalSearchParams();
   const { user } = useAuth();
+  const { token } = useAuthSession();
   const { t } = useLanguage();
+  const pid = String(patientId ?? '').trim();
 
-  const [loading, setLoading] = useState(true);
+  const initialCache = pid ? resolveTreatmentPlanInitialCache(pid) : null;
+  const hasDisplayedContentRef = useRef(
+    Boolean(initialCache && (initialCache.treatments.length > 0 || initialCache.diagnoses.length > 0)),
+  );
+  const firstPaintLoggedRef = useRef(false);
+
+  const [loading, setLoading] = useState(!initialCache);
   const [refreshing, setRefreshing] = useState(false);
-  const [treatments, setTreatments] = useState<Treatment[]>([]);
-  const [diagnoses, setDiagnoses] = useState<Diagnosis[]>([]);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [treatments, setTreatments] = useState<Treatment[]>(
+    (initialCache?.treatments as Treatment[]) ?? [],
+  );
+  const [diagnoses, setDiagnoses] = useState<Diagnosis[]>(
+    (initialCache?.diagnoses as Diagnosis[]) ?? [],
+  );
+  const [doctors, setDoctors] = useState<Doctor[]>((initialCache?.doctors as Doctor[]) ?? []);
   const [editTarget, setEditTarget] = useState<Treatment | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [noteEditId, setNoteEditId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!patientId) return;
-    const [txRes, dxRes, drRes] = await Promise.allSettled([
-      secureGet(API_ROUTES.doctor.patientTreatments(patientId as string), user?.token),
-      secureGet(API_ROUTES.doctor.patientDiagnoses(patientId as string), user?.token),
-      secureGet(API_ROUTES.doctor.doctors, user?.token),
-    ]);
-    if (txRes.status === 'fulfilled') setTreatments(txRes.value?.treatments || []);
-    if (dxRes.status === 'fulfilled') setDiagnoses(dxRes.value?.diagnoses || []);
-    if (drRes.status === 'fulfilled') {
-      const raw = drRes.value;
-      setDoctors(raw?.doctors || raw?.data || (Array.isArray(raw) ? raw : []));
+  const treatmentsRef = useRef(treatments);
+  const diagnosesRef = useRef(diagnoses);
+  treatmentsRef.current = treatments;
+  diagnosesRef.current = diagnoses;
+
+  const persistCache = useCallback(
+    (payload: TreatmentPlanCachePayload) => {
+      if (!pid) return;
+      setCachedResource(treatmentPlanCacheKey(pid), payload);
+    },
+    [pid],
+  );
+
+  const applyPayload = useCallback((payload: TreatmentPlanCachePayload) => {
+    setTreatments((payload.treatments as Treatment[]) || []);
+    setDiagnoses((payload.diagnoses as Diagnosis[]) || []);
+    if (payload.doctors?.length) setDoctors((payload.doctors as Doctor[]) || []);
+    hasDisplayedContentRef.current =
+      (payload.treatments?.length ?? 0) > 0 || (payload.diagnoses?.length ?? 0) > 0;
+  }, []);
+
+  const loadDoctors = useCallback(async () => {
+    if (!pid || !token) return;
+    const endFetch = focusPerfStart('doctor:treatment-plan:doctors');
+    try {
+      const raw = await secureGet(API_ROUTES.doctor.doctors, token);
+      const list = raw?.doctors || raw?.data || (Array.isArray(raw) ? raw : []);
+      setDoctors(list);
+      persistCache({
+        treatments: treatmentsRef.current,
+        diagnoses: diagnosesRef.current,
+        doctors: list,
+      });
+    } catch {
+      /* non-critical */
+    } finally {
+      endFetch();
     }
-  }, [patientId, user?.token]);
+  }, [pid, token, persistCache]);
+
+  const scheduleDoctorsLoad = useCallback(() => {
+    InteractionManager.runAfterInteractions(() => {
+      void loadDoctors();
+    });
+  }, [loadDoctors]);
+
+  const loadCritical = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!pid || !token) return;
+      const silent = opts?.silent === true;
+      if (!silent && !hasDisplayedContentRef.current) setLoading(true);
+      const endFetch = focusPerfStart('doctor:treatment-plan:fetch');
+      try {
+        const [txRes, dxRes] = await Promise.allSettled([
+          secureGet(API_ROUTES.doctor.patientTreatments(pid), token),
+          secureGet(API_ROUTES.doctor.patientDiagnoses(pid), token),
+        ]);
+        const nextTx =
+          txRes.status === 'fulfilled'
+            ? txRes.value?.treatments || []
+            : treatmentsRef.current;
+        const nextDx =
+          dxRes.status === 'fulfilled'
+            ? dxRes.value?.diagnoses || []
+            : diagnosesRef.current;
+        const payload: TreatmentPlanCachePayload = {
+          treatments: nextTx,
+          diagnoses: nextDx,
+          doctors: doctors,
+        };
+        applyPayload(payload);
+        persistCache(payload);
+        focusPerfMark('doctor:treatment-plan:data_ready', {
+          treatments: nextTx.length,
+          diagnoses: nextDx.length,
+        });
+        scheduleDoctorsLoad();
+      } finally {
+        setLoading(false);
+        endFetch();
+      }
+    },
+    [pid, token, doctors, applyPayload, persistCache, scheduleDoctorsLoad],
+  );
 
   useEffect(() => {
-    (async () => { setLoading(true); await load(); setLoading(false); })();
-  }, [load]);
+    if (!pid || !token) return;
+    if (!firstPaintLoggedRef.current) {
+      firstPaintLoggedRef.current = true;
+      focusPerfMark('doctor:treatment-plan:first_paint', {
+        cached: Boolean(initialCache),
+        treatments: treatments.length,
+      });
+    }
+  }, [pid, token, initialCache, treatments.length]);
+
+  useEffect(() => {
+    if (!pid || !token) return;
+    if (hasDisplayedContentRef.current) {
+      void loadCritical({ silent: true });
+      if (!doctors.length) scheduleDoctorsLoad();
+      return;
+    }
+    void loadCritical({ silent: false });
+  }, [pid, token, loadCritical, scheduleDoctorsLoad, doctors.length]);
+
+  useDeferredFocusRefresh(
+    'doctor:treatment-plan:focus',
+    () => loadCritical({ silent: true }),
+    { enabled: !!pid && !!token, minIntervalMs: 45_000 },
+  );
 
   const onRefresh = useCallback(async () => {
-    setRefreshing(true); await load(); setRefreshing(false);
-  }, [load]);
+    setRefreshing(true);
+    await loadCritical({ silent: true });
+    await loadDoctors();
+    setRefreshing(false);
+  }, [loadCritical, loadDoctors]);
 
   const saveNote = useCallback(async (txId: string, noteText: string) => {
     if (!user?.token) return;
@@ -701,7 +841,13 @@ export default function TreatmentPlanScreen() {
     }
   }, [user?.token, t]);
 
-  if (loading) {
+  const showBlockingLoader =
+    loading &&
+    !hasDisplayedContentRef.current &&
+    treatments.length === 0 &&
+    diagnoses.length === 0;
+
+  if (showBlockingLoader) {
     return (
       <SafeAreaView style={styles.centered}>
         <ActivityIndicator size="large" color="#2563EB" />

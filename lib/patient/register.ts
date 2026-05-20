@@ -14,6 +14,9 @@ export interface PatientRegisterRequest {
   password?: string;
   inviterReferralCode?: string;
   userType: string;
+  /** When set with `oauthProvider`, backend persists `patients.auth_user_id` for the OAuth JWT bridge. */
+  supabaseAccessToken?: string;
+  oauthProvider?: "google" | "apple";
 }
 
 export interface PatientLoginRequest {
@@ -41,7 +44,13 @@ export async function registerPatient(data: PatientRegisterRequest): Promise<Pat
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ ...data, userType: "PATIENT" }),
+      body: JSON.stringify({
+        ...data,
+        userType: "PATIENT",
+        ...(data.supabaseAccessToken && data.oauthProvider
+          ? { supabaseAccessToken: data.supabaseAccessToken, oauthProvider: data.oauthProvider }
+          : {}),
+      }),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -91,6 +100,8 @@ export function usePatientRegistration() {
     clinicCode?: string;
     password?: string;
     inviterReferralCode?: string;
+    supabaseAccessToken?: string;
+    oauthProvider?: "google" | "apple";
   }) => {
     const result = await registerPatient({
       name: data.name,
@@ -101,6 +112,9 @@ export function usePatientRegistration() {
       password: data.password,
       inviterReferralCode: data.inviterReferralCode,
       userType: 'PATIENT',
+      ...(data.supabaseAccessToken && data.oauthProvider
+        ? { supabaseAccessToken: data.supabaseAccessToken, oauthProvider: data.oauthProvider }
+        : {}),
     });
 
     if (!result.ok) {

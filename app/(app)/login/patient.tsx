@@ -21,9 +21,7 @@ import { loadPendingOtpSession, savePendingOtpSession } from "../../../lib/pendi
 import { useFocusEffect } from "@react-navigation/native";
 import { isSupabaseAuthConfigured } from "../../../lib/supabaseAuthClient";
 import {
-  signInWithGoogle,
-  signInWithApple,
-  exchangeCliniflyJwtFromOAuthSession,
+  runPatientOAuthWithBridge,
   type OAuthProvider,
 } from "../../../lib/patientOAuth";
 import { emitAuthTelemetryV1 } from "../../../lib/authTelemetry";
@@ -117,51 +115,60 @@ export default function PatientLoginScreen() {
       clearWarmup();
       setStatusMsg(t("login.loggingIn"));
 
-      const { session, error: oauthErr } =
-        provider === "google" ? await signInWithGoogle() : await signInWithApple();
-      if (oauthErr) {
-        const m = oauthErr.message;
-        if (m === "oauth_cancelled") {
-          emitAuthTelemetryV1("oauth_login_cancel", { provider });
-          throw new Error(t("login.oauthCancelled"));
-        }
-        if (m === "apple_ios_only" || m === "apple_unavailable") throw new Error(t("login.appleNotAvailable"));
-        if (m === "apple_credential_invalid") throw new Error(t("login.appleCredentialInvalid"));
-        if (m === "oauth_not_configured") throw new Error(t("login.oauthNotConfigured"));
-        throw oauthErr;
-      }
-      const at = session?.access_token;
-      if (!at) throw new Error(t("login.oauthInvalidToken"));
-
-      const bridge = await exchangeCliniflyJwtFromOAuthSession({
-        accessToken: at,
+      const bridgeResult = await runPatientOAuthWithBridge({
         provider,
         clinicCode: clinicCode.trim() || undefined,
       });
 
-      if (bridge.ok === false) {
-        if (bridge.code === "patient_not_found") {
-          Alert.alert(t("login.error"), t("login.oauthPatientNotLinked"), [
-            { text: t("login.registerPatient"), onPress: () => router.push("/register-patient" as const) },
-            { text: t("common.cancel"), style: "cancel" },
-          ]);
+      if (bridgeResult.ok === false) {
+        if (bridgeResult.step === "not_configured") {
+          Alert.alert(t("login.error"), t("login.oauthNotConfigured"));
           return;
         }
-        if (bridge.code === "patient_merge_conflict") {
-          Alert.alert(t("login.error"), t("login.oauthMergeConflict"));
-          return;
+        if (bridgeResult.step === "native") {
+          const m = bridgeResult.message;
+          if (m === "oauth_cancelled") {
+            emitAuthTelemetryV1("oauth_login_cancel", { provider });
+            throw new Error(t("login.oauthCancelled"));
+          }
+          if (m === "apple_ios_only" || m === "apple_unavailable") throw new Error(t("login.appleNotAvailable"));
+          if (m === "apple_credential_invalid") throw new Error(t("login.appleCredentialInvalid"));
+          if (m === "oauth_not_configured") throw new Error(t("login.oauthNotConfigured"));
+          if (m === "no_access_token") throw new Error(t("login.oauthInvalidToken"));
+          throw new Error(m || t("login.loginFailed"));
         }
-        if (bridge.code === "oauth_provider_mismatch") {
-          emitAuthTelemetryV1("oauth_provider_mismatch", { provider, surface: "client" });
-          Alert.alert(t("login.error"), t("login.oauthProviderMismatch"));
-          return;
+        if (bridgeResult.step === "bridge") {
+          const code = bridgeResult.code;
+          if (code === "patient_not_found") {
+            emitAuthTelemetryV1("oauth_patient_profile_missing", { provider });
+            router.replace({
+              pathname: "/register-patient" as const,
+              params: {
+                oauthComplete: "1",
+                provider,
+                prefillClinicCode: clinicCode.trim() || "",
+              },
+            });
+            return;
+          }
+          if (code === "patient_merge_conflict") {
+            Alert.alert(t("login.error"), t("login.oauthMergeConflict"));
+            return;
+          }
+          if (code === "oauth_provider_mismatch") {
+            emitAuthTelemetryV1("oauth_provider_mismatch", { provider, surface: "client" });
+            Alert.alert(t("login.error"), t("login.oauthProviderMismatch"));
+            return;
+          }
+          if (code === "invalid_oauth_token") {
+            throw new Error(t("login.oauthInvalidToken"));
+          }
+          throw new Error(bridgeResult.message || t("login.loginFailed"));
         }
-        if (bridge.code === "invalid_oauth_token") {
-          throw new Error(t("login.oauthInvalidToken"));
-        }
-        throw new Error(bridge.message || t("login.loginFailed"));
+        throw new Error(t("login.loginFailed"));
       }
-      await applyCliniflySession(bridge.payload, "");
+
+      await applyCliniflySession(bridgeResult.payload, "");
       emitAuthTelemetryV1("oauth_login_success", { provider, surface: "client" });
       return;
     } catch (error: unknown) {

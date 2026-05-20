@@ -99,7 +99,17 @@ export default function DoctorPatientChatScreen() {
       if (json.ok) {
         fetchMessages(true);
       } else {
-        Alert.alert('Hata', json.error || 'Mesaj gönderilemedi.');
+        const serverMsg =
+          typeof json.message === 'string' && json.message.trim() !== ''
+            ? String(json.message).trim()
+            : typeof json.detail === 'string'
+              ? json.detail
+              : json.error === 'assigned_doctor_only'
+                ? 'Bu hasta artık kliniğinize üyedir ve yalnızca atanmış doktor ile mesajlaşabilir.'
+                : String(json.error || 'Mesaj gönderilemedi.');
+        const alertTitle =
+          json.error === 'assigned_doctor_only' ? 'Bilgilendirme' : 'Hata';
+        Alert.alert(alertTitle, serverMsg);
         setText(trimmed);
       }
     } catch (err: any) {

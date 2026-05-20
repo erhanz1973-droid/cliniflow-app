@@ -20,9 +20,13 @@ if (!isExpoGo) {
   }
 }
 
-if (Notifications) {
+let presentationHandlerInstalled = false;
+
+/** Lazy — avoids blocking root layout import at cold start. */
+export function ensureExpoPushPresentationSetup(): void {
+  if (!Notifications || presentationHandlerInstalled) return;
+  presentationHandlerInstalled = true;
   try {
-    // Align with doctor-clean: iOS 15+ banner/list + sound + badge for foreground presentation.
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: true,
@@ -40,7 +44,7 @@ if (Notifications) {
       });
     }
   } catch {
-    /* non-fatal */
+    presentationHandlerInstalled = false;
   }
 }
 
@@ -79,6 +83,7 @@ export async function registerExpoPushForSession(opts: {
   authSessionEpochAtStart?: number;
   authSessionEpochRef?: MutableRefObject<number>;
 }): Promise<void> {
+  ensureExpoPushPresentationSetup();
   if (!opts.authToken?.trim()) return;
   const sig = opts.signal;
   const stale = (): boolean =>

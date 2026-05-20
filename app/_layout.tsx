@@ -1,10 +1,10 @@
 import { Stack } from "expo-router";
 import { View, Text } from "react-native";
+import { markStartupOnce } from "../lib/startupPerf";
 
-/** Install `expo-notifications` handler + Android channels before any screen (not only Profile). */
-import "../lib/registerExpoPush";
+markStartupOnce("root_layout_eval");
 
-/** Root navigator only — providers live in `app/(app)/_layout.tsx` + `Slot`. */
+/** Root navigator only — providers live in `app/(app)/_layout.tsx` + `Slot`. Push handler installs lazily on first register. */
 export default function RootLayout() {
   return <Stack screenOptions={{ headerShown: false }} />;
 }

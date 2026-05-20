@@ -330,7 +330,10 @@ export default function DoctorPatientsScreen() {
                           router.push({
                             pathname: '/doctor/patient-chat',
                             params: {
-                              patientId: p.patient_id || p.patientId || p.id,
+                              patientId:
+                                String(p.id ?? '').trim() ||
+                                String(p.patient_id ?? '').trim() ||
+                                String(p.patientId ?? '').trim(),
                               patientName: encodeURIComponent(p.name || ''),
                             },
                           })

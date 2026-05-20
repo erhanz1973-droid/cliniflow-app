@@ -10,6 +10,7 @@ import { API_BASE } from "../../lib/api";
 import { useLanguage } from "../../lib/language-context";
 import { LANGUAGE_NAMES, SUPPORTED_LANGUAGES, Language } from "../../lib/i18n";
 import { saveSelectedChatClinic } from "../../lib/selectedChatClinic";
+import { buildJoinClinicPatchBody } from "../../../lib/patientJoinClinic";
 
 function Row({ label, value }: { label: string; value?: string | null }) {
   return (
@@ -113,8 +114,7 @@ export default function ProfileScreen() {
     if (!user?.token) return;
     setJoiningClinic(true);
     try {
-      const body: Record<string, string> = { clinic_code: code };
-      if (referral) body.referral_code = referral;
+      const body = buildJoinClinicPatchBody(code, referral || undefined);
       const res = await fetch(`${API_BASE}/api/patient/clinic`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${user.token}`, "Content-Type": "application/json" },
@@ -135,8 +135,9 @@ export default function ProfileScreen() {
       setJoinClinicCode('');
       setJoinReferralCode('');
       // Referral may have succeeded, failed, or not been requested
-      const refOk = data.referral && !data.referral.error;
-      const refBad = data.referral?.error;
+      const refOk =
+        data.referral?.linked === true || data.referral?.duplicate === true;
+      const refBad = data.referral?.attempted && data.referral?.error;
       let successMsg: string;
       if (refOk) {
         successMsg = (t("profile.joinModal.successReferral") || "Kliniğe katıldınız! Referral indiriminiz aktif edilecek.").replace("{clinic}", data.clinic.name);

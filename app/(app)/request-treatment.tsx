@@ -193,7 +193,19 @@ export default function RequestTreatmentScreen() {
         }),
       });
       const data = await res.json();
-      if (!data?.ok) throw new Error(data?.error || t('common.error'));
+      if (!data?.ok) {
+        const errKey = String(data?.error || '');
+        const friendly =
+          data?.message ||
+          (errKey === 'photo_url_required'
+            ? t('treatReq.photoNotRequired') !== 'treatReq.photoNotRequired'
+              ? t('treatReq.photoNotRequired')
+              : 'Fotoğraf zorunlu değil; lütfen uygulamayı güncelleyin veya tekrar deneyin.'
+            : errKey === 'empty_request'
+              ? t('treatReq.descriptionRequired')
+              : errKey || t('common.error'));
+        throw new Error(friendly);
+      }
       setSuccess(true);
     } catch (e: any) {
       Alert.alert(t('common.error'), e.message || t('common.error'));

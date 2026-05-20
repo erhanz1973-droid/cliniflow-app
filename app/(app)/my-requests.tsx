@@ -446,6 +446,11 @@ export default function MyRequestsScreen() {
           const isExpanded = expandedId === req.id;
           const displayDescription = formatTreatmentRequestDescription(req.description);
           const requestPhotoUrl = resolveRequestImageUrl(req);
+          const showCoordinationChat =
+            req.status !== 'closed' &&
+            (req.offers.length === 0 ||
+              !!req.coordination_offer_id ||
+              !!req.coordination_last_message?.trim());
           return (
             <View key={req.id} style={styles.card}>
               {/* Card header */}
@@ -455,18 +460,50 @@ export default function MyRequestsScreen() {
                 activeOpacity={0.75}
               >
                 <View style={styles.cardHeaderLeft}>
-                  <View style={[styles.statusPill, { backgroundColor: sc.bg }]}>
-                    <Text style={[styles.statusText, { color: sc.text }]}>
-                      {req.status === 'answered' ? t('treatReq.status.answered') :
-                       req.status === 'closed'   ? t('treatReq.status.closed') :
-                       t('treatReq.status.pending')}
-                    </Text>
+                  <View style={styles.cardHeaderMetaRow}>
+                    <View style={[styles.statusPill, { backgroundColor: sc.bg }]}>
+                      <Text style={[styles.statusText, { color: sc.text }]}>
+                        {req.status === 'answered' ? t('treatReq.status.answered') :
+                         req.status === 'closed'   ? t('treatReq.status.closed') :
+                         t('treatReq.status.pending')}
+                      </Text>
+                    </View>
+                    {req.clinic_name ? (
+                      <Text style={styles.cardClinic}>🏥 {req.clinic_name}</Text>
+                    ) : null}
+                    <Text style={styles.cardDate}>{fmtDate(req.created_at)}</Text>
                   </View>
-                  {/* Show target clinic name if the request was sent to a specific clinic */}
-                  {req.clinic_name ? (
-                    <Text style={styles.cardClinic}>🏥 {req.clinic_name}</Text>
+                  {showCoordinationChat ? (
+                    <View style={styles.coordCtaBelowStatus}>
+                      {!!req.coordination_last_message?.trim() && (
+                        <Text style={styles.coordPreviewTop} numberOfLines={1}>
+                          💬 {req.coordination_last_message}
+                        </Text>
+                      )}
+                      <TouchableOpacity
+                        style={[styles.msgBtn, styles.coordChatBtnTop]}
+                        disabled={openingCoordinationId === req.id}
+                        onPress={(e) => {
+                          e?.stopPropagation?.();
+                          void openCoordination(req);
+                        }}
+                      >
+                        {openingCoordinationId === req.id ? (
+                          <ActivityIndicator size="small" color="#2563EB" />
+                        ) : (
+                          <Text style={styles.msgBtnText}>
+                            💬{' '}
+                            {req.coordination_last_message?.trim()
+                              ? t('offerChat.viewMessages')
+                              : t('treatReq.openCoordination')}
+                            {(req.coordination_unread_count ?? 0) > 0
+                              ? ` (${req.coordination_unread_count})`
+                              : ''}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
                   ) : null}
-                  <Text style={styles.cardDate}>{fmtDate(req.created_at)}</Text>
                 </View>
                 <View style={styles.cardHeaderRight}>
                   {req.offers.length > 0 && (
@@ -511,30 +548,6 @@ export default function MyRequestsScreen() {
                             ? t('treatReq.preparingEstimate')
                             : t('treatReq.coordinationInProgress'))}
                       </Text>
-                      {!!req.coordination_last_message?.trim() && (
-                        <Text style={styles.coordPreview} numberOfLines={2}>
-                          💬 {req.coordination_last_message}
-                        </Text>
-                      )}
-                      <TouchableOpacity
-                        style={[styles.msgBtn, styles.coordChatBtn]}
-                        disabled={openingCoordinationId === req.id}
-                        onPress={() => void openCoordination(req)}
-                      >
-                        {openingCoordinationId === req.id ? (
-                          <ActivityIndicator size="small" color="#fff" />
-                        ) : (
-                          <Text style={styles.msgBtnText}>
-                            💬{' '}
-                            {req.coordination_last_message?.trim()
-                              ? t('offerChat.viewMessages')
-                              : t('treatReq.openCoordination')}
-                            {(req.coordination_unread_count ?? 0) > 0
-                              ? ` (${req.coordination_unread_count})`
-                              : ''}
-                          </Text>
-                        )}
-                      </TouchableOpacity>
                     </View>
                   ) : (
                     <>
@@ -788,9 +801,13 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4,
     shadowOffset: { width: 0, height: 1 }, elevation: 1,
   },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  cardHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  cardHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 },
+  cardHeaderLeft: { flex: 1, minWidth: 0, marginRight: 8 },
+  cardHeaderMetaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
+  cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 2 },
+  coordCtaBelowStatus: { marginTop: 8, width: '100%' },
+  coordPreviewTop: { fontSize: 12, color: '#475569', marginBottom: 6 },
+  coordChatBtnTop: { alignSelf: 'stretch' },
   statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   statusText: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
   cardDate: { fontSize: 12, color: '#9CA3AF' },
@@ -812,9 +829,6 @@ const styles = StyleSheet.create({
 
   noOffers: { paddingVertical: 16, alignItems: 'center', gap: 10 },
   noOffersText: { fontSize: 13, color: '#64748b', textAlign: 'center' },
-  coordPreview: { fontSize: 12, color: '#475569', textAlign: 'center', paddingHorizontal: 8 },
-  coordChatBtn: { marginTop: 4, alignSelf: 'stretch' },
-
   offersTitle: { fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 8, marginTop: 4 },
 
   offerCard: {

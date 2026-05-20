@@ -9,7 +9,7 @@ import React, {
   useCallback,
   type MutableRefObject,
 } from "react";
-import { Platform } from "react-native";
+import { InteractionManager, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { router } from "expo-router";
@@ -21,6 +21,8 @@ import { SplashBootstrap } from "./splash-bootstrap";
 import { clearClinic } from "../store/useClinicStore";
 import { emitAuthTelemetryV1 } from "./authTelemetry";
 import { getSupabaseAuthClient } from "./supabaseAuthClient";
+import { markStartupOnce } from "./startupPerf";
+import { clearDoctorDashboardDiskCache } from "./doctorDashboardPersistence";
 
 /* ================= TYPES ================= */
 
@@ -79,6 +81,26 @@ const EXTRA_AUTH_CLEAR_KEYS = ["clinifly.patient.v1"] as const;
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+/** Session-only slice — stable across profile patches (name, photo, etc.). */
+export type AuthSessionContextValue = {
+  session: Pick<
+    User,
+    "id" | "token" | "type" | "role" | "patientId" | "doctorId" | "clinicId" | "clinicCode" | "status"
+  > | null;
+  token: string;
+  isAuthReady: boolean;
+  isAuthLoading: boolean;
+  isAuthed: boolean;
+  isDoctor: boolean;
+  isPatient: boolean;
+  isAdmin: boolean;
+  authSessionEpochRef: MutableRefObject<number>;
+  signOut: AuthContextValue["signOut"];
+  refreshAuth: AuthContextValue["refreshAuth"];
+};
+
+const AuthSessionContext = createContext<AuthSessionContextValue | undefined>(undefined);
+
 function PushNotificationEffects() {
   const ctx = useContext(AuthContext);
   const user = ctx?.user ?? null;
@@ -97,16 +119,26 @@ function PushNotificationEffects() {
     const ac = new AbortController();
     const token = user.token;
     const epochAtStart = authSessionEpochRef.current;
-    void registerExpoPushForSession({
-      role,
-      authToken: token,
-      signal: ac.signal,
-      authSessionEpochAtStart: epochAtStart,
-      authSessionEpochRef,
+    /** Defer push registration until after home shell is interactive (doctor cold start). */
+    const delayMs = role === "doctor" ? 2_500 : 800;
+    let tid: ReturnType<typeof setTimeout> | null = null;
+    const task = InteractionManager.runAfterInteractions(() => {
+      tid = setTimeout(() => {
+        if (ac.signal.aborted) return;
+        void registerExpoPushForSession({
+          role,
+          authToken: token,
+          signal: ac.signal,
+          authSessionEpochAtStart: epochAtStart,
+          authSessionEpochRef,
+        });
+      }, delayMs);
     });
 
     return () => {
       ac.abort();
+      task.cancel?.();
+      if (tid) clearTimeout(tid);
     };
   }, [isAuthReady, user?.token, user?.type, authSessionEpochRef]);
 
@@ -324,21 +356,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setAuthToken(parsed.token); // 🔥 CRITICAL: Sync token with API layer
             console.log('[AUTH] Token set to API layer');
             emitAuthTelemetryV1("session_restore_ok", { userType: parsed.type });
+            markStartupOnce("auth_restored", { userType: parsed.type });
+            /** Unblock doctor UI before optional patient Supabase round-trip. */
+            setIsAuthLoading(false);
+            setIsInitialized(true);
+
             if (parsed.type === "patient") {
-              try {
-                const supa = getSupabaseAuthClient();
-                if (supa) {
-                  const { error } = await supa.auth.getSession();
-                  if (error)
-                    emitAuthTelemetryV1("supabase_session_error", {
-                      message: String(error.message || error).slice(0, 160),
-                    });
+              void (async () => {
+                try {
+                  const supa = getSupabaseAuthClient();
+                  if (supa) {
+                    const { error } = await supa.auth.getSession();
+                    if (error)
+                      emitAuthTelemetryV1("supabase_session_error", {
+                        message: String(error.message || error).slice(0, 160),
+                      });
+                  }
+                } catch (e) {
+                  emitAuthTelemetryV1("supabase_session_error", {
+                    message: String(e instanceof Error ? e.message : e).slice(0, 160),
+                  });
                 }
-              } catch (e) {
-                emitAuthTelemetryV1("supabase_session_error", {
-                  message: String(e instanceof Error ? e.message : e).slice(0, 160),
-                });
-              }
+              })();
             }
           }
 
@@ -361,7 +400,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setAuthToken(null); // 🔥 CRITICAL: Clear token from API layer
         } finally {
           setIsAuthLoading(false);
-          setIsInitialized(true); // 🔥 CRITICAL: Mark as initialized
+          setIsInitialized(true);
+          markStartupOnce("auth_ready");
           console.log('[AuthProvider] refreshAuth complete');
           refreshAuthPromiseRef.current = null;
         }
@@ -463,6 +503,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
     clearClinic();
+    void clearDoctorDashboardDiskCache();
     setUser(null);
     setAuthToken(null);
     setIsOtpVerified(false);
@@ -526,6 +567,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [refreshAuth]);
 
+  const sessionValue = useMemo<AuthSessionContextValue>(() => {
+    const session = user
+      ? {
+          id: user.id,
+          token: user.token,
+          type: user.type,
+          role: user.role,
+          patientId: user.patientId,
+          doctorId: user.doctorId,
+          clinicId: user.clinicId,
+          clinicCode: user.clinicCode,
+          status: user.status,
+        }
+      : null;
+    return {
+      session,
+      token: user?.token ?? "",
+      isAuthLoading,
+      isAuthReady: !isAuthLoading,
+      isAuthed: !!user?.token,
+      isDoctor: user?.type === "doctor",
+      isPatient: user?.type === "patient",
+      isAdmin: user?.type === "admin",
+      authSessionEpochRef,
+      signOut,
+      refreshAuth,
+    };
+  }, [
+    user?.id,
+    user?.token,
+    user?.type,
+    user?.role,
+    user?.patientId,
+    user?.doctorId,
+    user?.clinicId,
+    user?.clinicCode,
+    user?.status,
+    isAuthLoading,
+    signOut,
+    refreshAuth,
+  ]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -586,11 +669,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <AuthContext.Provider value={value}>
-      <SplashBootstrap />
-      <PushNotificationEffects />
-      {children}
-    </AuthContext.Provider>
+    <AuthSessionContext.Provider value={sessionValue}>
+      <AuthContext.Provider value={value}>
+        <SplashBootstrap />
+        <PushNotificationEffects />
+        {children}
+      </AuthContext.Provider>
+    </AuthSessionContext.Provider>
   );
 }
 
@@ -598,6 +683,18 @@ export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
   return ctx;
+}
+
+/** Session slice — does not re-render on profile-only `patchUser` updates. */
+export function useAuthSession(): AuthSessionContextValue {
+  const ctx = useContext(AuthSessionContext);
+  if (!ctx) throw new Error("useAuthSession must be used inside AuthProvider");
+  return ctx;
+}
+
+/** Narrow subscription: re-renders when token changes, not on unrelated user field patches. */
+export function useAuthToken(): string {
+  return useAuthSession().token;
 }
 
 /** @returns true if logout/login happened since `epochSnapshot`. */

@@ -15,6 +15,7 @@ import {
   Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { buildJoinClinicPatchBody } from "../../lib/patientJoinClinic";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -143,7 +144,7 @@ export default function ClinicOnboardingScreen() {
             Authorization: `Bearer ${user.token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ clinic_code: code.trim().toUpperCase() }),
+          body: JSON.stringify(buildJoinClinicPatchBody(code, undefined)),
         });
         const data = (await res.json().catch(() => ({}))) as {
           ok?: boolean;
