@@ -26,6 +26,7 @@ import {
   operationalEventsFromFeed,
 } from "@/lib/coordinationFeedUtils";
 import { useCoordinationWorkspace } from "@/hooks/useCoordinationWorkspace";
+import type { AiState } from "@/lib/coordinationWorkspaceTypes";
 
 type Props = {
   patientId: string;
@@ -43,6 +44,29 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
   const { width } = useWindowDimensions();
   const isWide = width >= 960;
   const { data, loading, error, refresh } = useCoordinationWorkspace(patientId);
+  const [aiOverride, setAiOverride] = useState<Partial<AiState> | null>(null);
+
+  useEffect(() => {
+    setAiOverride(null);
+  }, [patientId]);
+
+  useEffect(() => {
+    if (data?.aiState) setAiOverride(null);
+  }, [
+    data?.aiState?.responderMode,
+    data?.aiState?.aiPaused,
+    data?.aiState?.aiEscalationRequired,
+  ]);
+
+  const aiState = useMemo(() => {
+    const base = data?.aiState;
+    if (!base) return base;
+    return aiOverride ? { ...base, ...aiOverride } : base;
+  }, [data?.aiState, aiOverride]);
+
+  const handleAiPatch = useCallback((patch: Partial<AiState>) => {
+    setAiOverride((prev) => ({ ...(prev || {}), ...patch }));
+  }, []);
 
   const feed = useMemo(
     () => data?.supervisionFeed || data?.conversation || data?.messages || [],
@@ -156,7 +180,7 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
       )}
       <DoctorIntentPanel
         patientId={patientId}
-        draftGenerationAllowed={data.aiState?.draftGenerationAllowed}
+        draftGenerationAllowed={aiState?.draftGenerationAllowed}
         onInputFocus={scrollFieldIntoView}
         compact={!isWide}
       />
@@ -166,13 +190,13 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
   const leftColumn = (
     <View style={styles.leftStack}>
       <CoordinationContextStrip
-        aiState={data.aiState}
+        aiState={aiState}
         leadHeat={data.leadHeat}
         strategy={data.currentStrategy}
       />
       <PatientContextPanel
         profile={data.profile}
-        aiState={data.aiState}
+        aiState={aiState}
         leadHeat={data.leadHeat}
         strategy={data.currentStrategy}
       />
@@ -206,8 +230,9 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
     <View style={styles.rightStack}>
       <InterventionControls
         patientId={patientId}
-        aiState={data.aiState}
+        aiState={aiState}
         onRefresh={refresh}
+        onAiPatch={handleAiPatch}
         onGuideAi={scrollToIntent}
         onInputFocus={scrollFieldIntoView}
         compact={!isWide}

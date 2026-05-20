@@ -12,12 +12,40 @@ import {
 import { apiFetchJson } from "@/lib/api";
 import type { AiState } from "@/lib/coordinationWorkspaceTypes";
 
-type ResponderMode = "AI_ACTIVE" | "HUMAN_ACTIVE" | "HYBRID" | "ESCALATED";
+type PatchAiResponse = {
+  ok?: boolean;
+  message?: string;
+  error?: string;
+  aiPaused?: boolean;
+  aiEscalationRequired?: boolean;
+  responderMode?: string;
+  responderModeLabel?: string;
+  delegation?: {
+    draftGenerationAllowed?: boolean;
+    autoReplyAllowed?: boolean;
+    aiEscalationRequired?: boolean;
+    statusLabel?: string;
+  };
+};
+
+function patchToAiState(json: PatchAiResponse): Partial<AiState> {
+  const d = json.delegation;
+  return {
+    aiPaused: json.aiPaused,
+    aiEscalationRequired: json.aiEscalationRequired ?? d?.aiEscalationRequired,
+    responderMode: json.responderMode,
+    responderModeLabel: json.responderModeLabel,
+    draftGenerationAllowed: d?.draftGenerationAllowed,
+    autoReplyAllowed: d?.autoReplyAllowed,
+    handlingStateLabel: d?.statusLabel,
+  };
+}
 
 type Props = {
   patientId: string;
   aiState?: AiState;
   onRefresh: () => void;
+  onAiPatch?: (patch: Partial<AiState>) => void;
   onGuideAi: () => void;
   onInputFocus?: (fieldRef: RefObject<View | null>) => void;
   compact?: boolean;
@@ -27,6 +55,7 @@ export function InterventionControls({
   patientId,
   aiState,
   onRefresh,
+  onAiPatch,
   onGuideAi,
   onInputFocus,
   compact,
@@ -43,7 +72,7 @@ export function InterventionControls({
       setSaving(true);
       setError(null);
       try {
-        const json = await apiFetchJson<{ ok?: boolean; message?: string; error?: string }>(
+        const json = await apiFetchJson<PatchAiResponse>(
           `/api/doctor/patients/${encodeURIComponent(patientId)}/ai-coordination`,
           {
             method: "PATCH",
@@ -53,14 +82,15 @@ export function InterventionControls({
           },
         );
         if (!json.ok) throw new Error(json.message || json.error || "Kaydedilemedi");
-        await onRefresh();
+        onAiPatch?.(patchToAiState(json));
+        void onRefresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Kaydedilemedi");
       } finally {
         setSaving(false);
       }
     },
-    [patientId, onRefresh],
+    [patientId, onRefresh, onAiPatch],
   );
 
   const suggestRewrite = useCallback(async () => {
@@ -80,10 +110,13 @@ export function InterventionControls({
     }
   }, [patientId]);
 
-  const escalated = aiState?.aiEscalationRequired;
-
   const takeOver = useCallback(async () => {
     await patch({ action: "takeOver" });
+    setTimeout(() => onGuideAi?.(), Platform.OS === "ios" ? 350 : 200);
+  }, [patch, onGuideAi]);
+
+  const guideAiHybrid = useCallback(async () => {
+    await patch({ action: "setHybrid", primaryResponderType: "doctor" });
     setTimeout(() => onGuideAi?.(), Platform.OS === "ios" ? 350 : 200);
   }, [patch, onGuideAi]);
 
@@ -109,11 +142,16 @@ export function InterventionControls({
           disabled={saving}
           variant="primary"
         />
-        <ActionBtn label="AI'ye rehberlik" onPress={onGuideAi} disabled={saving} variant="guide" />
+        <ActionBtn
+          label="AI'ye rehberlik"
+          onPress={() => void guideAiHybrid()}
+          disabled={saving}
+          variant="guide"
+        />
         <ActionBtn
           label="AI devam"
           onPress={() => patch({ action: "resumeAi", clearEscalation: true })}
-          disabled={saving || escalated}
+          disabled={saving}
           variant="muted"
         />
       </View>
