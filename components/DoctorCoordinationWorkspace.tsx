@@ -233,20 +233,16 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
   ) : (
     <View style={styles.columnsStacked}>
       {rightColumn}
+      {feedPanel}
       <Pressable
         style={styles.detailsToggle}
         onPress={() => setShowCoordinationDetails((v) => !v)}
       >
         <Text style={styles.detailsToggleText}>
-          {showCoordinationDetails ? "▲ Bağlam ve akışı gizle" : "▼ Bağlam ve konuşma akışı"}
+          {showCoordinationDetails ? "▲ Hasta bağlamını gizle" : "▼ Hasta bağlamı"}
         </Text>
       </Pressable>
-      {showCoordinationDetails ? (
-        <>
-          {leftColumn}
-          {feedPanel}
-        </>
-      ) : null}
+      {showCoordinationDetails ? leftColumn : null}
     </View>
   );
 
@@ -372,7 +368,7 @@ const styles = StyleSheet.create({
     padding: 12,
     minHeight: 480,
   },
-  feedCardMobile: { minHeight: 0, maxHeight: 200, flex: 0 },
+  feedCardMobile: { minHeight: 220, flex: 0 },
   feedHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
