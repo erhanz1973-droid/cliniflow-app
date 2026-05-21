@@ -25,6 +25,10 @@ export type DoctorRequestRow = {
   preferred_treatment: string | null;
   status: "pending" | "answered" | "closed";
   created_at: string;
+  /** Latest offer_messages activity (patient or clinic) — inbox sort key */
+  last_message_at?: string | null;
+  last_message_preview?: string | null;
+  last_message_role?: string | null;
   offer_count: number;
   my_offer_id: string | null;
   my_offer: MyOfferSummary | null;

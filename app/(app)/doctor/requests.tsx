@@ -11,7 +11,6 @@ import { useAuthSession } from '../../../lib/auth';
 import { useLanguage } from '../../../lib/language-context';
 import { API_BASE, setAuthToken } from '../../../lib/api';
 import { isEnrolledSharedCare } from '../../../lib/canonicalChatTarget';
-import { startIncomingRequestChat } from '../../../lib/incomingRequestStartChat';
 import { openDoctorPatientChat } from '../../../lib/navigateCanonicalChat';
 import { openDoctorCoordinationWorkspace } from '../../../lib/navigateDoctorCoordination';
 import { fetchRequestMessagingMeta } from '../../../lib/offerMessagingMeta';
@@ -126,13 +125,13 @@ function OfferDetailModal({
   visible,
   onClose,
   req,
-  onOpenChat,
+  onOpenCoordination,
   onOpenEnrolledPatientMessaging,
 }: {
   visible: boolean;
   onClose: () => void;
   req: Request;
-  onOpenChat: () => void;
+  onOpenCoordination: () => void;
   /** After enrollment: canonical thread only — no offer-thread chat entry. */
   onOpenEnrolledPatientMessaging: () => void;
 }) {
@@ -214,12 +213,14 @@ function OfferDetailModal({
               style={ods.primaryBtn}
               onPress={() => {
                 onClose();
-                onOpenChat();
+                onOpenCoordination();
               }}
               activeOpacity={0.85}
             >
               <Text style={ods.primaryBtnTxt}>
-                {t('requests.offerDetail.openChat') || 'Open conversation'}
+                {t('doctor.requests.openCoordination') !== 'doctor.requests.openCoordination'
+                  ? t('doctor.requests.openCoordination')
+                  : 'AI koordinasyon süpervizyonu'}
               </Text>
             </TouchableOpacity>
             )}
@@ -466,21 +467,16 @@ const RequestCard = memo(function RequestCard({
   req,
   token,
   onOfferSent,
-  onLeadOfferChat,
   onOpenEnrolledPatientMessaging,
   onOpenCoordination,
   isChatsFilter,
-  startingChat,
 }: {
   req: Request;
   token?: string;
   onOfferSent: (offerId?: string, request?: Request) => void;
-  /** Opens offer-thread chat (bootstrap + navigate). */
-  onLeadOfferChat: (offerId: string | null, request: Request) => void;
-  startingChat?: boolean;
   /** Canonical enrolled / shared-care messaging (Patients → patient-chat). */
   onOpenEnrolledPatientMessaging: (request: Request) => void;
-  /** AI coordination supervision feed for this request's patient. */
+  /** AI coordination supervision (conversation + intent panel). */
   onOpenCoordination: (request: Request) => void;
   isChatsFilter?: boolean;
 }) {
@@ -514,7 +510,14 @@ const RequestCard = memo(function RequestCard({
         : [];
 
   const unreadN = Math.max(0, Number(req.unread_count) || 0);
-  const hasUnread = !enrolledShared && hasMyOffer && unreadN > 0;
+  const hasUnread = !enrolledShared && unreadN > 0;
+
+  const coordinationLabel =
+    t('doctor.requests.openCoordination') !== 'doctor.requests.openCoordination'
+      ? t('doctor.requests.openCoordination')
+      : 'AI koordinasyon süpervizyonu';
+
+  const openCoordination = () => onOpenCoordination(req);
 
   return (
     <View style={[
@@ -632,21 +635,25 @@ const RequestCard = memo(function RequestCard({
       </View>
 
       <TouchableOpacity
-        style={cs.coordinationBtn}
-        onPress={() => onOpenCoordination(req)}
+        style={[
+          cs.coordinationBtn,
+          isChatsFilter && cs.coordinationBtnFull,
+          hasUnread && cs.coordinationBtnUnread,
+        ]}
+        onPress={openCoordination}
         activeOpacity={0.85}
         accessibilityRole="button"
-        accessibilityLabel={
-          t('doctor.requests.openCoordination') !== 'doctor.requests.openCoordination'
-            ? t('doctor.requests.openCoordination')
-            : 'AI koordinasyon süpervizyonu'
-        }
+        accessibilityLabel={coordinationLabel}
       >
-        <Text style={cs.coordinationBtnText}>
-          🤖{' '}
-          {t('doctor.requests.openCoordination') !== 'doctor.requests.openCoordination'
-            ? t('doctor.requests.openCoordination')
-            : 'AI koordinasyon süpervizyonu'}
+        <Text
+          style={[
+            cs.coordinationBtnText,
+            isChatsFilter && cs.coordinationBtnTextFull,
+            hasUnread && cs.coordinationBtnTextUnread,
+          ]}
+        >
+          🤖 {coordinationLabel}
+          {hasUnread ? `  •  ${unreadN} ${t('requests.card.newMessages') || 'new'}` : ''}
         </Text>
       </TouchableOpacity>
 
@@ -669,18 +676,6 @@ const RequestCard = memo(function RequestCard({
               <Text style={cs.quickMoreTxt}>···</Text>
             </TouchableOpacity>
           </View>
-          <TouchableOpacity
-            style={cs.startMessagingPendingBtn}
-            onPress={() => onLeadOfferChat(null, req)}
-            disabled={startingChat}
-            activeOpacity={0.85}
-          >
-            <Text style={cs.startMessagingPendingTxt}>
-              {startingChat
-                ? (t('requests.card.openingChat') || 'Opening…')
-                : `💬 ${t('requests.card.startMessaging') || 'Start Messaging'}`}
-            </Text>
-          </TouchableOpacity>
         </>
       )}
 
@@ -718,55 +713,28 @@ const RequestCard = memo(function RequestCard({
         </View>
       )}
 
-      {/* Answered state — lead phase only: offer chat + resend */}
-      {hasMyOffer && !enrolledShared && (
-        isChatsFilter ? (
-          <>
-            <TouchableOpacity
-              style={[cs.chatBtnFull, unreadN > 0 && cs.chatBtnFullUnread]}
-              onPress={() => onLeadOfferChat(req.my_offer_id, req)}
-              disabled={startingChat}
-              activeOpacity={0.85}
-            >
-              <Text style={cs.chatBtnFullText}>
-                💬 {t('requests.card.startMessaging') !== 'requests.card.startMessaging'
-                  ? t('requests.card.startMessaging')
-                  : (t('requests.card.openChat') || 'Open Conversation')}
-                {unreadN > 0 ? `  •  ${unreadN} ${t('requests.card.newMessages') || 'new'}` : ''}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={cs.offerDetailLink} onPress={() => setOfferDetailOpen(true)} activeOpacity={0.75}>
-              <Text style={cs.offerDetailLinkText}>
-                📋 {t('requests.card.viewMyOffer') || 'View my offer'}
-              </Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <View style={cs.answeredRow}>
-            <TouchableOpacity
-              style={cs.answeredBadge}
-              onPress={() => setOfferDetailOpen(true)}
-              activeOpacity={0.75}
-            >
-              <Text style={cs.answeredBadgeText}>{t('requests.card.offerSentBadge') || '✓ Offer sent'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[cs.chatBtn, hasUnread && cs.chatBtnUnread]}
-              onPress={() => onLeadOfferChat(req.my_offer_id, req)}
-              disabled={startingChat}
-            >
-              <Text style={[cs.chatBtnText, hasUnread && cs.chatBtnTextUnread]}>
-                {t('requests.card.startMessaging') !== 'requests.card.startMessaging'
-                  ? `💬 ${t('requests.card.startMessaging')}`
-                  : (t('requests.card.messages') || '💬 Messages')}
-                {hasUnread ? ` (${unreadN > 99 ? '99+' : unreadN})` : ''}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={cs.resendBtn} onPress={openFull}>
-              <Text style={cs.resendBtnText}>{t('requests.card.another') || '+ Another'}</Text>
-            </TouchableOpacity>
-          </View>
-        )
+      {/* Answered state — lead: offer summary + resend (conversation via coordination button above) */}
+      {hasMyOffer && !enrolledShared && !isChatsFilter && (
+        <View style={cs.answeredRow}>
+          <TouchableOpacity
+            style={cs.answeredBadge}
+            onPress={() => setOfferDetailOpen(true)}
+            activeOpacity={0.75}
+          >
+            <Text style={cs.answeredBadgeText}>{t('requests.card.offerSentBadge') || '✓ Offer sent'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={cs.resendBtn} onPress={openFull}>
+            <Text style={cs.resendBtnText}>{t('requests.card.another') || '+ Another'}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {hasMyOffer && !enrolledShared && isChatsFilter && (
+        <TouchableOpacity style={cs.offerDetailLink} onPress={() => setOfferDetailOpen(true)} activeOpacity={0.75}>
+          <Text style={cs.offerDetailLinkText}>
+            📋 {t('requests.card.viewMyOffer') || 'View my offer'}
+          </Text>
+        </TouchableOpacity>
       )}
 
       {showModal && (
@@ -783,9 +751,7 @@ const RequestCard = memo(function RequestCard({
         visible={offerDetailOpen}
         onClose={() => setOfferDetailOpen(false)}
         req={req}
-        onOpenChat={() => {
-          if (req.my_offer_id) onLeadOfferChat(req.my_offer_id, req);
-        }}
+        onOpenCoordination={openCoordination}
         onOpenEnrolledPatientMessaging={() => onOpenEnrolledPatientMessaging(req)}
       />
     </View>
@@ -812,7 +778,6 @@ export default function DoctorRequestsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterKey>('all');
-  const [startingChatRequestId, setStartingChatRequestId] = useState<string | null>(null);
   const requestsRef = useRef(requests);
   requestsRef.current = requests;
 
@@ -927,7 +892,7 @@ export default function DoctorRequestsScreen() {
 
   const applyUnreadSync = useCallback(
     (next: DoctorRequestRow[] | null) => {
-      if (next) setRequests(next);
+      if (next) setRequests(sortDoctorRequestsForInbox(next));
     },
     [],
   );
@@ -981,6 +946,11 @@ export default function DoctorRequestsScreen() {
   const handleOpenCoordination = useCallback(
     (req: Request) => {
       if (!token) return;
+      const oid = String(req.my_offer_id || '').trim();
+      if (oid) {
+        const cleared = clearDoctorRequestUnreadByOfferId(oid);
+        if (cleared?.length) setRequests(cleared);
+      }
       setAuthToken(token);
       openDoctorCoordinationWorkspace(
         router,
@@ -994,40 +964,6 @@ export default function DoctorRequestsScreen() {
       );
     },
     [router, token, t],
-  );
-
-  const handleLeadOfferChatPress = useCallback(
-    (offerId: string | null, req: Request) => {
-      if (!token || startingChatRequestId) return;
-      const oid = String(offerId || req.my_offer_id || '').trim();
-      if (oid) {
-        const cleared = clearDoctorRequestUnreadByOfferId(oid);
-        if (cleared?.length) setRequests(cleared);
-      }
-      setStartingChatRequestId(req.id);
-      void startIncomingRequestChat({
-        token,
-        router,
-        t,
-        source: 'doctor/requests',
-        ctx: {
-          requestId: req.id,
-          patientId: req.patient_id,
-          patientName: req.patient_name || 'Patient',
-          offerId,
-          myOfferId: req.my_offer_id,
-          leadThreadIsLead: req.lead_thread_is_lead ?? req.threadIsLead,
-          preferredTreatment: req.preferred_treatment,
-        },
-      })
-        .then((result) => {
-          if (result.cacheRows) setRequests(result.cacheRows);
-        })
-        .finally(() => {
-          setStartingChatRequestId(null);
-        });
-    },
-    [token, router, t, startingChatRequestId],
   );
 
   const filtered = useMemo(() => {
@@ -1089,16 +1025,19 @@ export default function DoctorRequestsScreen() {
         t('requests.offerSent.msg') || 'The patient will be notified.',
         [
           {
-            text: t('requests.card.startMessaging') || 'Start Messaging',
+            text:
+              t('doctor.requests.openCoordination') !== 'doctor.requests.openCoordination'
+                ? t('doctor.requests.openCoordination')
+                : 'AI koordinasyon',
             onPress: () => {
-              if (request) void handleLeadOfferChatPress(offerId || request.my_offer_id, request);
+              if (request) handleOpenCoordination(request);
             },
           },
           { text: t('common.ok') || 'OK', style: 'cancel' },
         ],
       );
     },
-    [load, t, handleLeadOfferChatPress],
+    [load, t, handleOpenCoordination],
   );
 
   const renderRequest = useCallback(
@@ -1108,21 +1047,11 @@ export default function DoctorRequestsScreen() {
         token={token}
         isChatsFilter={filter === 'chats'}
         onOfferSent={handleOfferSent}
-        onLeadOfferChat={handleLeadOfferChatPress}
         onOpenEnrolledPatientMessaging={openEnrolledPatientMessaging}
         onOpenCoordination={handleOpenCoordination}
-        startingChat={startingChatRequestId === item.id}
       />
     ),
-    [
-      token,
-      startingChatRequestId,
-      filter,
-      handleOfferSent,
-      handleLeadOfferChatPress,
-      openEnrolledPatientMessaging,
-      handleOpenCoordination,
-    ]
+    [token, filter, handleOfferSent, openEnrolledPatientMessaging, handleOpenCoordination],
   );
 
   const keyExtractor = useCallback((item: DoctorRequestRow) => item.id, []);
@@ -1358,24 +1287,18 @@ const cs = StyleSheet.create({
     backgroundColor: '#f5f3ff',
     alignItems: 'center',
   },
-  coordinationBtnText: { fontSize: 13, fontWeight: '700', color: '#5b21b6' },
-  // Chat-focused full-width button (shown in "My Chats" filter)
-  chatBtnFull: {
-    backgroundColor: '#2563EB', borderRadius: 10, paddingVertical: 12,
-    alignItems: 'center', marginTop: 10,
+  coordinationBtnFull: {
+    paddingVertical: 12,
+    backgroundColor: '#7c3aed',
+    borderColor: '#6d28d9',
   },
-  chatBtnFullUnread: { backgroundColor: '#DC2626' }, // red when there are unread messages
-  chatBtnFullText: { fontSize: 14, fontWeight: '800', color: '#fff', letterSpacing: 0.2 },
-  startMessagingPendingBtn: {
-    backgroundColor: '#EFF6FF',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#93C5FD',
-    paddingVertical: 11,
-    alignItems: 'center',
-    marginTop: 8,
+  coordinationBtnUnread: {
+    backgroundColor: '#DC2626',
+    borderColor: '#B91C1C',
   },
-  startMessagingPendingTxt: { fontSize: 14, fontWeight: '800', color: '#1D4ED8' },
+  coordinationBtnText: { fontSize: 13, fontWeight: '700', color: '#5b21b6', textAlign: 'center' },
+  coordinationBtnTextFull: { fontSize: 14, fontWeight: '800', color: '#fff' },
+  coordinationBtnTextUnread: { color: '#fff' },
   // Unread message badge (top-right of card, replaces the status dot)
   unreadBadge: {
     backgroundColor: '#DC2626', borderRadius: 10, minWidth: 20, height: 20,

@@ -25,7 +25,10 @@ import {
   invalidateDoctorUnreadCacheOnly,
 } from '../../lib/doctorMessaging';
 import { emitOfferUnreadEvent } from '../../lib/offerUnreadEvents';
-import { invalidatePatientInboxUnreadCache } from '../../lib/patientInboxUnread';
+import {
+  invalidatePatientInboxUnreadCache,
+  schedulePatientInboxSummaryRefresh,
+} from '../../lib/patientInboxUnread';
 import { peekCachedResource, setCachedResource } from '../../lib/resourceCache';
 import {
   DOCTOR_REQUESTS_LIST_CACHE_KEY,
@@ -43,6 +46,7 @@ import {
 } from  '../../hooks/chatSessionGlobal';
 import { clearDoctorRequestUnreadByOfferId } from '../../lib/doctorRequestsUnread';
 import { openDoctorPatientChat } from '../../lib/navigateCanonicalChat';
+import { goToChat } from '../../lib/chatFlow';
 import { logCanonicalSendAttempt } from '../../lib/canonicalChatDiagnostics';
 import { fetchOfferMessagingMeta } from '../../lib/offerMessagingMeta';
 import { useSupabaseOfferMessages } from  '../../hooks/useSupabaseOfferMessages';
@@ -634,7 +638,10 @@ export default function OfferChatScreen() {
       clearDoctorRequestUnreadByOfferId(oid);
       invalidateDoctorUnreadCacheOnly();
     }
-    else invalidatePatientInboxUnreadCache();
+    else {
+      invalidatePatientInboxUnreadCache();
+      schedulePatientInboxSummaryRefresh(user.token);
+    }
     emitOfferUnreadEvent({ type: 'offer_mark_read', offerId: oid, recipient });
     try {
       await fetch(`${API_BASE}/api/offer-messages/${encodeURIComponent(oid)}/read`, {
@@ -899,10 +906,11 @@ export default function OfferChatScreen() {
       const data = await res.json();
       if (__DEV__) console.log('[offer-chat POST] response:', JSON.stringify(data));
       if (!data?.ok) {
-        if (data?.error === 'offer_thread_archived' && user?.type === 'doctor') {
+        if (data?.error === 'offer_thread_archived') {
           setOfferWriteGate('archived');
           const pid = String(data.patient_id || patientChatPatientIdParam || '').trim();
-          if (pid) {
+          const clinicIdArchived = String(data.clinic_id || '').trim();
+          if (user?.type === 'doctor' && pid) {
             openDoctorPatientChat(
               router,
               {
@@ -914,13 +922,25 @@ export default function OfferChatScreen() {
               },
               { source: 'offer-chat-send-blocked', useReplace: true },
             );
+            Alert.alert(
+              t('doctor.inbox.enrolledNoticeTitle') || 'Patient joined clinic',
+              t('doctor.inbox.enrolledNoticeBody') ||
+                'Continue messaging in the patient conversation.',
+            );
+            return;
           }
-          Alert.alert(
-            t('doctor.inbox.enrolledNoticeTitle') || 'Patient joined clinic',
-            t('doctor.inbox.enrolledNoticeBody') ||
-              'Continue messaging in the patient conversation.',
-          );
-          return;
+          if (user?.type === 'patient' && clinicIdArchived) {
+            goToChat(router, { clinicId: clinicIdArchived });
+            Alert.alert(
+              t('offerChat.enrolledRedirectTitle') !== 'offerChat.enrolledRedirectTitle'
+                ? t('offerChat.enrolledRedirectTitle')
+                : 'Klinik mesajları',
+              t('offerChat.enrolledRedirectBody') !== 'offerChat.enrolledRedirectBody'
+                ? t('offerChat.enrolledRedirectBody')
+                : 'Kliniğe üye oldunuz. Mesajlarınız klinik sohbetinde devam ediyor.',
+            );
+            return;
+          }
         }
         throw new Error(data?.error || 'error');
       }

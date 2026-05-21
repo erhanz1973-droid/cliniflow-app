@@ -18,6 +18,8 @@ import {
 } from '../../lib/treatmentRequestDescription';
 import { goToOfferChat } from '../../lib/goToOfferChat';
 import { openRequestCoordinationChat } from '../../lib/patientCoordinationChat';
+import { subscribeOfferUnreadEvents } from '../../lib/offerUnreadEvents';
+import { schedulePatientInboxSummaryRefresh } from '../../lib/patientInboxUnread';
 
 // DISCLAIMER — always use the translation key; this fallback is only used if i18n is unavailable
 const DISCLAIMER_FALLBACK = 'This is a preliminary estimate. Final diagnosis requires clinical examination.';
@@ -100,8 +102,12 @@ type Request = {
   offers: Offer[];
   coordination_offer_id?: string | null;
   can_open_chat?: boolean;
+  awaiting_clinic_doctor?: boolean;
   coordination_last_message?: string | null;
   coordination_unread_count?: number;
+  chat_route?: 'offer_chat' | 'patient_chat' | string | null;
+  enrolled?: boolean;
+  is_clinic_member?: boolean;
 };
 
 function firstRouteParam(v: string | string[] | undefined): string {
@@ -215,12 +221,23 @@ export default function MyRequestsScreen() {
           token,
           requestId: req.id,
           clinicName: req.clinic_name,
+          clinicId: req.clinic_id,
+          clinicCode: req.clinic_code,
           treatmentType: req.preferred_treatment,
           coordinationOfferId: req.coordination_offer_id,
+          enrolled: req.enrolled === true || req.is_clinic_member === true,
+          chatRoute: req.chat_route,
         });
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        Alert.alert(t('common.error'), msg || t('common.pleaseRetry'));
+        const code = e instanceof Error ? e.message : String(e);
+        if (code === 'clinic_doctor_not_assigned' || code === 'no_clinic_doctor') {
+          Alert.alert(
+            t('treatReq.errors.clinicDoctorTitle'),
+            t('treatReq.errors.clinicDoctorNotAssigned'),
+          );
+          return;
+        }
+        Alert.alert(t('common.error'), code || t('common.pleaseRetry'));
       } finally {
         setOpeningCoordinationId(null);
       }
@@ -311,9 +328,21 @@ export default function MyRequestsScreen() {
       fetch(`${API_BASE}/api/patient/treatment-requests/mark-seen`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${user.token}` },
-      }).catch(() => {});
+      })
+        .then(() => schedulePatientInboxSummaryRefresh(user.token!))
+        .catch(() => {});
     }
   }, [load, user?.token]));
+
+  useEffect(() => {
+    if (!user?.token) return;
+    return subscribeOfferUnreadEvents((ev) => {
+      if (ev.recipient !== 'patient') return;
+      if (ev.type === 'offer_mark_read') return;
+      void load();
+      schedulePatientInboxSummaryRefresh(user.token!);
+    });
+  }, [load, user?.token]);
 
   const onRefresh = () => { setRefreshing(true); load(); };
 
@@ -446,7 +475,10 @@ export default function MyRequestsScreen() {
           const isExpanded = expandedId === req.id;
           const displayDescription = formatTreatmentRequestDescription(req.description);
           const requestPhotoUrl = resolveRequestImageUrl(req);
+          const awaitingDoctor = req.awaiting_clinic_doctor === true;
           const showCoordinationChat =
+            !awaitingDoctor &&
+            req.can_open_chat !== false &&
             req.status !== 'closed' &&
             (req.offers.length === 0 ||
               !!req.coordination_offer_id ||
@@ -465,7 +497,9 @@ export default function MyRequestsScreen() {
                       <Text style={[styles.statusText, { color: sc.text }]}>
                         {req.status === 'answered' ? t('treatReq.status.answered') :
                          req.status === 'closed'   ? t('treatReq.status.closed') :
-                         t('treatReq.status.pending')}
+                         awaitingDoctor
+                           ? t('treatReq.status.awaitingClinicDoctor')
+                           : t('treatReq.status.pending')}
                       </Text>
                     </View>
                     {req.clinic_name ? (
@@ -473,6 +507,11 @@ export default function MyRequestsScreen() {
                     ) : null}
                     <Text style={styles.cardDate}>{fmtDate(req.created_at)}</Text>
                   </View>
+                  {awaitingDoctor ? (
+                    <Text style={styles.awaitingDoctorHint}>
+                      {t('treatReq.awaitingClinicDoctorHint')}
+                    </Text>
+                  ) : null}
                   {showCoordinationChat ? (
                     <View style={styles.coordCtaBelowStatus}>
                       {!!req.coordination_last_message?.trim() && (
@@ -806,6 +845,12 @@ const styles = StyleSheet.create({
   cardHeaderMetaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
   cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 2 },
   coordCtaBelowStatus: { marginTop: 8, width: '100%' },
+  awaitingDoctorHint: {
+    fontSize: 12,
+    color: '#92400E',
+    marginTop: 8,
+    lineHeight: 18,
+  },
   coordPreviewTop: { fontSize: 12, color: '#475569', marginBottom: 6 },
   coordChatBtnTop: { alignSelf: 'stretch' },
   statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },

@@ -253,12 +253,12 @@ export function resolveCanonicalChatTarget(input: ResolveCanonicalChatInput): Ca
     };
   }
 
-  // patient viewer
+  // patient viewer — enrolled members use clinic messages (offer thread is archived)
   if (enrolled) {
     return {
       channel: "patient",
       kind: "patient_chat_tab",
-      path: "/(tabs)/chat",
+      path: "/(patient)/messages",
     };
   }
 

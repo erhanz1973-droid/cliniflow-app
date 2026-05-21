@@ -4,7 +4,6 @@ import { ActivityIndicator, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useLanguage } from "../../../lib/language-context";
 import { useAuth } from "../../../lib/auth";
-import { useUnreadMessages } from "../../../lib/useUnreadMessages";
 import { isAtPublicEntryPath } from "../../../lib/route-guards";
 
 export default function PatientTabsLayout() {
@@ -14,10 +13,6 @@ export default function PatientTabsLayout() {
   const prevIsValidRef = useRef(false);
   const { t } = useLanguage();
   const { user, isAuthReady, isAuthLoading, isPatient } = useAuth();
-  const patientId = user?.id as string | undefined;
-  const token = user?.token as string | undefined;
-  const { badgeLabel } = useUnreadMessages(patientId, token);
-
   const isValid = !!user?.token && isPatient;
 
   useEffect(() => {
@@ -133,14 +128,7 @@ export default function PatientTabsLayout() {
       />
       <Tabs.Screen
         name="messages"
-        options={{
-          title: t("nav.messages"),
-          tabBarIcon: ({ color, size }) => (
-            <Text style={{ color, fontSize: size - 2 }}>💬</Text>
-          ),
-          tabBarBadge: badgeLabel,
-          tabBarBadgeStyle: { fontSize: 10, minWidth: 18, height: 18, lineHeight: 17 },
-        }}
+        options={{ href: null }}
       />
       <Tabs.Screen
         name="files"

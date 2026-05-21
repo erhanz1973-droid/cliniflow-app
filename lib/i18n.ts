@@ -397,6 +397,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "treatReq.status.pending": "Beklemede",
     "treatReq.status.answered": "Yanıtlandı",
     "treatReq.status.closed": "Kapatıldı",
+    "treatReq.status.awaitingClinicDoctor": "Beklemede",
+    "treatReq.awaitingClinicDoctorHint":
+      "Klinik henüz mesajlarınıza yanıt verecek bir doktor atamadı. Lütfen daha sonra tekrar deneyin.",
+    "treatReq.errors.clinicDoctorTitle": "Mesajlaşma henüz hazır değil",
+    "treatReq.errors.clinicDoctorNotAssigned":
+      "Bu klinik henüz mesajlarınıza yanıt verecek bir doktor atamadı. Lütfen daha sonra tekrar deneyin.",
     "treatReq.doctorOffers": "Doktor Teklifleri",
     "treatReq.noOffers": "Henüz teklif gelmedi.",
     "treatReq.preparingEstimate": "Klinik tedavi tahmininizi hazırlıyor.",
@@ -514,6 +520,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "clinicOnboard.ratingOverall": "Genel",
     "clinicOnboard.ratingComm": "İletişim",
     "offerChat.coordinationHint": "Bakım ekibinizden gelen mesajlar burada görünür. İstediğiniz zaman soru sorabilirsiniz.",
+    "offerChat.enrolledRedirectTitle": "Klinik mesajları",
+    "offerChat.enrolledRedirectBody": "Kliniğe üye oldunuz. Mesajlaşma klinik sohbetinde devam ediyor.",
     "offerChat.missingOffer": "Sohbet henüz hazır değil.",
     "offerChat.messageDoctor": "Doktora Mesaj At",
     "offerChat.viewMessages": "Mesajları Gör",
@@ -2256,6 +2264,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "treatReq.status.pending": "Pending",
     "treatReq.status.answered": "Answered",
     "treatReq.status.closed": "Closed",
+    "treatReq.status.awaitingClinicDoctor": "Pending",
+    "treatReq.awaitingClinicDoctorHint":
+      "This clinic has not assigned a doctor to respond to messages yet. Please try again later.",
+    "treatReq.errors.clinicDoctorTitle": "Messaging not ready yet",
+    "treatReq.errors.clinicDoctorNotAssigned":
+      "This clinic has not assigned a doctor to respond to messages yet. Please try again later.",
     "treatReq.doctorOffers": "Doctor Offers",
     "treatReq.noOffers": "No offers yet.",
     "treatReq.preparingEstimate": "Clinic is preparing your treatment estimate.",
@@ -2373,6 +2387,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "clinicOnboard.ratingOverall": "Overall",
     "clinicOnboard.ratingComm": "Communication",
     "offerChat.coordinationHint": "Messages from your care team appear here. You can ask questions anytime.",
+    "offerChat.enrolledRedirectTitle": "Clinic messages",
+    "offerChat.enrolledRedirectBody": "You joined the clinic. Continue the conversation in your clinic chat.",
     "offerChat.missingOffer": "Conversation is not available yet.",
     "offerChat.messageDoctor": "Message Doctor",
     "offerChat.viewMessages": "View Messages",

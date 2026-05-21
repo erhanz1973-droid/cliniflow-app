@@ -1,66 +1,56 @@
-import { useCallback, useEffect, useRef } from "react";
-import { AppState, type AppStateStatus } from "react-native";
-import { useAuthSession } from "../lib/auth";
-import { fetchPatientInboxUnreadTotal, invalidatePatientInboxUnreadCache } from "../lib/patientInboxUnread";
-import { emitOfferUnreadEvent, subscribeOfferUnreadEvents } from "../lib/offerUnreadEvents";
-import { playInAppNewMessageSoundDebouncedForThread } from "../lib/playInAppMessageSound";
+import { useEffect, useRef } from "react";
+import { AppState } from "react-native";
+import { useAuth } from "../lib/auth";
+import {
+  fetchPatientInboxSummary,
+  invalidatePatientInboxUnreadCache,
+  schedulePatientInboxSummaryRefresh,
+} from "../lib/patientInboxUnread";
+import { subscribeOfferUnreadEvents } from "../lib/offerUnreadEvents";
 
-const POLL_MS = 24_000;
+const POLL_ACTIVE_MS = 8_000;
+const POLL_BACKGROUND_MS = 25_000;
 
 /**
- * Foreground patient offer inbox awareness: polls inbox-summary and plays sound on increase.
+ * Keeps patient inbox-summary (Teklifler badge) in sync via push events + light polling.
+ * Mount once in app shell — screens subscribe with subscribePatientInboxSummary.
  */
 export function PatientOfferUnreadWatcher() {
-  const { token: sessionToken, isPatient } = useAuthSession();
-  const token = sessionToken.trim();
-  const prevRef = useRef(0);
-  const primedRef = useRef(false);
-  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
-
-  const poll = useCallback(async () => {
-    if (!token || !isPatient) return;
-    if (appStateRef.current !== "active") return;
-    try {
-      const total = await fetchPatientInboxUnreadTotal(token);
-      if (primedRef.current && total > prevRef.current) {
-        playInAppNewMessageSoundDebouncedForThread("patient_offer_inbox", 2800);
-        emitOfferUnreadEvent({ type: "offer_activity", recipient: "patient" });
-      }
-      prevRef.current = total;
-      primedRef.current = true;
-    } catch {
-      /* ignore */
-    }
-  }, [token, isPatient]);
+  const { user, isPatient, isAuthReady } = useAuth();
+  const token = String(user?.token || "").trim();
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (!token || !isPatient) {
-      prevRef.current = 0;
-      primedRef.current = false;
-    }
-  }, [token, isPatient]);
+    if (!isAuthReady || !isPatient || !token) return;
 
-  useEffect(() => {
-    if (!token || !isPatient) return;
-    return subscribeOfferUnreadEvents((ev) => {
-      if (ev.recipient !== "patient") return;
-      if (ev.type === "offer_mark_read") invalidatePatientInboxUnreadCache();
-    });
-  }, [token, isPatient]);
-
-  useEffect(() => {
-    if (!token || !isPatient) return;
-    void poll();
-    const id = setInterval(() => void poll(), POLL_MS);
-    const sub = AppState.addEventListener("change", (s) => {
-      appStateRef.current = s;
-      if (s === "active") void poll();
-    });
-    return () => {
-      clearInterval(id);
-      sub.remove();
+    const pull = () => {
+      invalidatePatientInboxUnreadCache();
+      void fetchPatientInboxSummary(token);
     };
-  }, [token, isPatient, poll]);
+
+    pull();
+
+    const restartPoll = () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      const ms = AppState.currentState === "active" ? POLL_ACTIVE_MS : POLL_BACKGROUND_MS;
+      pollRef.current = setInterval(pull, ms);
+    };
+
+    restartPoll();
+    const appSub = AppState.addEventListener("change", restartPoll);
+
+    const unsub = subscribeOfferUnreadEvents((ev) => {
+      if (ev.recipient !== "patient") return;
+      schedulePatientInboxSummaryRefresh(token);
+    });
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
+      appSub.remove();
+      unsub();
+    };
+  }, [isAuthReady, isPatient, token]);
 
   return null;
 }

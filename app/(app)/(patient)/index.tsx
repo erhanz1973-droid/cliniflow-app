@@ -25,6 +25,11 @@ import {
   subscribePatientClinicMembershipInvalidation,
   invalidatePatientClinicMembership,
 } from "../../../lib/patientClinicMembershipSync";
+import {
+  fetchPatientInboxSummary,
+  patientInboxBadgeTotal,
+  subscribePatientInboxSummary,
+} from "../../../lib/patientInboxUnread";
 
 /** Shown when API embed + branding have no logo URL (always-on avatar). */
 const DEFAULT_CLINIC_LOGO_URI =
@@ -174,7 +179,6 @@ export default function PatientDashboard() {
   const [recentProcedures, setRecentProcedures] = useState<any[]>([]);
   const [healthFormFilled, setHealthFormFilled] = useState(true);
   const [travel, setTravel] = useState<any>(null);
-  const [hasClinicMessage, setHasClinicMessage] = useState(false);
   const [inboxSummary, setInboxSummary] = useState({ new_offers: 0, doctor_messages: 0 });
   const [fileCounts, setFileCounts] = useState({ total: 0, xray: 0, image: 0, pdf: 0 });
   const [showDentalReminder, setShowDentalReminder] = useState(false);
@@ -399,11 +403,10 @@ export default function PatientDashboard() {
       setTreatmentsStale(false);
       setRefreshing(false);
 
-      // ── Secondary data: timeline + files + messages + inbox summary (parallel) ──
-      const [timelineRes, filesRes, msgRes, inboxRes] = await Promise.all([
+      // ── Secondary data: timeline + files + inbox summary (parallel) ──
+      const [timelineRes, filesRes, inboxRes] = await Promise.all([
         fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/timeline`, { headers }).catch(() => null),
         fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/files`, { headers }).catch(() => null),
-        fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/messages`, { headers }).catch(() => null),
         fetch(`${API_BASE}/api/patient/inbox-summary`, { headers }).catch(() => null),
       ]);
 
@@ -435,15 +438,15 @@ export default function PatientDashboard() {
         setShowDentalReminder(false);
       }
 
-      const msgJson = msgRes ? await msgRes.json().catch(() => ({})) : {};
-      const msgs = Array.isArray(msgJson.messages) ? msgJson.messages : [];
-      setHasClinicMessage(msgs.some((m: any) => m.from === "CLINIC"));
-
-      const inboxJson = inboxRes ? await inboxRes.json().catch(() => ({})) : {};
-      setInboxSummary({
-        new_offers:      inboxJson.new_offers      || 0,
-        doctor_messages: inboxJson.doctor_messages || 0,
-      });
+      if (user?.token) {
+        await fetchPatientInboxSummary(user.token);
+      } else {
+        const inboxJson = inboxRes ? await inboxRes.json().catch(() => ({})) : {};
+        setInboxSummary({
+          new_offers:      inboxJson.new_offers      || 0,
+          doctor_messages: inboxJson.doctor_messages || 0,
+        });
+      }
 
     } catch {
       setTreatmentsStale(false);
@@ -468,20 +471,14 @@ export default function PatientDashboard() {
     fetchData();
   }, [fetchData, userClinicId, userClinicCode]);
 
-  // Re-fetch only the inbox badge when screen comes back into focus
-  // (e.g. patient returns from my-requests after viewing offers)
+  useEffect(() => subscribePatientInboxSummary(setInboxSummary), []);
+
   const refreshInbox = useCallback(async () => {
-    if (!user?.token || !patientId) return;
-    const headers = { Authorization: `Bearer ${user.token}`, Accept: "application/json" };
-    try {
-      const inboxRes = await fetch(`${API_BASE}/api/patient/inbox-summary`, { headers }).catch(() => null);
-      const inboxJson = inboxRes ? await inboxRes.json().catch(() => ({})) : {};
-      setInboxSummary({
-        new_offers:      inboxJson.new_offers      || 0,
-        doctor_messages: inboxJson.doctor_messages || 0,
-      });
-    } catch {}
-  }, [user?.token, patientId]);
+    if (!user?.token) return;
+    await fetchPatientInboxSummary(user.token);
+  }, [user?.token]);
+
+  const inboxBadgeTotal = useMemo(() => patientInboxBadgeTotal(inboxSummary), [inboxSummary]);
 
   const goToJoinClinic = useCallback(() => {
     track("home_join_clinic_click");
@@ -650,24 +647,7 @@ export default function PatientDashboard() {
         </TouchableOpacity>
       )}
 
-      {/* CLINIC MESSAGE SHORTCUT */}
-      {hasClinicMessage && (
-        <TouchableOpacity
-          style={styles.msgBanner}
-          onPress={() => router.push("/(patient)/messages" as any)}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.msgBannerIcon}>💬</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.msgBannerTitle}>{t("home.clinicMessage")}</Text>
-            <Text style={styles.msgBannerSub}>{t("home.clinicMessageSub")}</Text>
-          </View>
-          <Text style={styles.msgBannerArrow}>›</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* NEW DOCTOR OFFER BANNER — hidden once patient has joined a clinic */}
-      {!hasClinic && inboxSummary.new_offers > 0 && (
+      {inboxSummary.new_offers > 0 && (
         <TouchableOpacity
           style={styles.offerBanner}
           onPress={() => router.push("/my-requests" as any)}
@@ -688,8 +668,7 @@ export default function PatientDashboard() {
         </TouchableOpacity>
       )}
 
-      {/* NEW DOCTOR MESSAGE BANNER — hidden once patient has joined a clinic */}
-      {!hasClinic && inboxSummary.new_offers === 0 && inboxSummary.doctor_messages > 0 && (
+      {inboxSummary.new_offers === 0 && inboxSummary.doctor_messages > 0 && (
         <TouchableOpacity
           style={styles.docMsgBanner}
           onPress={() => router.push("/my-requests" as any)}
@@ -781,28 +760,24 @@ export default function PatientDashboard() {
           <Text style={styles.quickIcon}>🦷</Text>
           <Text style={styles.quickLabel}>{t("nav.treatment")}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/(patient)/messages" as any)} activeOpacity={0.8}>
-          <Text style={styles.quickIcon}>💬</Text>
-          <Text style={styles.quickLabel}>{t("nav.messages")}</Text>
+        <TouchableOpacity
+          style={[
+            styles.quickCard,
+            (inboxSummary.new_offers > 0 || inboxSummary.doctor_messages > 0) && styles.quickCardAlert,
+          ]}
+          onPress={() => router.push("/my-requests" as any)}
+          activeOpacity={0.8}
+        >
+          {inboxBadgeTotal > 0 && (
+            <View style={styles.quickBadge}>
+              <Text style={styles.quickBadgeText}>
+                {inboxBadgeTotal > 9 ? "9+" : String(inboxBadgeTotal)}
+              </Text>
+            </View>
+          )}
+          <Text style={styles.quickIcon}>📩</Text>
+          <Text style={styles.quickLabel}>{t("home.quickOffers")}</Text>
         </TouchableOpacity>
-        {/* Offers quick card — hidden after patient joins a clinic */}
-        {!hasClinic && (
-          <TouchableOpacity
-            style={[styles.quickCard, (inboxSummary.new_offers > 0 || inboxSummary.doctor_messages > 0) && styles.quickCardAlert]}
-            onPress={() => router.push("/my-requests" as any)}
-            activeOpacity={0.8}
-          >
-            {(inboxSummary.new_offers > 0 || inboxSummary.doctor_messages > 0) && (
-              <View style={styles.quickBadge}>
-                <Text style={styles.quickBadgeText}>
-                  {inboxSummary.new_offers || inboxSummary.doctor_messages}
-                </Text>
-              </View>
-            )}
-            <Text style={styles.quickIcon}>📩</Text>
-            <Text style={styles.quickLabel}>{t("home.quickOffers")}</Text>
-          </TouchableOpacity>
-        )}
         <TouchableOpacity style={styles.quickCard} onPress={() => router.push("/(patient)/timeline" as any)} activeOpacity={0.8}>
           <Text style={styles.quickIcon}>✈️</Text>
           <Text style={styles.quickLabel}>{t("nav.journey")}</Text>

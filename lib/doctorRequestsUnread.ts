@@ -47,12 +47,17 @@ export function bumpDoctorRequestUnreadByOfferId(
 ): DoctorRequestRow[] | null {
   const oid = String(offerId || "").trim();
   if (!oid || delta === 0) return null;
+  const nowIso = new Date().toISOString();
   return patchCachedRequests((rows) =>
     rows.map((row) => {
       if (rowOfferId(row) !== oid) return row;
       if (isEnrolledSharedCareRow(row)) return { ...row, unread_count: 0 };
       const prev = Math.max(0, Number(row.unread_count) || 0);
-      return { ...row, unread_count: prev + delta };
+      return {
+        ...row,
+        unread_count: prev + delta,
+        last_message_at: nowIso,
+      };
     }),
   );
 }
@@ -85,7 +90,15 @@ export function applyDoctorRequestUnreadMap(
   return patchCachedRequests((rows) => mergeUnreadMapIntoRows(rows, byOffer));
 }
 
-/** Unread / recent activity first — within same tier, newest request first. */
+function activityMs(row: DoctorRequestRow): number {
+  return (
+    Date.parse(String(row.last_message_at || "")) ||
+    Date.parse(String(row.created_at || "")) ||
+    0
+  );
+}
+
+/** Unread first, then by latest message/lead activity (not request created_at). */
 export function sortDoctorRequestsForInbox(rows: DoctorRequestRow[]): DoctorRequestRow[] {
   return [...rows].sort((a, b) => {
     const au = Math.max(0, Number(a.unread_count) || 0);
@@ -93,9 +106,7 @@ export function sortDoctorRequestsForInbox(rows: DoctorRequestRow[]): DoctorRequ
     if (au > 0 && bu === 0) return -1;
     if (bu > 0 && au === 0) return 1;
     if (bu !== au) return bu - au;
-    const at = Date.parse(String(a.created_at || "")) || 0;
-    const bt = Date.parse(String(b.created_at || "")) || 0;
-    return bt - at;
+    return activityMs(b) - activityMs(a);
   });
 }
 
@@ -165,6 +176,8 @@ export function notifyDoctorOfferInboundMessage(
   const next = bumpDoctorRequestUnreadByOfferId(oid, 1);
   invalidateDoctorUnreadCacheOnly();
   if (next) {
+    const sorted = sortDoctorRequestsForInbox(next);
+    setCachedResource(DOCTOR_REQUESTS_LIST_CACHE_KEY, sorted);
     emitOfferUnreadEvent({ type: "offer_realtime_update", offerId: oid, recipient: "doctor" });
   } else {
     emitOfferUnreadEvent({ type: "offer_activity", offerId: oid, recipient: "doctor" });
