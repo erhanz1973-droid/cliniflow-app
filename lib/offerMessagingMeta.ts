@@ -105,7 +105,7 @@ export async function navigateDoctorOfferOrPatientChat(
   const meta = await fetchOfferMessagingMeta(opts.token, offerId);
   const patientName = String(opts.patientName || "Patient").trim() || "Patient";
 
-  if (meta?.enrolled) {
+  if (meta?.enrolled && meta?.route === "patient_chat") {
     const pid = String(meta.patient_id || opts.patientId || "").trim();
     if (pid) {
       openDoctorPatientChat(

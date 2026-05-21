@@ -225,8 +225,6 @@ export default function MyRequestsScreen() {
           clinicCode: req.clinic_code,
           treatmentType: req.preferred_treatment,
           coordinationOfferId: req.coordination_offer_id,
-          enrolled: req.enrolled === true || req.is_clinic_member === true,
-          chatRoute: req.chat_route,
         });
       } catch (e: unknown) {
         const code = e instanceof Error ? e.message : String(e);

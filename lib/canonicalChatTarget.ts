@@ -163,7 +163,12 @@ export function resolveCanonicalChatTarget(input: ResolveCanonicalChatInput): Ca
   const treatmentType = String(input.treatmentType || "").trim();
 
   if (viewerRole === "doctor") {
-    if (enrolled) {
+    const coordinationOfferId = String(input.coordinationOfferId || "").trim();
+    const preferOfferDespiteEnrolled =
+      input.threadKind === "offer" ||
+      (!!coordinationOfferId && coordinationOfferId === offerId);
+
+    if (enrolled && !preferOfferDespiteEnrolled) {
       if (patientPk) {
         const routeParams = patientChatRouteParams(patientPk, patientName, input);
         return {
@@ -253,8 +258,8 @@ export function resolveCanonicalChatTarget(input: ResolveCanonicalChatInput): Ca
     };
   }
 
-  // patient viewer — enrolled members use clinic messages (offer thread is archived)
-  if (enrolled) {
+  // Enrolled patients: generic clinic tab — unless opening coordination (same offer_messages thread)
+  if (enrolled && !offerId) {
     return {
       channel: "patient",
       kind: "patient_chat_tab",
@@ -267,7 +272,7 @@ export function resolveCanonicalChatTarget(input: ResolveCanonicalChatInput): Ca
       offerId,
       otherName: encodeURIComponent(patientName),
       treatmentType,
-      enrolledSharedCare: "0",
+      enrolledSharedCare: enrolled ? "1" : "0",
       patientChatPatientId: patientPk || "",
     };
     return {
@@ -277,7 +282,10 @@ export function resolveCanonicalChatTarget(input: ResolveCanonicalChatInput): Ca
       patientId: patientPk,
       leadThreadIsLead: normalizeLeadThreadIsLead(input.leadThreadIsLead),
       routeParams,
-      path: buildOfferChatPath(offerId, patientName, { treatmentType }),
+      path: buildOfferChatPath(offerId, patientName, {
+        treatmentType,
+        enrolledSharedCare: enrolled,
+      }),
     };
   }
 
