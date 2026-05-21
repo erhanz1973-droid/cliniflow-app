@@ -699,7 +699,9 @@ const MessageItem = React.memo(
         {!isDoctor && message.senderName ? (
           <Text style={styles.bubbleSender}>{message.senderName}</Text>
         ) : null}
-        <Text style={[styles.bubbleText, isDoctor && styles.bubbleTextDoctor]}>{message.text}</Text>
+        <Text style={[styles.bubbleText, isDoctor && styles.bubbleTextDoctor]}>
+          {message.text?.trim() ? message.text : '…'}
+        </Text>
         <Text style={[styles.bubbleTime, isDoctor && styles.bubbleTimeDoctor]}>{timeStr}</Text>
       </View>
     );

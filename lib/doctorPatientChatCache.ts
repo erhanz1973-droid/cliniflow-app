@@ -72,6 +72,28 @@ export async function hydratePatientChatFromDisk(
   }
 }
 
+function displayTextFromApiMessage(m: Record<string, unknown>): string {
+  const direct = String(m.text || m.content || m.message || m.message_text || "").trim();
+  if (direct) return direct;
+  const att = m.attachment ?? m.attachments;
+  if (att && typeof att === "object") {
+    const blob = att as Record<string, unknown>;
+    const ai = (blob.aiResult ?? blob.ai_result) as Record<string, unknown> | undefined;
+    if (ai && typeof ai === "object") {
+      for (const key of ["summary", "reply", "text", "message", "analysis"]) {
+        const v = ai[key];
+        if (v != null && String(v).trim()) return String(v).trim();
+      }
+    }
+    for (const key of ["text", "message", "body", "caption"]) {
+      const v = blob[key];
+      if (v != null && String(v).trim()) return String(v).trim();
+    }
+  }
+  if (String(m.type || "").toLowerCase() === "ai_result") return "AI analiz sonucu";
+  return "";
+}
+
 export function mapApiMessages(raw: unknown[]): DoctorChatMessage[] {
   const mapped = raw.map((row: unknown) => {
     const m = row as Record<string, unknown>;
@@ -80,9 +102,10 @@ export function mapApiMessages(raw: unknown[]): DoctorChatMessage[] {
       threadIdRaw != null && String(threadIdRaw).trim() !== ""
         ? String(threadIdRaw).trim()
         : undefined;
+    const text = displayTextFromApiMessage(m);
     return {
       id: String(m.id || m.createdAt || Math.random()),
-      text: String(m.text || m.content || m.message || ""),
+      text: text || (m.attachment || m.attachments ? "📎 Ek" : ""),
       from: String(m.from || m.senderRole || "CLINIC"),
       createdAt:
         m.createdAt || m.created_at
