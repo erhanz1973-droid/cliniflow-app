@@ -98,15 +98,15 @@ function activityMs(row: DoctorRequestRow): number {
   );
 }
 
-/** Unread first, then by latest message/lead activity (not request created_at). */
+/** Newest message/activity first; unread count breaks ties only. */
 export function sortDoctorRequestsForInbox(rows: DoctorRequestRow[]): DoctorRequestRow[] {
   return [...rows].sort((a, b) => {
+    const at = activityMs(a);
+    const bt = activityMs(b);
+    if (bt !== at) return bt - at;
     const au = Math.max(0, Number(a.unread_count) || 0);
     const bu = Math.max(0, Number(b.unread_count) || 0);
-    if (au > 0 && bu === 0) return -1;
-    if (bu > 0 && au === 0) return 1;
-    if (bu !== au) return bu - au;
-    return activityMs(b) - activityMs(a);
+    return bu - au;
   });
 }
 

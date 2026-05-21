@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, RefreshControl, Image, Alert,
+  Linking, Platform, ActionSheetIOS,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useAuth } from "../../../lib/auth";
 import { API_BASE } from "../../../lib/api";
@@ -192,8 +194,8 @@ export default function PatientDashboard() {
     clinicCode?: string | null;
     /** Top-level /me `clinic_name` when embed row name is missing */
     clinicName?: string | null;
-    clinic: { id: string; name: string; logo: string | null } | null;
-    branding?: { clinicLogoUrl?: string; clinicName?: string } | null;
+    clinic: { id: string; name: string; logo: string | null; googleMapsUrl?: string | null } | null;
+    branding?: { clinicLogoUrl?: string; clinicName?: string; address?: string } | null;
   } | null>(null);
 
   const [fetchError, setFetchError] = useState(false);
@@ -238,6 +240,14 @@ export default function PatientDashboard() {
     return t("home.clinic.unnamed");
   }, [patientMe, t, userClinicCode, activeClinic?.name]);
 
+  const clinicHubMapsUrl = useMemo(() => {
+    const configured = String(patientMe?.clinic?.googleMapsUrl || "").trim();
+    if (configured) return configured;
+    const address = String(patientMe?.branding?.address || "").trim();
+    if (!address) return null;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+  }, [patientMe?.clinic?.googleMapsUrl, patientMe?.branding?.address]);
+
   const refetchPatientMe = useCallback(async (tokenOverride?: string) => {
     const tok = tokenOverride ?? user?.token;
     if (!tok) return;
@@ -269,6 +279,7 @@ export default function PatientDashboard() {
               brandRaw.clinicLogoUrl != null ? String(brandRaw.clinicLogoUrl) : undefined,
             clinicName:
               brandRaw.clinicName != null ? String(brandRaw.clinicName) : undefined,
+            address: brandRaw.address != null ? String(brandRaw.address) : undefined,
           }
         : null;
 
@@ -290,6 +301,11 @@ export default function PatientDashboard() {
               logo:
                 meJson.clinic.logo != null && String(meJson.clinic.logo).trim() !== ""
                   ? String(meJson.clinic.logo).trim()
+                  : null,
+              googleMapsUrl:
+                meJson.clinic.googleMapsUrl != null &&
+                String(meJson.clinic.googleMapsUrl).trim() !== ""
+                  ? String(meJson.clinic.googleMapsUrl).trim()
                   : null,
             }
           : null;
@@ -559,6 +575,46 @@ export default function PatientDashboard() {
     );
   }, [user, t, signIn, refetchPatientMe, clearClinic]);
 
+  const openClinicMaps = useCallback(() => {
+    if (!clinicHubMapsUrl) {
+      Alert.alert(
+        t("common.error") || "Error",
+        t("home.clinic.mapsUnavailable") || "Klinik harita bağlantısı tanımlı değil."
+      );
+      return;
+    }
+    void Linking.openURL(clinicHubMapsUrl);
+  }, [clinicHubMapsUrl, t]);
+
+  const showClinicMenu = useCallback(() => {
+    if (leavingClinic) return;
+    const mapsLabel = t("home.viewOnMap");
+    const leaveLabel = t("profile.leaveClinic.title");
+    const cancelLabel = t("common.cancel") || "Cancel";
+
+    if (Platform.OS === "ios") {
+      const options = [cancelLabel, mapsLabel, leaveLabel];
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          cancelButtonIndex: 0,
+          destructiveButtonIndex: 2,
+        },
+        (index) => {
+          if (index === 1) openClinicMaps();
+          else if (index === 2) handleLeaveClinic();
+        }
+      );
+      return;
+    }
+
+    Alert.alert(linkedClinicTitle, undefined, [
+      { text: mapsLabel, onPress: openClinicMaps },
+      { text: leaveLabel, style: "destructive", onPress: handleLeaveClinic },
+      { text: cancelLabel, style: "cancel" },
+    ]);
+  }, [leavingClinic, t, linkedClinicTitle, openClinicMaps, handleLeaveClinic]);
+
   const goToGuide = useCallback(() => {
     track("home_treatment_guide_click");
     const cid = String(patientMe?.clinic?.id || user?.clinicId || "").trim();
@@ -693,17 +749,6 @@ export default function PatientDashboard() {
           accentColor="#2563EB"
           onPress={goToGuide}
         />
-        {hasClinic ? (
-          <View style={{ marginTop: 10 }}>
-            <SecondaryCard
-              title={t("home.ctaSendDentalUpdate")}
-              subtitle={t("home.ctaSendDentalUpdateSub")}
-              icon="camera"
-              accentColor="#0d9488"
-              onPress={goToGuide}
-            />
-          </View>
-        ) : null}
         {isLoadingClinicSection ? null : !hasClinic ? (
           <View style={styles.ctaSecondaryRow}>
             <SecondaryCard
@@ -737,17 +782,17 @@ export default function PatientDashboard() {
               </Text>
             </View>
             <TouchableOpacity
-              style={styles.ctaLeaveBtn}
-              onPress={handleLeaveClinic}
+              style={styles.ctaClinicMenuBtn}
+              onPress={showClinicMenu}
               disabled={leavingClinic}
-              activeOpacity={0.85}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel={t("common.moreOptions") || "More options"}
             >
               {leavingClinic ? (
-                <ActivityIndicator size="small" color="#DC2626" />
+                <ActivityIndicator size="small" color="#6b7280" />
               ) : (
-                <Text style={styles.ctaLeaveText}>
-                  {t("profile.leaveClinic.title") || "Leave"}
-                </Text>
+                <Ionicons name="ellipsis-vertical" size={20} color="#6b7280" />
               )}
             </TouchableOpacity>
           </View>
@@ -1045,21 +1090,12 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#111827",
   },
-  ctaLeaveBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+  ctaClinicMenuBtn: {
+    width: 36,
+    height: 36,
     borderRadius: 8,
-    backgroundColor: "#FEF2F2",
-    borderWidth: 1,
-    borderColor: "#FECACA",
-    minWidth: 88,
     alignItems: "center",
     justifyContent: "center",
-  },
-  ctaLeaveText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#DC2626",
   },
   container: { flex: 1, backgroundColor: "#f3f4f6" },
   center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f3f4f6" },
