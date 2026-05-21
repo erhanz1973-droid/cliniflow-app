@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import { useFocusEffect } from "expo-router";
 import {
-  View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, Image,
-  useWindowDimensions, Pressable,
+  View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, Pressable,
 } from "react-native";
+import ToothNumberingChart from "../../../components/ToothNumberingChart";
 import { useAuth } from "../../../lib/auth";
 import { API_BASE } from "../../../lib/api";
 import { useLanguage } from "../../../lib/language-context";
@@ -484,54 +484,17 @@ function ToothDiagram({
   affectedTeeth: string[];
   onToothPress: (toothId: string) => void;
 }) {
-  const { width } = useWindowDimensions();
   const { t } = useLanguage();
-  const imgWidth = width - 32;
-  const imgHeight = imgWidth * (950 / 760);
 
   return (
-    <View style={diagramStyles.container}>
-      <Image
-        source={require("../../../assets/images/teeth-fdi.jpeg")}
-        style={{ width: imgWidth, height: imgHeight, borderRadius: 12 }}
-        resizeMode="contain"
-      />
-      {affectedTeeth.length > 0 && (
-        <View style={diagramStyles.chipsRow}>
-          <Text style={diagramStyles.chipsLabel}>{t("treatment.treatedTeeth")}</Text>
-          <View style={diagramStyles.chips}>
-            {affectedTeeth.map((tooth) => (
-              <Pressable
-                key={tooth}
-                style={({ pressed }) => [
-                  diagramStyles.chip,
-                  pressed && { opacity: 0.7, transform: [{ scale: 0.95 }] },
-                ]}
-                onPress={() => onToothPress(tooth)}
-              >
-                <Text style={diagramStyles.chipText}>{tooth}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      )}
-    </View>
+    <ToothNumberingChart
+      title={t("treatment.chartTitle")}
+      highlightedTeeth={affectedTeeth}
+      onHighlightedToothPress={onToothPress}
+      style={{ marginBottom: 8 }}
+    />
   );
 }
-
-const diagramStyles = StyleSheet.create({
-  container: { marginBottom: 8 },
-  chipsRow: { marginTop: 10 },
-  chipsLabel: { fontSize: 12, color: "#6b7280", marginBottom: 6, fontWeight: "600" },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  chip: {
-    backgroundColor: "#2563eb",
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-  },
-  chipText: { color: "#fff", fontSize: 13, fontWeight: "700" },
-});
 
 export default function TreatmentPlanScreen() {
   const { user } = useAuth();

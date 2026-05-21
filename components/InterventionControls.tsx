@@ -118,7 +118,7 @@ export function InterventionControls({
         <Text style={styles.ownerText}>{ownerLabel}</Text>
         <Text style={styles.ownerHint}>
           {doctorOwns
-            ? "Hastaya giden tüm mesajlar doktor adına. AI hastaya yazmaz; yalnızca öneri üretebilir."
+            ? "Hastaya giden mesajlar varsayılan olarak birebir (Direkt gönder). YZ taslak isteğe bağlıdır."
             : "AI hastayla konuşur. Doktor izler; dahili not ve rehberlik Intent Panel'den."}
         </Text>
       </View>

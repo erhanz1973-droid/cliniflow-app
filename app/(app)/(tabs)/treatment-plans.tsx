@@ -7,7 +7,6 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   ActivityIndicator,
-  Image,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -19,6 +18,7 @@ import { useRouter, useFocusEffect } from "expo-router";
 import { useAuth } from "../../../lib/auth";
 import { API_BASE } from "../../../lib/api";
 import { useLanguage } from "../../../lib/language-context";
+import ToothNumberingChart from "../../../components/ToothNumberingChart";
 
 /* ================= TYPES ================= */
 type Procedure = {
@@ -443,15 +443,13 @@ export default function TreatmentsScreen() {
         </Text>
       </View>
 
-      {/* FDI Dental Chart */}
-      <View style={styles.chartContainer}>
-        <Text style={styles.chartTitle}>{t("treatment.chartTitle")}</Text>
-        <Image
-          source={require("../../../assets/images/teeth-fdi.jpeg")}
-          style={styles.chartImage}
-          resizeMode="contain"
-        />
-      </View>
+      <ToothNumberingChart
+        title={t("treatment.chartTitle")}
+        highlightedTeeth={[...toothMap.keys()]}
+        selectedTooth={selectedToothId}
+        onHighlightedToothPress={(id) => setSelectedToothId(id)}
+        style={styles.chartContainer}
+      />
 
       {/* Upper Jaw (Üst Çene) */}
       <View style={styles.jawSection}>

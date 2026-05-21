@@ -176,7 +176,7 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
         <>
           <Text style={styles.intentTitle}>Klinik rehberlik</Text>
           <Text style={styles.intentSub}>
-            Dahili not → AI genişletme → onay → hastaya gönder. Taslaklar ve sistem olayları akışta görünür.
+            Devral sonrası varsayılan: direkt gönder (birebir). İsteğe bağlı: YZ ile taslak.
           </Text>
         </>
       )}

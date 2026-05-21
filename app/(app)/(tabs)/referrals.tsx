@@ -26,6 +26,10 @@ import {
   type ReferralLevels,
   type Milestone,
 } from "../../../lib/referralRewards";
+import {
+  fetchClinicReferralSettings,
+  formatReferralDiscountText,
+} from "../../../lib/clinicReferralSettings";
 
 type ReferralStatus = "PENDING" | "APPROVED" | "REJECTED";
 
@@ -60,6 +64,7 @@ export default function ReferralsScreen() {
   const [referralLevels, setReferralLevels] = useState<ReferralLevels>({});
   const [loading, setLoading] = useState(true);
   const [displayPct, setDisplayPct] = useState(0);
+  const [clinicDiscountPercent, setClinicDiscountPercent] = useState(0);
 
   const milestones = buildMilestones(referralLevels);
 
@@ -132,12 +137,14 @@ export default function ReferralsScreen() {
           : `${API_BASE}/api/clinic`;
         const referralsUrl = `${API_BASE}/api/patient/${encodeURIComponent(currentPatientId)}/referrals`;
 
-        const [referralsRes, clinicRes] = await Promise.all([
+        const [referralsRes, clinicRes, clinicSettings] = await Promise.all([
           fetch(referralsUrl, {
             headers: { Authorization: `Bearer ${user.token}` },
           }),
           fetch(clinicUrl),
+          fetchClinicReferralSettings(user.token),
         ]);
+        setClinicDiscountPercent(clinicSettings.percent);
 
         if (referralsRes.status === 403 || referralsRes.status === 401) {
           setReferrals([]);
@@ -266,6 +273,7 @@ export default function ReferralsScreen() {
 
   const screenW = Dimensions.get("window").width;
   const milestoneGap = Math.min(16, screenW * 0.02);
+  const clinicDiscountText = formatReferralDiscountText(clinicDiscountPercent);
 
   if (loading) {
     return (
@@ -294,6 +302,23 @@ export default function ReferralsScreen() {
         <View style={styles.discountCard}>
           <Text style={styles.discountHuge}>{displayPct}%</Text>
           <Text style={styles.discountCaption}>{t("referrals.currentDiscountLabel")}</Text>
+        </View>
+
+        <View style={styles.promoBanner}>
+          <Text style={styles.promoBannerText}>
+            {t("referrals.promoBanner", { percent: String(clinicDiscountPercent) })}
+          </Text>
+        </View>
+
+        <View style={styles.discountSplitRow}>
+          <View style={styles.discountSplitBox}>
+            <Text style={styles.discountSplitLabel}>{t("referrals.yourDiscount")}</Text>
+            <Text style={styles.discountSplitValue}>{clinicDiscountText}</Text>
+          </View>
+          <View style={styles.discountSplitBox}>
+            <Text style={styles.discountSplitLabel}>{t("referrals.friendDiscount")}</Text>
+            <Text style={styles.discountSplitValue}>{clinicDiscountText}</Text>
+          </View>
         </View>
 
         <Text style={styles.sectionLabel}>{t("referrals.milestoneProgress")}</Text>
@@ -439,7 +464,9 @@ export default function ReferralsScreen() {
           </View>
         )}
 
-        <Text style={styles.footnote}>{t("referrals.clinicRatesInfo")}</Text>
+        <Text style={styles.footnote}>
+          {t("referrals.clinicDiscountRate", { percent: String(clinicDiscountPercent) })}
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -528,6 +555,46 @@ const styles = StyleSheet.create({
     color: MUTED,
     textTransform: "uppercase",
     letterSpacing: 0.8,
+  },
+
+  promoBanner: {
+    borderRadius: 16,
+    padding: 16,
+    backgroundColor: "rgba(37,99,235,0.25)",
+    borderWidth: 1,
+    borderColor: "rgba(59,130,246,0.45)",
+  },
+  promoBannerText: {
+    color: "#e2e8f0",
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 21,
+    textAlign: "center",
+  },
+  discountSplitRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  discountSplitBox: {
+    flex: 1,
+    borderRadius: 14,
+    padding: 14,
+    alignItems: "center",
+    backgroundColor: CARD,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.2)",
+  },
+  discountSplitLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: MUTED,
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  discountSplitValue: {
+    fontSize: 24,
+    fontWeight: "900",
+    color: "#f8fafc",
   },
 
   sectionLabel: {

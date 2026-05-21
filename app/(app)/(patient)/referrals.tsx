@@ -17,6 +17,11 @@ import { useAuth } from "../../../lib/auth";
 import { useLanguage } from "../../../lib/language-context";
 import { useDateLocale } from "../../../lib/date-locale";
 import { API_BASE } from "../../../lib/api";
+import {
+  fetchClinicReferralSettings,
+  formatReferralDiscountText,
+  normalizeReferralDiscountPercent,
+} from "../../../lib/clinicReferralSettings";
 import UpgradeModal from "../../../components/UpgradeModal";
 
 type ReferralItem = {
@@ -62,6 +67,7 @@ export default function ReferralsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [clinicPlan, setClinicPlan] = useState<ClinicPlan | null>(null);
   const [upgradeModalVisible, setUpgradeModalVisible] = useState(false);
+  const [clinicDiscountPercent, setClinicDiscountPercent] = useState(0);
 
   const toastOpacity = useRef(new Animated.Value(0)).current;
 
@@ -72,10 +78,17 @@ export default function ReferralsScreen() {
     try {
       const headers = { Authorization: `Bearer ${user.token}` };
 
-      const [refRes, planRes] = await Promise.allSettled([
+      const [refRes, planRes, clinicSettingsRes] = await Promise.allSettled([
         fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/referrals`, { headers }),
         fetch(`${API_BASE}/api/admin/plan`, { headers }),
+        fetchClinicReferralSettings(user.token),
       ]);
+
+      if (clinicSettingsRes.status === "fulfilled") {
+        setClinicDiscountPercent(clinicSettingsRes.value.percent);
+      } else {
+        setClinicDiscountPercent(0);
+      }
 
       if (refRes.status === "fulfilled" && refRes.value.ok) {
         const json = await refRes.value.json();
@@ -87,9 +100,17 @@ export default function ReferralsScreen() {
               if (found != null) return found;
               return item.inviterDiscountPercent ?? item.invitedDiscountPercent ?? item.discountPercent ?? null;
             }, null);
+          const apiDiscount = normalizeReferralDiscountPercent(
+            json.discountPercent ?? json.referral_discount_percent ?? bestDiscount,
+          );
           setData({
             referralCode:    json.referralCode || "",
-            discountPercent: json.discountPercent ?? bestDiscount ?? null,
+            discountPercent:
+              clinicSettingsRes.status === "fulfilled" && clinicSettingsRes.value.percent > 0
+                ? clinicSettingsRes.value.percent
+                : apiDiscount > 0
+                  ? apiDiscount
+                  : null,
             referrals: items.map((item: any) => {
               // Determine which role the current user plays so we show the OTHER person
               const iAmInviter =
@@ -196,7 +217,11 @@ export default function ReferralsScreen() {
     );
   }
 
-  const discountPercent = data?.discountPercent ?? null;
+  const discountPercent =
+    clinicDiscountPercent > 0
+      ? clinicDiscountPercent
+      : data?.discountPercent ?? null;
+  const discountText = formatReferralDiscountText(discountPercent ?? 0);
   const referrals       = data?.referrals || [];
 
   const howItWorksTitle = t("referrals.howItWorks");
@@ -217,6 +242,7 @@ export default function ReferralsScreen() {
       >
         {/* Header */}
         <Text style={styles.pageTitle}>{t("referrals.title")}</Text>
+        <Text style={styles.pageSubtitle}>{t("referrals.subtitle")}</Text>
 
         {/* Plan badge */}
         {clinicPlan && (
@@ -264,6 +290,23 @@ export default function ReferralsScreen() {
 
         </View>
 
+        <View style={styles.promoBanner}>
+          <Text style={styles.promoBannerText}>
+            {t("referrals.promoBanner", { percent: String(discountPercent ?? 0) })}
+          </Text>
+        </View>
+
+        <View style={styles.discountSplitRow}>
+          <View style={styles.discountSplitBox}>
+            <Text style={styles.discountSplitLabel}>{t("referrals.yourDiscount")}</Text>
+            <Text style={styles.discountSplitValue}>{discountText}</Text>
+          </View>
+          <View style={styles.discountSplitBox}>
+            <Text style={styles.discountSplitLabel}>{t("referrals.friendDiscount")}</Text>
+            <Text style={styles.discountSplitValue}>{discountText}</Text>
+          </View>
+        </View>
+
         {/* How it works */}
         <View style={styles.infoCard}>
           <Text style={styles.infoTitle}>ℹ️ {howItWorksTitle}</Text>
@@ -281,15 +324,11 @@ export default function ReferralsScreen() {
             <Text style={styles.stepText}>{howItWorksStep3}</Text>
           </View>
 
-          {/* Discount highlight */}
-          {discountPercent !== null && (
-            <View style={styles.discountBadge}>
-              <Text style={styles.discountReceiveText}>{t("referrals.bothReceive")}</Text>
-              <Text style={styles.discountPct}>{discountPercent}%</Text>
-              <Text style={styles.discountLabel}>{t("referrals.discountBadge")}</Text>
-            </View>
-          )}
         </View>
+
+        <Text style={styles.clinicRateFootnote}>
+          {t("referrals.clinicDiscountRate", { percent: String(discountPercent ?? 0) })}
+        </Text>
 
         {/* Friends list */}
         <View style={styles.card}>
@@ -344,7 +383,54 @@ const styles = StyleSheet.create({
   root:      { flex: 1, backgroundColor: "#f3f4f6" },
   scroll:    { padding: 16, paddingBottom: 40 },
   centered:  { flex: 1, justifyContent: "center", alignItems: "center" },
-  pageTitle: { fontSize: 22, fontWeight: "800", color: "#111827", marginBottom: 16 },
+  pageTitle: { fontSize: 22, fontWeight: "800", color: "#111827", marginBottom: 6 },
+  pageSubtitle: { fontSize: 14, color: "#6b7280", marginBottom: 16, lineHeight: 20 },
+
+  promoBanner: {
+    backgroundColor: "#2563eb",
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 14,
+  },
+  promoBannerText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 21,
+    textAlign: "center",
+  },
+  discountSplitRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 14,
+  },
+  discountSplitBox: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 14,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  discountSplitLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6b7280",
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  discountSplitValue: {
+    fontSize: 26,
+    fontWeight: "900",
+    color: "#2563eb",
+  },
+  clinicRateFootnote: {
+    fontSize: 12,
+    color: "#9ca3af",
+    textAlign: "center",
+    marginBottom: 14,
+  },
 
   card: {
     backgroundColor: "#fff",

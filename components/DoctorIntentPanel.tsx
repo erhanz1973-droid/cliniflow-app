@@ -15,9 +15,12 @@ import {
   fetchIntentTags,
   rewriteClinicalDraft,
   sendClinicalGuidance,
+  sendDirectPatientMessage,
   type IntentTag,
   type RewriteAction,
 } from "@/lib/clinicalGuidanceApi";
+
+export type DoctorSendMode = "direct" | "ai_assist";
 
 const REWRITE_ACTIONS: { id: RewriteAction; label: string }[] = [
   { id: "shorter", label: "Kısa" },
@@ -77,6 +80,7 @@ export function DoctorIntentPanel({
   const [draftId, setDraftId] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [confidence, setConfidence] = useState<number | null>(null);
+  const [sendMode, setSendMode] = useState<DoctorSendMode>("direct");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +121,12 @@ export function DoctorIntentPanel({
       })
       .catch(() => setExpansionAllowed(true));
   }, [patientId, draftAllowedProp]);
+
+  useEffect(() => {
+    if (canSendToPatient) {
+      setSendMode("direct");
+    }
+  }, [canSendToPatient, patientId]);
 
   const setIntentTextLive = useCallback((value: string) => {
     intentTextRef.current = value;
@@ -182,10 +192,13 @@ export function DoctorIntentPanel({
         intentText: resolvedIntent,
         intentTags: selectedTags,
         guidanceId: sent ? undefined : guidanceId || undefined,
+        explicitAiAssist: true,
       });
       if (!res.ok) {
         const code = res.error || "";
-        if (code === "expansion_not_allowed") {
+        if (code === "direct_send_required") {
+          setError("Devral modunda YZ genişletme kapalı. «Direkt gönder» kullanın veya «YZ ile taslak» moduna geçin.");
+        } else if (code === "expansion_not_allowed") {
           setError("YZ genişletme kapalı (HUMAN_ONLY / eskalasyon).");
         } else {
           setError(res.message || code || "Genişletme başarısız");
@@ -237,6 +250,8 @@ export function DoctorIntentPanel({
         draftId,
         draftText: patientDraft,
         action,
+        patientId,
+        explicitAiAssist: true,
       });
       if (!res.ok) {
         setError(res.message || res.error || "Yeniden yazma başarısız");
@@ -252,13 +267,60 @@ export function DoctorIntentPanel({
     }
   };
 
-  const onSend = async () => {
+  const onSendDirect = async () => {
+    if (!patientId) {
+      setError("Hasta kimliği eksik.");
+      return;
+    }
+    const text = patientDraft.trim();
+    if (!text) {
+      setError("Gönderilecek mesajı yazın.");
+      return;
+    }
+    if (!canSendToPatient) {
+      setError("Önce Devral ile konuşmayı devralın.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await sendDirectPatientMessage({ patientId, message: text });
+      if (!res.ok) {
+        if (res.error === "ai_owns_conversation" || res.error === "devral_required") {
+          setError("AI konuşmayı yönetiyor. Önce Devral.");
+        } else if (res.error === "profile_not_found") {
+          setError("Koordinasyon profili yok — sayfayı yenileyin veya tekrar Devral.");
+        } else {
+          setError(res.message || res.error || "Gönderilemedi");
+        }
+        return;
+      }
+      setSent(true);
+      onMessageSent?.();
+      clearComposeScreen();
+    } catch (e) {
+      const err = e as Error & { status?: number; code?: string };
+      if (err.status === 404) {
+        setError(
+          "Birebir gönder API bulunamadı — backend güncellemesi gerekli (Railway deploy).",
+        );
+      } else if (err.status === 403 || err.code === "ai_owns_conversation") {
+        setError("Önce Devral ile konuşmayı devralın.");
+      } else {
+        setError(err.message || "Gönderim hatası");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onSendAiAssisted = async () => {
     if (sent) {
       setError("Bu mesaj zaten gönderildi. Yeni mesaj için «Yeni taslak» kullanın.");
       return;
     }
     if (!guidanceId || !draftId || !patientDraft.trim()) {
-      setError("Göndermek için taslak ve onay gerekli.");
+      setError("Göndermek için önce YZ taslak oluşturun ve onaylayın.");
       return;
     }
     setBusy(true);
@@ -268,6 +330,7 @@ export function DoctorIntentPanel({
         guidanceId,
         draftId,
         finalText: patientDraft.trim(),
+        sendMode: "ai_assisted",
       });
       if (!res.ok) {
         if (res.error === "draft_already_sent") {
@@ -297,7 +360,7 @@ export function DoctorIntentPanel({
     <View style={[styles.wrap, compact && styles.wrapCompact]}>
       <View style={styles.titleRow}>
         <Text style={[styles.title, compact && styles.titleCompact, styles.titleInRow]}>
-          Klinik niyet → hasta mesajı
+          {sendMode === "direct" ? "Hastaya mesaj (direkt)" : "Klinik niyet → hasta mesajı"}
         </Text>
         <Pressable
           style={[styles.btnClear, (!hasComposeContent || busy) && styles.btnDisabled]}
@@ -310,11 +373,37 @@ export function DoctorIntentPanel({
       </View>
       {!compact ? (
         <Text style={styles.sub}>
-          Dahili not hastaya asla doğrudan gitmez. YZ güvenli, hasta dostu taslak üretir; siz
-          onaylayıp gönderirsiniz.
+          {sendMode === "direct"
+            ? "Direkt gönder: yazdığınız metin birebir hastaya gider. YZ genişletme veya yeniden yazma yok."
+            : "YZ destekli: dahili nottan taslak üretilir; göndermeden önce düzenleyip onaylarsınız."}
         </Text>
       ) : null}
 
+      {canSendToPatient ? (
+        <View style={styles.modeRow}>
+          <Pressable
+            style={[styles.modeBtn, sendMode === "direct" && styles.modeBtnOn]}
+            onPress={() => setSendMode("direct")}
+            disabled={busy}
+          >
+            <Text style={[styles.modeBtnText, sendMode === "direct" && styles.modeBtnTextOn]}>
+              Direkt gönder
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.modeBtn, sendMode === "ai_assist" && styles.modeBtnOn]}
+            onPress={() => setSendMode("ai_assist")}
+            disabled={busy}
+          >
+            <Text style={[styles.modeBtnText, sendMode === "ai_assist" && styles.modeBtnTextOn]}>
+              YZ ile taslak
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {sendMode === "ai_assist" ? (
+        <>
       <Text style={styles.label}>Dahili klinik not</Text>
       <View ref={intentFieldRef} collapsable={false}>
         <TextInput
@@ -371,19 +460,23 @@ export function DoctorIntentPanel({
           <Text style={styles.btnPrimaryText}>Hasta taslağı oluştur</Text>
         )}
       </Pressable>
+        </>
+      ) : null}
 
-      {warnings.length > 0 ? (
+      {warnings.length > 0 && sendMode === "ai_assist" ? (
         <View style={styles.warnBox}>
           <Text style={styles.warnTitle}>Güvenlik uyarıları</Text>
           <Text style={styles.warnBody}>{warnings.join(" · ")}</Text>
         </View>
       ) : null}
 
-      {confidence != null ? (
+      {confidence != null && sendMode === "ai_assist" ? (
         <Text style={styles.meta}>Güven skoru: {Math.round(confidence * 100)}%</Text>
       ) : null}
 
-      <Text style={styles.label}>Hasta mesajı (önizleme / düzenle)</Text>
+      <Text style={styles.label}>
+        {sendMode === "direct" ? "Hastaya gidecek metin" : "Hasta mesajı (önizleme / düzenle)"}
+      </Text>
       <View ref={patientDraftFieldRef} collapsable={false}>
         <TextInput
           style={[styles.inputMultiline, styles.draftInput, compact && styles.draftInputCompact]}
@@ -391,13 +484,18 @@ export function DoctorIntentPanel({
           value={patientDraft}
           onChangeText={setPatientDraft}
           onFocus={() => onInputFocus?.(patientDraftFieldRef)}
-          placeholder="YZ taslağı burada görünür…"
+          placeholder={
+            sendMode === "direct"
+              ? "Hastaya birebir gidecek metni yazın…"
+              : "YZ taslağı burada görünür…"
+          }
           editable={!busy}
           blurOnSubmit={false}
           textAlignVertical="top"
         />
       </View>
 
+      {sendMode === "ai_assist" ? (
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.rewriteRow}>
         {REWRITE_ACTIONS.map((a) => (
           <Pressable
@@ -410,6 +508,7 @@ export function DoctorIntentPanel({
           </Pressable>
         ))}
       </ScrollView>
+      ) : null}
 
       {!canSendToPatient ? (
         <Text style={styles.ownerBlock}>
@@ -421,12 +520,24 @@ export function DoctorIntentPanel({
       <Pressable
         style={[
           styles.btnSend,
-          (busy || !patientDraft || sent || !draftId || !canSendToPatient) && styles.btnDisabled,
+          sendMode === "direct"
+            ? (busy || !patientDraft.trim() || sent || !canSendToPatient) && styles.btnDisabled
+            : (busy || !patientDraft || sent || !draftId || !canSendToPatient) && styles.btnDisabled,
         ]}
-        onPress={onSend}
-        disabled={busy || !patientDraft || sent || !draftId || !canSendToPatient}
+        onPress={() => void (sendMode === "direct" ? onSendDirect() : onSendAiAssisted())}
+        disabled={
+          sendMode === "direct"
+            ? busy || !patientDraft.trim() || sent || !canSendToPatient
+            : busy || !patientDraft || sent || !draftId || !canSendToPatient
+        }
       >
-        <Text style={styles.btnSendText}>{sent ? "Gönderildi ✓" : "Onayla ve gönder"}</Text>
+        <Text style={styles.btnSendText}>
+          {sent
+            ? "Gönderildi ✓"
+            : sendMode === "direct"
+              ? "Birebir gönder"
+              : "Onayla ve gönder"}
+        </Text>
       </Pressable>
 
       {error ? (
@@ -466,6 +577,19 @@ const styles = StyleSheet.create({
   },
   btnClearText: { fontSize: 12, fontWeight: "700", color: "#475569" },
   sub: { fontSize: 12, color: "#475569", lineHeight: 17, marginBottom: 12 },
+  modeRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
+  modeBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#94a3b8",
+    backgroundColor: "#fff",
+    alignItems: "center",
+  },
+  modeBtnOn: { backgroundColor: "#0f766e", borderColor: "#0f766e" },
+  modeBtnText: { fontSize: 12, fontWeight: "700", color: "#475569" },
+  modeBtnTextOn: { color: "#fff" },
   label: { fontSize: 12, fontWeight: "600", color: "#334155", marginBottom: 6, marginTop: 8 },
   hint: { fontSize: 11, color: "#64748b", marginTop: 8, marginBottom: 4, lineHeight: 15 },
   inputMultiline: {

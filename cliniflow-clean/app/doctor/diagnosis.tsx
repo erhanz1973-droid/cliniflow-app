@@ -12,6 +12,7 @@ import { API_ROUTES } from '../../lib/api-routes';
 import { secureGet, securePost } from '../../lib/secure-fetch';
 import { classifyApiError } from '../../lib/api';
 import TeethFDISelector from '../../components/TeethFDISelector';
+import ToothNumberingChart from '../../components/ToothNumberingChart';
 import ICD10Dropdown from '../../components/ICD10Dropdown';
 import { ErrorScreen, EmptyState } from '../../components/ScreenFeedback';
 
@@ -212,6 +213,26 @@ export default function DoctorDiagnosisScreen() {
         </View>
         <View style={{ width: 40 }} />
       </View>
+
+      <ToothNumberingChart
+        compact
+        title={t('diagnosis.toothChart')}
+        selectedTooth={selectedTooth || null}
+        highlightedTeeth={[
+          ...new Set(
+            diagnoses
+              .map((d) => (d.tooth_number != null ? String(d.tooth_number).trim() : ''))
+              .filter(Boolean)
+              .concat(selectedTooth ? [selectedTooth] : []),
+          ),
+        ]}
+        onHighlightedToothPress={(id) => {
+          setSelectedTooth(id);
+          setSelectedCode('');
+          setSelectedDescription('');
+        }}
+        style={{ marginHorizontal: 14, marginTop: 10, marginBottom: 4 }}
+      />
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
 

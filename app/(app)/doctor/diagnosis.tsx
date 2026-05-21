@@ -13,6 +13,7 @@ import { API_ROUTES } from '../../../lib/api-routes';
 import { secureGet, securePost } from '../../../lib/secure-fetch';
 import { classifyApiError } from '../../../lib/api';
 import TeethFDISelector from '../../../components/TeethFDISelector';
+import ToothNumberingChart from '../../../components/ToothNumberingChart';
 import ICD10Dropdown from '../../../components/ICD10Dropdown';
 import { ErrorScreen, EmptyState } from '../../../components/ScreenFeedback';
 import { normalizeRouteParam } from '../../../lib/doctorPatientId';
@@ -310,6 +311,17 @@ export default function DoctorDiagnosisScreen() {
     [diagnoses],
   );
 
+  const chartHighlightedTeeth = useMemo(() => {
+    const ids = new Set<string>();
+    for (const d of diagnoses) {
+      if (d.tooth_number != null && String(d.tooth_number).trim()) {
+        ids.add(String(d.tooth_number).trim());
+      }
+    }
+    if (selectedTooth) ids.add(selectedTooth);
+    return [...ids];
+  }, [diagnoses, selectedTooth]);
+
   const handleSave = async () => {
     if (saving) return;
     if (!selectedTooth) {
@@ -499,6 +511,15 @@ export default function DoctorDiagnosisScreen() {
         <View style={{ width: 40 }} />
       </View>
 
+      <ToothNumberingChart
+        compact
+        title={t('diagnosis.toothChart')}
+        selectedTooth={selectedTooth || null}
+        highlightedTeeth={chartHighlightedTeeth}
+        onHighlightedToothPress={handleToothChange}
+        style={styles.chartReference}
+      />
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -595,6 +616,11 @@ const styles = StyleSheet.create({
   backBtnText: { fontSize: 22, color: '#111827' },
   headerTitle: { fontSize: 17, fontWeight: '700', color: '#111827' },
   headerSub: { fontSize: 12, color: '#6B7280', marginTop: 1 },
+  chartReference: {
+    marginHorizontal: 14,
+    marginTop: 10,
+    marginBottom: 4,
+  },
   scroll: { flex: 1 },
   scrollContent: { padding: 14, gap: 14 },
   section: { gap: 8 },

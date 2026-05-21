@@ -58,6 +58,8 @@ export async function expandClinicalGuidance(body: {
   constraints?: string[];
   communicationGoals?: string[];
   guidanceId?: string;
+  /** Required during doctor takeover — opts in to AI expansion. */
+  explicitAiAssist?: boolean;
 }): Promise<ExpandResponse> {
   return apiFetchJson<ExpandResponse>("/api/ai/expand-clinical-guidance", {
     method: "POST",
@@ -71,6 +73,8 @@ export async function rewriteClinicalDraft(body: {
   draftId: string;
   draftText: string;
   action: RewriteAction;
+  patientId?: string;
+  explicitAiAssist?: boolean;
 }): Promise<{
   ok?: boolean;
   patientDraft?: string;
@@ -103,10 +107,41 @@ export function isDraftAlreadySentError(err: unknown): boolean {
   );
 }
 
+export type DirectPatientMessageResponse = {
+  ok?: boolean;
+  sendMode?: "direct";
+  finalText?: string;
+  messageRef?: string | null;
+  error?: string;
+  message?: string;
+};
+
+/** Verbatim send — no AI expand/rewrite (doctor takeover). */
+export async function sendDirectPatientMessage(body: {
+  patientId: string;
+  message: string;
+}): Promise<DirectPatientMessageResponse> {
+  const pid = encodeURIComponent(String(body.patientId || "").trim());
+  return apiFetchJson<DirectPatientMessageResponse>(
+    `/api/doctor/patients/${pid}/direct-message`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: body.message,
+        text: body.message,
+        sendMode: "direct",
+      }),
+      timeoutMs: 30_000,
+    },
+  );
+}
+
 export async function sendClinicalGuidance(body: {
   guidanceId: string;
   draftId: string;
   finalText: string;
+  sendMode?: "ai_assisted" | "direct";
 }): Promise<SendClinicalGuidanceResponse> {
   try {
     return await apiFetchJson<SendClinicalGuidanceResponse>(
@@ -117,6 +152,7 @@ export async function sendClinicalGuidance(body: {
         body: JSON.stringify({
           draftId: body.draftId,
           finalText: body.finalText,
+          sendMode: body.sendMode || "ai_assisted",
         }),
         timeoutMs: 30_000,
       },
