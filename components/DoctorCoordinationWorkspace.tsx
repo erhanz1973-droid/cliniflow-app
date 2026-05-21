@@ -156,6 +156,8 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
     );
   }
 
+  const refreshing = loading && !!data?.profile;
+
   if (!data?.profile) {
     return (
       <View style={styles.emptyCard}>
@@ -181,8 +183,9 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
       <DoctorIntentPanel
         patientId={patientId}
         draftGenerationAllowed={aiState?.draftGenerationAllowed}
-        canSendToPatient={aiState?.conversationOwner === "doctor"}
+        canSendToPatient={aiState?.canSendPatientMessageAsDoctor ?? aiState?.conversationOwner === "doctor"}
         onInputFocus={scrollFieldIntoView}
+        onMessageSent={() => void refresh()}
         compact={!isWide}
       />
     </>
@@ -296,6 +299,7 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
         <Pressable onPress={refresh} style={styles.refreshBtn}>
           <Text style={styles.refreshBtnText}>↻ Yenile</Text>
         </Pressable>
+        {refreshing ? <ActivityIndicator size="small" color="#2563eb" /> : null}
       </View>
       {missionBar}
       {body}
@@ -322,6 +326,7 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
           <Pressable onPress={refresh} style={styles.refreshBtnCompact}>
             <Text style={styles.refreshBtnText}>↻</Text>
           </Pressable>
+          {refreshing ? <ActivityIndicator size="small" color="#2563eb" /> : null}
         </View>
         {missionBar}
         {body}

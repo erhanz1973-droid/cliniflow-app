@@ -106,7 +106,11 @@ function TurnRow({
   const meta = metaForTurn(item);
   const bubbleStyle = styles[meta.bubbleKey] as ViewStyle;
   const isSystem = item.kind === "system" || item.role === "system";
-  const who = item.role === "patient" && patientName ? patientName : meta.label;
+  const displayLabel = String(item.label || "").trim();
+  const who =
+    item.role === "patient" && patientName
+      ? patientName
+      : displayLabel || meta.label;
 
   return (
     <View style={[styles.turn, isSystem && styles.turnSystem]}>

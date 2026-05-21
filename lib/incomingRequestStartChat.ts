@@ -136,6 +136,35 @@ export async function startIncomingRequestChat(opts: {
     return { ok: fallback.kind !== "blocked" };
   }
 
+  const quickOfferId = String(ctx.offerId || ctx.myOfferId || "").trim();
+  if (
+    quickOfferId &&
+    patientId &&
+    !isEnrolledSharedCare({ leadThreadIsLead: leadRaw })
+  ) {
+    const quickTarget = resolveCanonicalChatTarget(
+      ctxToResolveInput(ctx, { offerId: quickOfferId, patientId }),
+    );
+    if (quickTarget.kind === "offer_chat") {
+      navigateCanonicalChat(router, ctxToResolveInput(ctx, { offerId: quickOfferId, patientId }), {
+        source: `${source}:fast`,
+      });
+      void fetch(
+        `${API_BASE}/api/doctor/treatment-requests/${encodeURIComponent(requestId)}/ensure-offer-chat`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ offer_id: quickOfferId, patient_id: patientId }),
+        },
+      ).catch(() => {});
+      return { ok: true };
+    }
+  }
+
   try {
     const res = await fetch(
       `${API_BASE}/api/doctor/treatment-requests/${encodeURIComponent(requestId)}/ensure-offer-chat`,
