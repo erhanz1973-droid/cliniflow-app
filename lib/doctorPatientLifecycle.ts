@@ -41,6 +41,9 @@ export function isDoctorPatientArchivedOrUnlinked(
   p: DoctorPatientLifecycleFields,
   doctorClinicId?: string | null,
 ): boolean {
+  /** Backend roster flag (enrolled member or admin-assigned lead). */
+  if (p.messagingActive === true) return false;
+
   if (p.messagingActive === false) return true;
   if (p.conversationArchived === true) return true;
   if (p.leftClinic === true) return true;
@@ -56,7 +59,6 @@ export function isDoctorPatientArchivedOrUnlinked(
   if (isTruthyArchivedAt(p.archivedAt) || isTruthyArchivedAt(p.archived_at)) return true;
   if (threadLifecycleArchived(p)) return true;
 
-  if (p.messagingActive === true) return false;
   return false;
 }
 
@@ -71,11 +73,11 @@ export function doctorPatientArchivedLabel(
   p: DoctorPatientLifecycleFields,
   t: (key: string) => string,
 ): string {
+  const isLead = p.isLead === true || p.is_lead === true;
   const left =
     p.leftClinic === true ||
     !patientClinicId(p) ||
-    p.isLead === true ||
-    p.is_lead === true ||
+    (isLead && p.messagingActive !== true) ||
     isTruthyArchivedAt(p.archivedAt) ||
     isTruthyArchivedAt(p.archived_at);
 

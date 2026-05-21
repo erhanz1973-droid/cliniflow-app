@@ -24,6 +24,8 @@ import {
 } from '../../../lib/doctorPatientLifecycle';
 
 const PAGE_SIZE = 20;
+/** First load pulls full roster (backend max 100) so assigned leads are not stuck on page 2+. */
+const INITIAL_FETCH_LIMIT = 100;
 
 interface RiskFlag {
   type: 'critical' | 'relevant';
@@ -307,44 +309,72 @@ export default function DoctorPatientsScreen() {
     { enabled: !!token, minIntervalMs: 30_000 },
   );
 
+  const filterIncomingForTab = useCallback(
+    (rows: Patient[], tab: RosterTab) =>
+      (rows ?? []).filter((row) =>
+        tab === "archived"
+          ? !doctorPatientCanReceiveMessages(row, doctorClinicId)
+          : doctorPatientCanReceiveMessages(row, doctorClinicId),
+      ),
+    [doctorClinicId],
+  );
+
   const fetchPage = useCallback(async (pageNum: number, append: boolean, tab: RosterTab) => {
     const endFetch = focusPerfStart(append ? 'doctor:patients:fetch-page-next' : 'doctor:patients:fetch');
     const scope = tab === "archived" ? "archived" : "active";
     try {
-      const res = await apiGet<{
-        ok: boolean;
-        patients?: Patient[];
-        page?: number;
-        total?: number;
-        totalPages?: number;
-        hasMore?: boolean;
-      }>(
-        `/api/doctor/patients?page=${pageNum}&limit=${PAGE_SIZE}&includeHealth=1&scope=${scope}`,
-        { timeoutMs: TIMEOUT_GET_LONG },
-      );
-      if (res?.ok) {
-        const incoming = (res.patients ?? []).filter((row) =>
-          tab === "archived"
-            ? !doctorPatientCanReceiveMessages(row, doctorClinicId)
-            : doctorPatientCanReceiveMessages(row, doctorClinicId),
+      let combined: Patient[] = [];
+      let lastPage = pageNum;
+      let lastTotal = 0;
+      let lastHasMore = false;
+      let cursor = pageNum;
+      let totalPagesCap = 1;
+      let ok = false;
+
+      do {
+        const pageLimit =
+          !append && cursor === pageNum && pageNum === 1 ? INITIAL_FETCH_LIMIT : PAGE_SIZE;
+        const res = await apiGet<{
+          ok: boolean;
+          patients?: Patient[];
+          page?: number;
+          total?: number;
+          totalPages?: number;
+          hasMore?: boolean;
+        }>(
+          `/api/doctor/patients?page=${cursor}&limit=${pageLimit}&includeHealth=1&scope=${scope}`,
+          { timeoutMs: TIMEOUT_GET_LONG },
         );
+        if (!res?.ok) break;
+        ok = true;
+
+        combined.push(...filterIncomingForTab(res.patients ?? [], tab));
+        lastPage = res.page ?? cursor;
+        lastTotal = Math.max(Number(res.total) || 0, combined.length);
+        lastHasMore = res.hasMore === true;
+        totalPagesCap = Math.max(1, Number(res.totalPages) || 1);
+        if (!lastHasMore || append) break;
+        cursor += 1;
+      } while (cursor <= totalPagesCap && cursor <= pageNum + 19);
+
+      if (ok) {
         setAllPatients((prev) => {
-          const next = append ? [...prev, ...incoming] : incoming;
+          const next = append ? [...prev, ...combined] : combined;
           if (!append) {
             setCachedResource(patientsCacheKey(tab), {
               patients: next,
-              page: res.page ?? pageNum,
-              total: res.total ?? next.length,
-              hasMore: res.hasMore ?? false,
+              page: lastPage,
+              total: lastTotal || next.length,
+              hasMore: lastHasMore,
               rosterTab: tab,
             } satisfies PatientsPageCache);
             hasDisplayedContentRef.current = next.length > 0;
           }
           return next;
         });
-        setPage(res.page ?? pageNum);
-        setTotal(res.total ?? incoming.length);
-        setHasMore(res.hasMore ?? false);
+        setPage(lastPage);
+        setTotal(lastTotal || combined.length);
+        setHasMore(lastHasMore);
       }
     } catch (e) {
       console.error('[DoctorPatients] load error:', e);
@@ -355,7 +385,7 @@ export default function DoctorPatientsScreen() {
       setRefreshing(false);
       endFetch();
     }
-  }, [doctorClinicId]);
+  }, [doctorClinicId, filterIncomingForTab]);
 
   const load = useCallback((opts?: { blocking?: boolean; tab?: RosterTab }) => {
     const tab = opts?.tab ?? rosterTab;
@@ -479,9 +509,11 @@ export default function DoctorPatientsScreen() {
 
   const listHeader = (
     <>
-      {total > 0 ? (
+      {total > 0 || allPatients.length > 0 ? (
         <Text style={styles.countLabel}>
-          {visible.length} / {total}
+          {search || filter !== "All"
+            ? String(visible.length)
+            : `${allPatients.length} / ${total || allPatients.length}`}
         </Text>
       ) : null}
     </>
