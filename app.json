@@ -3,11 +3,11 @@
     "scheme": "clinifly",
     "name": "Cliniflow",
     "slug": "clinifly-new",
-    "version": "125.2",
+    "version": "125.4",
     "owner": "erhanzorlu",
     "ios": {
       "bundleIdentifier": "net.clinifly.mobile",
-      "buildNumber": "58",
+      "buildNumber": "59",
       "supportsTablet": true,
       "usesAppleSignIn": true,
       "infoPlist": {
@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.clinifly.mobile",
-      "versionCode": 62,
+      "versionCode": 63,
       "supportsTablet": true,
       "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES",
