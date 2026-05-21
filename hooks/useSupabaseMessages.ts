@@ -51,8 +51,8 @@ type MessagesRow = Record<string, unknown> & {
 
 function extractRowBodyText(row: MessagesRow): string {
   const keys = [
-    'text',
     'message',
+    'text',
     'content',
     'message_text',
     'body',

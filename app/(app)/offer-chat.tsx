@@ -397,7 +397,7 @@ export default function OfferChatScreen() {
     setOfferWriteGate('pending');
     void fetchOfferMessagingMeta(user.token, offerIdStr).then((meta) => {
       if (cancelled) return;
-      if (meta?.enrolled) {
+      if (meta?.enrolled && meta?.route === 'patient_chat') {
         setOfferWriteGate('archived');
         const pid = String(meta.patient_id || patientChatPatientIdParam || '').trim();
         if (pid) redirectToPatientChat(pid);
@@ -430,7 +430,7 @@ export default function OfferChatScreen() {
       if (paramSaysArchived && patientChatPatientIdParam) return;
       let cancelled = false;
       void fetchOfferMessagingMeta(user.token, offerIdStr).then((meta) => {
-        if (cancelled || !meta?.enrolled) return;
+        if (cancelled || !meta?.enrolled || meta?.route !== 'patient_chat') return;
         setOfferWriteGate('archived');
         const pid = String(meta.patient_id || patientChatPatientIdParam || '').trim();
         if (!pid || enrolledRedirectDoneRef.current) return;
@@ -929,15 +929,12 @@ export default function OfferChatScreen() {
             );
             return;
           }
-          if (user?.type === 'patient' && clinicIdArchived) {
-            goToChat(router, { clinicId: clinicIdArchived });
+          if (user?.type === 'patient') {
             Alert.alert(
-              t('offerChat.enrolledRedirectTitle') !== 'offerChat.enrolledRedirectTitle'
-                ? t('offerChat.enrolledRedirectTitle')
-                : 'Klinik mesajları',
-              t('offerChat.enrolledRedirectBody') !== 'offerChat.enrolledRedirectBody'
-                ? t('offerChat.enrolledRedirectBody')
-                : 'Kliniğe üye oldunuz. Mesajlarınız klinik sohbetinde devam ediyor.',
+              t('common.error') !== 'common.error' ? t('common.error') : 'Hata',
+              t('offerChat.sendFailedRetry') !== 'offerChat.sendFailedRetry'
+                ? t('offerChat.sendFailedRetry')
+                : 'Mesaj gönderilemedi. Teklifler ekranından sohbeti yeniden açıp tekrar deneyin.',
             );
             return;
           }

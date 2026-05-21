@@ -578,18 +578,12 @@ export default function MessagesScreen() {
   const fetchMessages = useCallback(async (silent = false) => {
     if (!token) { if (!silent) setLoading(false); return; }
 
-    if (sbConfigured) {
-      if (sbReady) {
-        // ✅ Supabase aktif ve bağlı — Railway'e gerek yok
-        return;
-      }
-      if (!sbTimedOut) {
-        // 🔄 Supabase yapılandırıldı, henüz bağlanmadı — BEKLE, fetch atma
-        // (sbTimedOut effect'i Railway fallback'i tetikler)
-        return;
-      }
-      // ⚡ sbTimedOut → Supabase bağlanamadı, Railway fallback
-      if (__DEV__) console.log('[messages] Supabase timeout — Railway devralıyor');
+    if (sbConfigured && !sbReady && !sbTimedOut) {
+      // Supabase yapılandırıldı, henüz bağlanmadı — bekle (sbTimedOut → Railway fallback)
+      return;
+    }
+    if (sbConfigured && sbTimedOut && __DEV__) {
+      console.log('[messages] Supabase timeout — Railway devralıyor');
     }
 
     if (maybeAbortRailwayMessagesFetch()) {
@@ -646,10 +640,32 @@ export default function MessagesScreen() {
         !skipHint &&
         la?.threadIsLead !== false;
 
-      // Railway fetch — additif merge (mevcut objeleri değiştirme)
-      setMessages(prev =>
-        mergeIncomingRows(prev, msgs, m => m as Message, { sortKey: 'createdAt', limit: 50 })
-      );
+      // Railway fetch — merge; fill empty Supabase row text from API-mapped bodies
+      setMessages((prev) => {
+        const byId = new Map<string, Message>();
+        for (const m of prev) {
+          const id = String(m.id || "").trim();
+          if (id) byId.set(id, m);
+        }
+        for (const api of msgs) {
+          const id = String(api.id || "").trim();
+          if (!id) continue;
+          const existing = byId.get(id);
+          const apiText = String(api.text || "").trim();
+          if (existing) {
+            if (!String(existing.text || "").trim() && apiText) {
+              byId.set(id, { ...existing, text: apiText, type: api.type || existing.type });
+            }
+          } else {
+            byId.set(id, api);
+          }
+        }
+        const merged = [...byId.values()].sort((a, b) => a.createdAt - b.createdAt).slice(-50);
+        return mergeIncomingRows(prev, merged, (m) => m as Message, {
+          sortKey: "createdAt",
+          limit: 50,
+        });
+      });
 
       try {
         const soundOn = await getMessageSoundPreference();
@@ -711,6 +727,13 @@ export default function MessagesScreen() {
     } catch {}
     finally { if (!silent) setLoading(false); }
   }, [token, authHeaders, chatClinicId, patientId, sbConfigured, sbReady, sbTimedOut]);
+
+  /** Supabase realtime + API hydration (fills empty CLINIC bodies from server mapping). */
+  useEffect(() => {
+    if (!token || !sbConfigured || !sbReady || sbTimedOut) return;
+    void fetchMessages(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, patientId, chatClinicId, sbReady, sbConfigured, sbTimedOut]);
 
   /** Prefer leadAssignment from GET; fall back to first message row (API may hydrate thread before assignment object). */
   const resolvedThreadId = useMemo(() => {
