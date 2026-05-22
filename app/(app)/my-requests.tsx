@@ -276,14 +276,20 @@ export default function MyRequestsScreen() {
     }
   }, [user?.token]);
 
+  const applyRatings = useCallback((ratData: { ratings?: unknown[] }) => {
+    const keys = new Set<RatingKey>(
+      ((ratData?.ratings || []) as any[]).map((r: any) =>
+        r.clinic_id ? `${r.clinic_id}:${r.type}` : `offer:${r.offer_id}:${r.type}`
+      )
+    );
+    setRatedKeys(keys);
+  }, []);
+
   const load = useCallback(async () => {
     if (!user?.token) return;
     setError(null);
     try {
-      const [reqData, ratData] = await Promise.all([
-        safeFetch(`${API_BASE}/api/patient/treatment-requests`),
-        safeFetch(`${API_BASE}/api/patient/ratings`).catch(() => ({ ok: true, ratings: [] })),
-      ]);
+      const reqData = await safeFetch(`${API_BASE}/api/patient/treatment-requests`, 1);
       if (!reqData?.ok) {
         const errKey = reqData?.error || 'error';
         // Translate known server error codes to Turkish
@@ -303,23 +309,23 @@ export default function MyRequestsScreen() {
           photos: Array.isArray(r.photos) ? r.photos : null,
         }))
       );
-      // Build a set of already-rated keys (clinic-level: 1 patient × 1 clinic × 1 type)
-      const keys = new Set<RatingKey>(
-        ((ratData as any)?.ratings || []).map((r: any) =>
-          r.clinic_id ? `${r.clinic_id}:${r.type}` : `offer:${r.offer_id}:${r.type}`
-        )
-      );
-      setRatedKeys(keys);
+      void safeFetch(`${API_BASE}/api/patient/ratings`, 0)
+        .then((ratData) => applyRatings(ratData))
+        .catch(() => applyRatings({ ratings: [] }));
     } catch (e: any) {
       setError(e.message || t('common.error'));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.token, t, safeFetch]);
+  }, [user?.token, t, safeFetch, applyRatings]);
 
   useFocusEffect(useCallback(() => {
-    setLoading(true);
+    if (requests.length === 0) setLoading(true);
+    else {
+      setLoading(false);
+      setRefreshing(true);
+    }
     load();
     // Mark all answered offers as seen — clears the home screen badge
     if (user?.token) {
@@ -330,7 +336,7 @@ export default function MyRequestsScreen() {
         .then(() => schedulePatientInboxSummaryRefresh(user.token!))
         .catch(() => {});
     }
-  }, [load, user?.token]));
+  }, [load, user?.token, requests.length]));
 
   useEffect(() => {
     if (!user?.token) return;
