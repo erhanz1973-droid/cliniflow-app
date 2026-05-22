@@ -75,9 +75,7 @@ export async function fetchClinicReferralSettings(
       const json = await settingsRes.json();
       const data = (json?.data ?? json) as ClinicSettingsPayload;
       const percent = extractReferralDiscountPercent(data);
-      if (percent > 0) {
-        return { settings: data, percent };
-      }
+      return { settings: data, percent };
     }
   } catch {
     /* fall through */

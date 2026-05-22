@@ -145,7 +145,7 @@ export default function ReferralsScreen() {
           fetch(clinicUrl),
           fetchClinicReferralSettings(user.token),
         ]);
-        setClinicDiscountPercent(clinicSettings.percent);
+        let clinicPct = clinicSettings.percent;
 
         if (referralsRes.status === 403 || referralsRes.status === 401) {
           setReferrals([]);

@@ -518,6 +518,7 @@ export default function DoctorDiagnosisScreen() {
       >
         <ToothNumberingChart
           compact
+          showLegend={false}
           title={t('diagnosis.toothChart')}
           selectedTooth={selectedTooth || null}
           highlightedTeeth={chartHighlightedTeeth}
@@ -529,7 +530,7 @@ export default function DoctorDiagnosisScreen() {
           value={selectedTooth || undefined}
           onChange={handleToothChange}
           diagnoses={teethDiagnosesProp}
-          title={t('diagnosis.toothChart')}
+          title={t('diagnosis.tooth')}
         />
 
         <View style={styles.section}>
