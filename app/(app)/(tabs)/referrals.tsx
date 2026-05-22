@@ -27,6 +27,7 @@ import {
   type Milestone,
 } from "../../../lib/referralRewards";
 import {
+  extractReferralDiscountPercent,
   fetchClinicReferralSettings,
   formatReferralDiscountText,
 } from "../../../lib/clinicReferralSettings";
@@ -167,7 +168,11 @@ export default function ReferralsScreen() {
             level2: rl.level2 ?? null,
             level3: rl.level3 ?? null,
           });
+          if (clinicPct <= 0) {
+            clinicPct = extractReferralDiscountPercent(clinicData);
+          }
         }
+        setClinicDiscountPercent(clinicPct);
       } catch (error: any) {
         console.error("[REFERRALS]", error);
         if (!silent) Alert.alert(t("common.error"), t("referrals.loadError"));

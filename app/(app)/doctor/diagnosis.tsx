@@ -511,20 +511,20 @@ export default function DoctorDiagnosisScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ToothNumberingChart
-        compact
-        title={t('diagnosis.toothChart')}
-        selectedTooth={selectedTooth || null}
-        highlightedTeeth={chartHighlightedTeeth}
-        onHighlightedToothPress={handleToothChange}
-        style={styles.chartReference}
-      />
-
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
+        <ToothNumberingChart
+          compact
+          title={t('diagnosis.toothChart')}
+          selectedTooth={selectedTooth || null}
+          highlightedTeeth={chartHighlightedTeeth}
+          onHighlightedToothPress={handleToothChange}
+          style={styles.chartReference}
+        />
+
         <TeethFDISelector
           value={selectedTooth || undefined}
           onChange={handleToothChange}
@@ -617,8 +617,6 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 17, fontWeight: '700', color: '#111827' },
   headerSub: { fontSize: 12, color: '#6B7280', marginTop: 1 },
   chartReference: {
-    marginHorizontal: 14,
-    marginTop: 10,
     marginBottom: 4,
   },
   scroll: { flex: 1 },

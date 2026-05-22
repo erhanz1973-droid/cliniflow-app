@@ -18,6 +18,7 @@ import { useLanguage } from "../../../lib/language-context";
 import { useDateLocale } from "../../../lib/date-locale";
 import { API_BASE } from "../../../lib/api";
 import {
+  extractReferralDiscountPercent,
   fetchClinicReferralSettings,
   formatReferralDiscountText,
   normalizeReferralDiscountPercent,
