@@ -3,6 +3,7 @@ import { safeGetItem, safeSetItem } from "./asyncStorageSafe";
 import { API_BASE } from "./api";
 import { getGlobalChatOpen } from "../hooks/chatSessionGlobal";
 import { playInAppNewMessageSoundDebouncedForThread } from "./playInAppMessageSound";
+import { markPatientClinicMessagesRead } from "./markChatRead";
 
 /** Unread badge polling — keep moderate to reduce /messages/unread-count load (realtime via Socket.IO on chat screen). */
 const POLL_INTERVAL_MS = 20_000;
@@ -60,9 +61,11 @@ export function useUnreadMessages(patientId: string | undefined, token: string |
   /** Call when the messages screen is opened to reset tab badge; never blocks on storage. */
   const markRead = useCallback(async () => {
     if (!patientId) return;
-    void safeSetItem(storageKey(patientId), String(Date.now()));
+    const now = Date.now();
+    void safeSetItem(storageKey(patientId), String(now));
     setUnreadCount(0);
-  }, [patientId]);
+    if (token) void markPatientClinicMessagesRead(token);
+  }, [patientId, token]);
 
   const badgeLabel = unreadCount <= 0 ? undefined : unreadCount > 9 ? "9+" : String(unreadCount);
 

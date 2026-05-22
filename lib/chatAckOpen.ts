@@ -1,4 +1,4 @@
-import { API_BASE } from "./api";
+import { markPatientClinicMessagesRead } from "./markChatRead";
 
 /** Clears icon badge locally; uses dynamic import so route screens do not eagerly load expo-notifications. */
 export async function resetAppIconBadgeCount(): Promise<void> {
@@ -10,33 +10,12 @@ export async function resetAppIconBadgeCount(): Promise<void> {
   }
 }
 
-/** Resets server-side chat unread tally for push badge; call when user opens chat. */
+/** Resets server-side chat unread tally + read_at; call when user opens clinic messages. */
 export async function postPatientChatAckOpen(token: string | undefined): Promise<void> {
-  if (!token?.trim()) return;
-  try {
-    const res = await fetch(`${API_BASE}/api/patient/me/chat/ack-open`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-    });
-    if (!res.ok) {
-      await res.text().catch(() => "");
-    }
-  } catch {
-    /* ignore */
-  }
+  await markPatientClinicMessagesRead(token);
 }
 
-export async function postDoctorChatAckOpen(token: string | undefined): Promise<void> {
-  if (!token?.trim()) return;
-  try {
-    const res = await fetch(`${API_BASE}/api/doctor/me/chat/ack-open`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-    });
-    if (!res.ok) {
-      await res.text().catch(() => "");
-    }
-  } catch {
-    /* ignore */
-  }
+/** @deprecated Prefer markDoctorPatientMessagesRead per patient thread. */
+export async function postDoctorChatAckOpen(_token: string | undefined): Promise<void> {
+  /* no-op: global ack-open zeros all threads; use /api/doctor/patient/:id/messages/read instead */
 }

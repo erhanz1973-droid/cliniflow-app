@@ -4,8 +4,7 @@ import { useAuthSession } from "../lib/auth";
 import {
   fetchDoctorThreadSummary,
   fetchDoctorUnreadBreakdown,
-  invalidateDoctorThreadSummaryCacheOnly,
-  invalidateDoctorUnreadCacheOnly,
+  invalidateDoctorMessagingCache,
 } from "../lib/doctorMessaging";
 import { emitOfferUnreadEvent, subscribeOfferUnreadEvents } from "../lib/offerUnreadEvents";
 import { syncDoctorRequestUnreadFromServer } from "../lib/doctorRequestsUnread";
@@ -17,10 +16,21 @@ import {
 import { showDoctorForegroundBanner } from "../lib/doctorForegroundBannerController";
 import { useLanguage } from "../lib/language-context";
 
-const POLL_MS = 12_000;
-const FOREGROUND_ALERT_DEBOUNCE_MS = 30_000;
+const POLL_MS = 28_000;
+const FOREGROUND_ALERT_DEBOUNCE_MS = 120_000;
 
 type Snap = { lastId: string; unread: number };
+
+function resolveThreadDisplayName(
+  row: { patientName?: string | null; patientLegacyId?: string | null },
+  fallback: string,
+): string {
+  const raw = String(row.patientName || "").trim();
+  if (raw && raw !== "Hasta" && raw !== "Patient" && raw !== "—") return raw;
+  const leg = String(row.patientLegacyId || "").trim();
+  if (leg && !/^[0-9a-f-]{36}$/i.test(leg)) return leg;
+  return fallback;
+}
 
 /**
  * App-scoped doctor messaging awareness while foregrounded: polls thread-summary and
@@ -51,7 +61,7 @@ export function DoctorForegroundMessageWatcher() {
     return subscribeOfferUnreadEvents((ev) => {
       if (ev.recipient !== "doctor") return;
       if (ev.type === "offer_mark_read") {
-        invalidateDoctorUnreadCacheOnly();
+        invalidateDoctorMessagingCache();
       }
     });
   }, [token, isDoctor]);
@@ -78,7 +88,10 @@ export function DoctorForegroundMessageWatcher() {
       }
 
       if (primedRef.current) {
-        let bustThreadSummary = false;
+        const unknownPatient =
+          t("doctor.patientChat.headerSub") !== "doctor.patientChat.headerSub"
+            ? t("doctor.patientChat.headerSub")
+            : "Patient";
         for (const row of threads) {
           const pid = canonicalDoctorPatientChatKey(String(row.patientDbId || ""));
           if (!pid) continue;
@@ -86,8 +99,7 @@ export function DoctorForegroundMessageWatcher() {
           const unread = Math.max(0, Number(row.unreadFromPatient) || 0);
           const prev = snapRef.current.get(pid);
           const lastChanged = lastId !== "" && lastId !== (prev?.lastId ?? "");
-          const unreadUp = unread > (prev?.unread ?? 0);
-          if (!lastChanged && !unreadUp) continue;
+          if (!lastChanged) continue;
           if (openKey && openKey === pid) continue;
 
           const now = Date.now();
@@ -95,18 +107,18 @@ export function DoctorForegroundMessageWatcher() {
           if (now - lastAlert < FOREGROUND_ALERT_DEBOUNCE_MS) continue;
           lastForegroundAlertAtRef.current.set(pid, now);
 
-          bustThreadSummary = true;
-
-          const name = String(row.patientName || "").trim() || "—";
+          const name = resolveThreadDisplayName(row, unknownPatient);
           const preview = String(row.lastMessage?.text || "").trim().replace(/\s+/g, " ").slice(0, 120);
           const title =
             t("doctor.foregroundChat.bannerTitle") !== "doctor.foregroundChat.bannerTitle"
               ? t("doctor.foregroundChat.bannerTitle")
-              : "New chat activity";
+              : "New message";
           const body =
             preview !== ""
-              ? `${name}: ${preview}`
-              : `${name}${unreadUp ? ` · ${unread}` : ""}`;
+              ? t("doctor.foregroundChat.bannerBodyPreview", { name, preview })
+              : unread > 0
+                ? t("doctor.foregroundChat.bannerBodyUnread", { name, count: String(unread) })
+                : name;
 
           playInAppNewMessageSoundDebouncedForThread(`fg_poll:${pid}`, 2800);
 
@@ -115,7 +127,6 @@ export function DoctorForegroundMessageWatcher() {
           }
           showDoctorForegroundBanner({ title, body });
         }
-        if (bustThreadSummary) invalidateDoctorThreadSummaryCacheOnly();
       }
 
       snapRef.current = newMap;
@@ -125,7 +136,7 @@ export function DoctorForegroundMessageWatcher() {
         const { offerUnread } = await fetchDoctorUnreadBreakdown(token);
         const prevOfferOnly = offerUnreadTotalRef.current;
         if (offerUnreadPrimedRef.current && offerUnread > prevOfferOnly) {
-          invalidateDoctorUnreadCacheOnly();
+          invalidateDoctorMessagingCache();
           playInAppNewMessageSoundDebouncedForThread("fg_offer_unread", 2800);
           const title =
             t("doctor.foregroundChat.offerTitle") !== "doctor.foregroundChat.offerTitle"

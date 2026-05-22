@@ -14,7 +14,7 @@ import { isEnrolledSharedCare } from '../../../lib/canonicalChatTarget';
 import { openDoctorPatientChat } from '../../../lib/navigateCanonicalChat';
 import { openDoctorCoordinationWorkspace } from '../../../lib/navigateDoctorCoordination';
 import { fetchRequestMessagingMeta } from '../../../lib/offerMessagingMeta';
-import { invalidateDoctorThreadSummaryCacheOnly } from '../../../lib/doctorMessaging';
+import { invalidateDoctorMessagingCache } from '../../../lib/doctorMessaging';
 import { doctorPatientPrimaryKey } from '../../../lib/doctorPatientId';
 import {
   formatTreatmentRequestDescription,
@@ -917,7 +917,7 @@ export default function DoctorRequestsScreen() {
 
   const openEnrolledPatientMessaging = useCallback(
     (req: Request) => {
-      invalidateDoctorThreadSummaryCacheOnly();
+      invalidateDoctorMessagingCache();
       const openWithPatientId = (patientId: string | null | undefined) => {
         openDoctorPatientChat(
           router,

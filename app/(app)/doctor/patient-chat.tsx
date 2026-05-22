@@ -16,13 +16,14 @@ import {
   type ListRenderItemInfo,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useDeferredFocusRefresh } from '../../../hooks/use-deferred-focus-refresh';
 import { focusPerfMark, focusPerfStart } from '../../../lib/perfFocus';
 import { useAuthSession } from '../../../lib/auth';
 import { useLanguage } from '../../../lib/language-context';
 import { API_BASE, setAuthToken } from '../../../lib/api';
-import { invalidateDoctorThreadSummaryCacheOnly } from '../../../lib/doctorMessaging';
+import { invalidateDoctorMessagingCache } from '../../../lib/doctorMessaging';
+import { markDoctorPatientMessagesRead } from '../../../lib/markChatRead';
 import { setGlobalDoctorChatPatientIdOpen } from '../../../lib/doctorChatForeground';
 import { subscribePrimaryChatRealtime, waitOnceSocketConnected } from '../../../lib/chatRealtime';
 import { markPatientChatNav } from '../../../lib/patientChatNavPerf';
@@ -233,6 +234,13 @@ export default function DoctorPatientChatScreen() {
     { enabled: !!token && !!patientId, minIntervalMs: 50_000 }
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      if (!token || !patientId) return;
+      void markDoctorPatientMessagesRead(token, patientId);
+    }, [token, patientId]),
+  );
+
   const resolvedThreadId = useMemo(() => {
     const la = leadThreadId != null ? String(leadThreadId).trim() : '';
     const firstWith = messages.find((m) => (m.thread_id ?? '').trim() !== '');
@@ -410,7 +418,7 @@ export default function DoctorPatientChatScreen() {
           setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
           void fetchMessages({ silent: true });
         }
-        invalidateDoctorThreadSummaryCacheOnly();
+        invalidateDoctorMessagingCache();
       }
     } catch (err: unknown) {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));

@@ -901,7 +901,12 @@ export default function DoctorDashboardHome() {
 
   useDeferredFocusRefresh(
     "doctor:dashboard:focus",
-    () => loadCritical({ blocking: false }),
+    () => {
+      void loadCritical({ blocking: false });
+      if (token) {
+        void fetchDoctorUnreadTotalOnly(token).then((n) => setUnreadMsgCount(n));
+      }
+    },
     { enabled: !!token, minIntervalMs: 60_000 }
   );
 

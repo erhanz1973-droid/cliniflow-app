@@ -42,7 +42,11 @@ import {
   THREAD_ID_UUID_RE,
   waitOnceSocketConnected,
 } from "../../../lib/chatRealtime";
-import { resetAppIconBadgeCount, postDoctorChatAckOpen } from "../../../lib/chatAckOpen";
+import { resetAppIconBadgeCount } from "../../../lib/chatAckOpen";
+import {
+  markDoctorPatientMessagesRead,
+  markPatientClinicMessagesRead,
+} from "../../../lib/markChatRead";
 import { ClinicHeader } from "../../../components/ClinicHeader";
 import { useClinicStore } from "../../../store/useClinicStore";
 import { refreshActiveClinicFromApi } from "../../../lib/fetchPatientMyClinic";
@@ -164,8 +168,8 @@ export default function ChatScreen() {
   const seenServerMessageIdsRef = useRef<Set<string>>(new Set());
   const chatInboundIdsPrimedRef = useRef(false);
   const chatSocketRef = useRef<Socket | null>(null);
-  /** Throttle doctor `ack-open` — tab focus was firing every navigation without role guard. */
-  const lastDoctorChatAckAtRef = useRef(0);
+  /** Throttle per-thread mark-read on tab focus (avoids spam on quick tab switches). */
+  const lastChatMarkReadAtRef = useRef(0);
   const [chatRealtimeConnected, setChatRealtimeConnected] = useState(false);
   /** Backend GET .../messages → leadAssignment.threadId (patient_chat_threads row) */
   const [leadThreadId, setLeadThreadId] = useState<string | null>(null);
@@ -547,11 +551,13 @@ export default function ChatScreen() {
       if (!patientId) return;
       if (isAuthSessionStale(e0, authSessionEpochRef)) return;
       void resetAppIconBadgeCount();
-      if (user?.role === "DOCTOR" && user?.token) {
-        const now = Date.now();
-        if (now - lastDoctorChatAckAtRef.current >= 28_000) {
-          lastDoctorChatAckAtRef.current = now;
-          void postDoctorChatAckOpen(user.token);
+      const now = Date.now();
+      if (user?.token && now - lastChatMarkReadAtRef.current >= 28_000) {
+        lastChatMarkReadAtRef.current = now;
+        if (user?.role === "DOCTOR") {
+          void markDoctorPatientMessagesRead(user.token, patientId);
+        } else {
+          void markPatientClinicMessagesRead(user.token);
         }
       }
 

@@ -20,10 +20,7 @@ import { useLanguage } from '../../lib/language-context';
 import { API_BASE } from '../../lib/api';
 import { exitOfferChat, offerChatLastStorageKey } from '../../lib/goToOfferChat';
 import { normalizeRouteParam } from '../../lib/doctorPatientId';
-import {
-  invalidateDoctorThreadSummaryCacheOnly,
-  invalidateDoctorUnreadCacheOnly,
-} from '../../lib/doctorMessaging';
+import { invalidateDoctorMessagingCache } from '../../lib/doctorMessaging';
 import { emitOfferUnreadEvent } from '../../lib/offerUnreadEvents';
 import {
   invalidatePatientInboxUnreadCache,
@@ -663,7 +660,7 @@ export default function OfferChatScreen() {
     const recipient = user?.type === 'doctor' ? 'doctor' : 'patient';
     if (recipient === 'doctor') {
       clearDoctorRequestUnreadByOfferId(oid);
-      invalidateDoctorUnreadCacheOnly();
+      invalidateDoctorMessagingCache();
     }
     else {
       invalidatePatientInboxUnreadCache();
@@ -808,8 +805,8 @@ export default function OfferChatScreen() {
           setGlobalOfferChatOpen(false);
         };
       }
+      void markAsRead();
       if (doctorOfferRealtimeEnabled) {
-        void markAsRead();
         if (user?.token) void fetchMessages();
         sbOfferRefresh();
         const pollId = setInterval(() => {
@@ -1200,7 +1197,7 @@ export default function OfferChatScreen() {
                         style={styles.enrolledPrimaryCta}
                         activeOpacity={0.88}
                         onPress={() => {
-                          invalidateDoctorThreadSummaryCacheOnly();
+                          invalidateDoctorMessagingCache();
                           const name = decodeURIComponent(otherName || '');
                           if (!patientChatPatientIdParam) {
                             router.push('/doctor/patients');
