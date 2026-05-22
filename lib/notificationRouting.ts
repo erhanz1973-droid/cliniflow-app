@@ -7,8 +7,8 @@ import {
 function firstStringField(data: Record<string, unknown>, keys: readonly string[]): string {
   for (const key of keys) {
     const v = data[key];
-    if (typeof v !== "string") continue;
-    const t = v.trim();
+    if (v === undefined || v === null) continue;
+    const t = typeof v === "string" ? v.trim() : String(v).trim();
     if (t) return t;
   }
   return "";
@@ -36,8 +36,14 @@ export function getPathFromNotificationData(
     return pathFromCanonicalTarget(target);
   }
 
-  if (type === "chat_message") {
+  if (type === "chat_message" || type === "new_message") {
     if (vt === "doctor") {
+      const offerId = firstStringField(data, ["offerId", "offer_id"]);
+      if (offerId) {
+        const input = pushDataToResolveInput(data, "doctor");
+        const target = resolveCanonicalChatTarget(input);
+        return pathFromCanonicalTarget(target);
+      }
       const patientId = firstStringField(data, ["patientId", "patient_id"]);
       const patientName = firstStringField(data, ["patientName", "patient_name"]) || "Patient";
       if (!patientId) return null;
@@ -45,6 +51,7 @@ export function getPathFromNotificationData(
         viewerRole: "doctor",
         patientId,
         patientName,
+        requestId: firstStringField(data, ["requestId", "request_id"]) || undefined,
         leadThreadIsLead: data.lead_thread_is_lead ?? data.leadThreadIsLead,
         enrolled: data.enrolled === true || data.enrolled === "true",
         bootstrapRoute: firstStringField(data, ["route"]),
@@ -52,6 +59,12 @@ export function getPathFromNotificationData(
       return pathFromCanonicalTarget(target);
     }
     if (vt === "patient") {
+      const offerId = firstStringField(data, ["offerId", "offer_id"]);
+      if (offerId) {
+        const input = pushDataToResolveInput(data, "patient");
+        const target = resolveCanonicalChatTarget(input);
+        return pathFromCanonicalTarget(target);
+      }
       return "/(tabs)/chat";
     }
   }

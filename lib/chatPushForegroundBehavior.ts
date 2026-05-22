@@ -29,6 +29,15 @@ function isOfferPushType(type: string): boolean {
   return type === "offer_message" || type === "new_offer";
 }
 
+function isDoctorInboundMessagePushType(type: string): boolean {
+  return (
+    type === "chat_message" ||
+    type === "new_message" ||
+    type === "offer_message" ||
+    type === "patient_inbound"
+  );
+}
+
 function isComposerSelfEcho(data: Record<string, unknown> | undefined, viewer: ChatNotifViewer): boolean {
   if (!data) return false;
   const type = String(data.type || "").toLowerCase();
@@ -39,7 +48,14 @@ function isComposerSelfEcho(data: Record<string, unknown> | undefined, viewer: C
     if (vt === "doctor" && role === "doctor") return true;
     return false;
   }
-  if (type !== "chat_message") return false;
+  if (
+    type !== "chat_message" &&
+    type !== "new_message" &&
+    type !== "offer_message" &&
+    type !== "patient_inbound"
+  ) {
+    return false;
+  }
   const role = String((data.messageComposerRole as string) || "").toLowerCase();
   const composerId = String((data.messageComposerId as string) || "").trim();
   if (!composerId || !role) return false;
@@ -86,7 +102,7 @@ export function installForegroundChatNotificationEffects(getViewer: () => ChatNo
       void (async () => {
         const data = event.request.content.data as Record<string, unknown> | undefined;
         const pushType = String(data?.type || "").toLowerCase();
-        const isChat = pushType === "chat_message";
+        const isChat = isDoctorInboundMessagePushType(pushType);
         const isOffer = isOfferPushType(pushType);
         if (!isChat && !isOffer) return;
 
@@ -106,8 +122,6 @@ export function installForegroundChatNotificationEffects(getViewer: () => ChatNo
           /* Logged out or unknown viewer — avoid TurboModule calls (badge/vibrate). */
           return;
         }
-
-        recordForegroundRemoteChatPushPlayback();
 
         await applyBadgeFromPayload(Notifications, event.request.content, data);
 
@@ -131,6 +145,7 @@ export function installForegroundChatNotificationEffects(getViewer: () => ChatNo
           ? `offer:${String(data?.offerId || data?.offer_id || "unknown")}`
           : `chat:${String(data?.patientId || data?.threadId || "unknown")}`;
         playInAppNewMessageSoundDebouncedForThread(threadKey, 2800);
+        recordForegroundRemoteChatPushPlayback();
 
         const now = Date.now();
         if (now - lastForegroundChatVibrateAt < FG_VIBRATE_DEBOUNCE_MS) return;

@@ -59,6 +59,29 @@ export type DoctorThreadSummaryResponse = {
   hint?: string;
 };
 
+function threadActivityMs(row: DoctorThreadSummaryRow): number {
+  const direct = Number(row.lastActivityAt);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const fromMsg = Number(row.lastMessage?.createdAt);
+  if (Number.isFinite(fromMsg) && fromMsg > 0) return fromMsg;
+  return 0;
+}
+
+/** Newest conversation first (matches server thread-summary sort; safe if API order drifts). */
+export function sortDoctorThreadsByActivity(rows: DoctorThreadSummaryRow[]): DoctorThreadSummaryRow[] {
+  return [...rows].sort((a, b) => {
+    const bt = threadActivityMs(b);
+    const at = threadActivityMs(a);
+    if (bt !== at) return bt - at;
+    const bu = Math.max(0, Number(b.unreadFromPatient) || 0);
+    const au = Math.max(0, Number(a.unreadFromPatient) || 0);
+    if (bu !== au) return bu - au;
+    const bk = b.offerId || b.patientDbId || "";
+    const ak = a.offerId || a.patientDbId || "";
+    return String(bk).localeCompare(String(ak));
+  });
+}
+
 let unreadInflight: Promise<{ total: number; offerUnread: number; chatUnread: number }> | null = null;
 let unreadCache: { expires: number; total: number; offerUnread: number; chatUnread: number } | null = null;
 

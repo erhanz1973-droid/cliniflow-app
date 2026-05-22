@@ -94,6 +94,28 @@ function displayTextFromApiMessage(m: Record<string, unknown>): string {
   return "";
 }
 
+function parseMessageCreatedAtMs(raw: unknown): number {
+  if (raw == null) return Date.now();
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    if (raw > 1e15) return Math.floor(raw / 1000);
+    if (raw > 0 && raw < 1e11) return Math.floor(raw * 1000);
+    return raw;
+  }
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return Date.now();
+    const asNum = Number(s);
+    if (Number.isFinite(asNum) && /^\d+(\.\d+)?$/.test(s)) {
+      if (asNum > 1e15) return Math.floor(asNum / 1000);
+      if (asNum > 0 && asNum < 1e11) return Math.floor(asNum * 1000);
+      return asNum;
+    }
+    const t = Date.parse(s);
+    return Number.isFinite(t) ? t : Date.now();
+  }
+  return Date.now();
+}
+
 export function mapApiMessages(raw: unknown[]): DoctorChatMessage[] {
   const mapped = raw.map((row: unknown) => {
     const m = row as Record<string, unknown>;
@@ -104,13 +126,10 @@ export function mapApiMessages(raw: unknown[]): DoctorChatMessage[] {
         : undefined;
     const text = displayTextFromApiMessage(m);
     return {
-      id: String(m.id || m.createdAt || Math.random()),
+      id: String(m.id || m.message_id || Math.random()),
       text: text || (m.attachment || m.attachments ? "📎 Ek" : ""),
       from: String(m.from || m.senderRole || "CLINIC"),
-      createdAt:
-        m.createdAt || m.created_at
-          ? new Date(String(m.createdAt || m.created_at)).getTime()
-          : Date.now(),
+      createdAt: parseMessageCreatedAtMs(m.createdAt ?? m.created_at),
       senderName:
         m.senderName != null
           ? String(m.senderName)

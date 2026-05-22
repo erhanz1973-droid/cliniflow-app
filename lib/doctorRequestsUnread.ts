@@ -98,7 +98,7 @@ function activityMs(row: DoctorRequestRow): number {
   );
 }
 
-/** Newest message/activity first; unread count breaks ties only. */
+/** Newest message/activity first; unread breaks ties; stable id tiebreaker. */
 export function sortDoctorRequestsForInbox(rows: DoctorRequestRow[]): DoctorRequestRow[] {
   return [...rows].sort((a, b) => {
     const at = activityMs(a);
@@ -106,7 +106,8 @@ export function sortDoctorRequestsForInbox(rows: DoctorRequestRow[]): DoctorRequ
     if (bt !== at) return bt - at;
     const au = Math.max(0, Number(a.unread_count) || 0);
     const bu = Math.max(0, Number(b.unread_count) || 0);
-    return bu - au;
+    if (bu !== au) return bu - au;
+    return String(b.id || "").localeCompare(String(a.id || ""));
   });
 }
 

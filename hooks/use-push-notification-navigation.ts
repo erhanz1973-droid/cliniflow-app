@@ -4,7 +4,7 @@ import Constants from "expo-constants";
 import { useRootNavigationState, useRouter } from "expo-router";
 import { useAuthSession } from "../lib/auth";
 import { pushDataToResolveInput } from "../lib/canonicalChatTarget";
-import { navigateCanonicalChat } from "../lib/navigateCanonicalChat";
+import { navigateCanonicalChat, openDoctorPatientChat } from "../lib/navigateCanonicalChat";
 import { navigateDoctorOfferOrPatientChat } from "../lib/offerMessagingMeta";
 import { getPathFromNotificationData } from "../lib/notificationRouting";
 import { emitOfferUnreadEvent } from "../lib/offerUnreadEvents";
@@ -63,21 +63,39 @@ export function usePushNotificationNavigation(): void {
         if (isDoctor) invalidateDoctorUnreadCacheOnly();
         if (isPatient) invalidatePatientInboxUnreadCache();
       }
-      if (isDoctor && (type === "offer_message" || type === "new_offer")) {
+      if (isDoctor && (type === "offer_message" || type === "new_offer" || type === "new_message")) {
         const offerId = String(data.offerId || data.offer_id || "").trim();
+        const patientId = String(data.patientId || data.patient_id || "").trim();
+        const patientName =
+          String(data.patientName || data.patient_name || "").trim() || "Patient";
         if (offerId) {
           const input = pushDataToResolveInput(data, "doctor");
           void navigateDoctorOfferOrPatientChat(router, {
             token,
             offerId,
-            patientId: input.patientId,
-            patientName: input.patientName,
+            patientId: input.patientId || patientId,
+            patientName: input.patientName || patientName,
             treatmentType: input.treatmentType,
             requestId: input.requestId,
             source: `push:${delivery}`,
           }).then((kind) => {
             if (__DEV__) console.log("[push:nav]", { delivery, type, kind });
           });
+          return;
+        }
+        if (patientId) {
+          openDoctorPatientChat(
+            router,
+            {
+              patientId,
+              patientName,
+              offerId: offerId || undefined,
+              requestId: String(data.requestId || data.request_id || "").trim() || undefined,
+              leadThreadIsLead: data.lead_thread_is_lead ?? data.leadThreadIsLead,
+              enrolled: data.enrolled === true || data.enrolled === "true",
+            },
+            { source: `push:${delivery}` },
+          );
           return;
         }
       }
@@ -127,7 +145,14 @@ export function usePushNotificationNavigation(): void {
         if (appStateRef.current !== "active") return;
         const data = event.request.content.data as Record<string, unknown> | undefined;
         const type = String(data?.type || "").toLowerCase();
-        if (type !== "offer_message" && type !== "new_offer" && type !== "chat_message") return;
+        if (
+          type !== "offer_message" &&
+          type !== "new_offer" &&
+          type !== "chat_message" &&
+          type !== "new_message"
+        ) {
+          return;
+        }
         const offerId = String(data?.offerId || data?.offer_id || "").trim();
         if (isDoctor && offerId && (type === "offer_message" || type === "new_offer")) {
           bumpDoctorRequestUnreadByOfferId(offerId, 1);

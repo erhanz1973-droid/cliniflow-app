@@ -61,13 +61,17 @@ const PHOTO_STEP_KEYS = [
   { key: 'right', icon: '▶️' },
 ];
 
+type MessageSenderRole = 'patient' | 'doctor' | 'system' | 'assistant';
+
 type Message = {
   id: string;
   /** Thread scope — must match route `currentOfferId` (prevents multi-offer leak). */
   offer_id: string;
   sender_id: string;
-  sender_role: 'patient' | 'doctor' | 'system';
+  sender_role: MessageSenderRole;
   sender_name: string;
+  /** clinic_ai vs doctor_direct — disambiguate legacy rows with sender_role doctor */
+  actor_kind?: string;
   text: string | null;
   attachment_url: string | null;
   attachment_type: 'image' | 'xray' | 'document' | null;
@@ -139,11 +143,27 @@ function offerMessageRowToUI(
   const text = normalizeOfferMessageTextNullable(rawText);
   if (__DEV__) console.log('[offerMessageRowToUI] FINAL TEXT:', JSON.stringify(text));
 
-  const role = String(row.sender_role || 'patient').toLowerCase();
-  const sender_role =
-    role === 'doctor' || role === 'system' || role === 'patient'
-      ? (role as Message['sender_role'])
-      : 'patient';
+  const actorKind = String(row.actor_kind ?? row.message_source ?? '').toLowerCase();
+  const roleRaw = String(row.sender_role || 'patient').toLowerCase();
+  let sender_role: MessageSenderRole = 'patient';
+  if (roleRaw === 'system') {
+    sender_role = 'system';
+  } else if (roleRaw === 'patient') {
+    sender_role = 'patient';
+  } else if (
+    actorKind === 'clinic_ai' ||
+    roleRaw === 'assistant' ||
+    roleRaw === 'ai' ||
+    roleRaw === 'clinic'
+  ) {
+    sender_role = 'assistant';
+  } else if (roleRaw === 'doctor' && actorKind !== 'clinic_ai') {
+    sender_role = 'doctor';
+  } else if (roleRaw === 'doctor' && actorKind === 'clinic_ai') {
+    sender_role = 'assistant';
+  } else {
+    sender_role = 'assistant';
+  }
 
   let id = String(row.id ?? '').trim();
   if (!id) {
@@ -155,6 +175,7 @@ function offerMessageRowToUI(
     offer_id,
     sender_id: String(row.sender_id ?? ''),
     sender_role,
+    actor_kind: actorKind || undefined,
     sender_name: String(row.sender_name ?? '').trim(),
     text,
     attachment_url: row.attachment_url
@@ -230,17 +251,23 @@ const OfferChatMessageItem = React.memo(function OfferChatMessageItem({
   logOfferChatItemDev(item);
 
   const isMe = item.sender_role === myRole;
-  const isDoctorViewingPatient = myRole === 'doctor' && !isMe;
-  const isPatientViewingDoctor  = myRole === 'patient' && item.sender_role === 'doctor';
+  const isDoctorViewingPatient = myRole === 'doctor' && item.sender_role === 'patient';
+  const isPatientViewingDoctor = myRole === 'patient' && item.sender_role === 'doctor';
+  const isPatientViewingCareTeam = myRole === 'patient' && item.sender_role === 'assistant';
 
-  // Doctor view: show patient name; Patient view: show doctor name (with fallback)
   const patientSenderLabel = isDoctorViewingPatient
     ? String(item.sender_name || '').trim() || t('offerChat.senderFallback')
     : '';
   const doctorSenderLabel = isPatientViewingDoctor
     ? String(item.sender_name || '').trim() || t('offerChat.doctorFallback') || 'Doktor'
     : '';
-  const otherSenderLabel = patientSenderLabel || doctorSenderLabel;
+  const careTeamSenderLabel = isPatientViewingCareTeam
+    ? String(item.sender_name || '').trim() ||
+      (t('offerChat.careTeamFallback') !== 'offerChat.careTeamFallback'
+        ? t('offerChat.careTeamFallback')
+        : 'Bakım Ekibi')
+    : '';
+  const otherSenderLabel = patientSenderLabel || doctorSenderLabel || careTeamSenderLabel;
 
   const mediaUrl = resolveAttachmentMediaUrl(item.attachment_url, API_BASE);
   const hasImage = Boolean(mediaUrl && (item.attachment_type === 'image' || item.attachment_type === 'xray'));

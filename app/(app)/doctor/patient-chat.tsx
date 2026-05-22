@@ -690,7 +690,11 @@ const MessageItem = React.memo(
   function MessageItem({ message }: { message: DoctorChatMessage }) {
     const isDoctor =
       message.from === 'CLINIC' || message.from === 'DOCTOR' || message.from === 'admin';
-    const timeStr = new Date(message.createdAt).toLocaleTimeString('tr-TR', {
+    const ts =
+      typeof message.createdAt === 'number' && Number.isFinite(message.createdAt)
+        ? message.createdAt
+        : Date.now();
+    const timeStr = new Date(ts).toLocaleTimeString('tr-TR', {
       hour: '2-digit',
       minute: '2-digit',
     });

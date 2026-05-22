@@ -25,6 +25,7 @@ import {
   fetchDoctorThreadSummary,
   fetchDoctorUnreadBreakdown,
   invalidateDoctorMessagingCache,
+  sortDoctorThreadsByActivity,
   type DoctorInboxMeta,
   type DoctorThreadSummaryRow,
 } from "../../../lib/doctorMessaging";
@@ -79,7 +80,9 @@ export default function DoctorInboxScreen() {
           refresh: opts?.refresh === true,
           onlyActive: true,
         });
-        const rows = Array.isArray(data.threads) ? data.threads : [];
+        const rows = sortDoctorThreadsByActivity(
+          Array.isArray(data.threads) ? data.threads : [],
+        );
         setThreads(rows);
         setInboxMeta(data.inboxMeta ?? null);
         setCachedResource("doctor:inbox:threads", rows);

@@ -17,7 +17,8 @@ import {
 import { showDoctorForegroundBanner } from "../lib/doctorForegroundBannerController";
 import { useLanguage } from "../lib/language-context";
 
-const POLL_MS = 22_000;
+const POLL_MS = 12_000;
+const FOREGROUND_ALERT_DEBOUNCE_MS = 30_000;
 
 type Snap = { lastId: string; unread: number };
 
@@ -34,6 +35,7 @@ export function DoctorForegroundMessageWatcher() {
   const offerUnreadTotalRef = useRef(0);
   const offerUnreadPrimedRef = useRef(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const lastForegroundAlertAtRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     if (!token || !isDoctor) {
@@ -87,6 +89,11 @@ export function DoctorForegroundMessageWatcher() {
           const unreadUp = unread > (prev?.unread ?? 0);
           if (!lastChanged && !unreadUp) continue;
           if (openKey && openKey === pid) continue;
+
+          const now = Date.now();
+          const lastAlert = lastForegroundAlertAtRef.current.get(pid) ?? 0;
+          if (now - lastAlert < FOREGROUND_ALERT_DEBOUNCE_MS) continue;
+          lastForegroundAlertAtRef.current.set(pid, now);
 
           bustThreadSummary = true;
 
