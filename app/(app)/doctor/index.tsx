@@ -32,7 +32,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth, useAuthSession } from "../../../lib/auth";
 import { useLanguage } from "../../../lib/language-context";
 import { API_BASE, setAuthToken } from "../../../lib/api";
-import { fetchDoctorUnreadTotalOnly } from "../../../lib/doctorMessaging";
+import {
+  bindDoctorHomeBadgeOfferEvents,
+  getDoctorHomeBadgeDisplay,
+  refreshDoctorHomeBadgeLiveCounts,
+  subscribeDoctorHomeBadges,
+} from "../../../lib/doctorHomeBadges";
 import {
   DOCTOR_DASHBOARD_SECONDARY_CACHE_KEY,
   DOCTOR_DASHBOARD_VM_CACHE_KEY,
@@ -731,7 +736,7 @@ export default function DoctorDashboardHome() {
   const [pendingRequestCount, setPendingRequestCount] = useState(
     initialSecondary?.pendingRequestCount ?? 0
   );
-  const [unreadMsgCount, setUnreadMsgCount] = useState(initialSecondary?.unreadMsgCount ?? 0);
+  const [homeBadges, setHomeBadges] = useState(getDoctorHomeBadgeDisplay);
   const [scheduleTextModal, setScheduleTextModal] = useState<{ open: boolean; text: string }>({
     open: false,
     text: "",
@@ -791,13 +796,15 @@ export default function DoctorDashboardHome() {
       }
       if (secondary) {
         setPendingRequestCount(secondary.pendingRequestCount);
-        setUnreadMsgCount(secondary.unreadMsgCount);
+        void refreshDoctorHomeBadgeLiveCounts(token, {
+          pendingRequestCount: secondary.pendingRequestCount,
+        }).then(setHomeBadges);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [initialVm, applyDashboardViewModel, markFirstPaint]);
+  }, [initialVm, applyDashboardViewModel, markFirstPaint, token]);
 
   const fallbackDoctorName = user?.name ?? "Doctor";
 
@@ -805,23 +812,21 @@ export default function DoctorDashboardHome() {
     if (!token) return;
     const endFetch = focusPerfStart("doctor:dashboard:secondary");
     try {
-      const [pending, unread] = await Promise.all([
-        fetch(`${API_BASE}/api/doctor/treatment-requests`, {
-          headers: { Authorization: `Bearer ${token}` },
+      const pending = await fetch(`${API_BASE}/api/doctor/treatment-requests`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((r) => r.json())
+        .then((reqData) => {
+          const list = (reqData?.requests ?? []) as { status?: string }[];
+          return list.filter((r) => r.status === "pending").length;
         })
-          .then((r) => r.json())
-          .then((reqData) => {
-            const list = (reqData?.requests ?? []) as { status?: string }[];
-            return list.filter((r) => r.status === "pending").length;
-          })
-          .catch(() => 0),
-        fetchDoctorUnreadTotalOnly(token).catch(() => 0),
-      ]);
+        .catch(() => 0);
       setPendingRequestCount(pending);
-      setUnreadMsgCount(unread);
+      const display = await refreshDoctorHomeBadgeLiveCounts(token, { pendingRequestCount: pending });
+      setHomeBadges(display);
       persistDoctorDashboardSecondary({
         pendingRequestCount: pending,
-        unreadMsgCount: unread,
+        unreadMsgCount: display.inbox + display.requests + display.patients,
       });
     } finally {
       endFetch();
@@ -899,12 +904,23 @@ export default function DoctorDashboardHome() {
     return () => task.cancel?.();
   }, [token, loadCritical, scheduleSecondaryHydration]);
 
+  useEffect(() => {
+    return subscribeDoctorHomeBadges(() => {
+      setHomeBadges(getDoctorHomeBadgeDisplay());
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    return bindDoctorHomeBadgeOfferEvents(token);
+  }, [token]);
+
   useDeferredFocusRefresh(
     "doctor:dashboard:focus",
     () => {
       void loadCritical({ blocking: false });
       if (token) {
-        void fetchDoctorUnreadTotalOnly(token).then((n) => setUnreadMsgCount(n));
+        void refreshDoctorHomeBadgeLiveCounts(token, { pendingRequestCount }).then(setHomeBadges);
       }
     },
     { enabled: !!token, minIntervalMs: 60_000 }
@@ -921,23 +937,23 @@ export default function DoctorDashboardHome() {
     void loadCritical({ blocking: false });
   };
 
-  // Poll unread after home is interactive — not on cold-start critical path
+  // Poll badge live counts after home is interactive — not on cold-start critical path
   useEffect(() => {
     if (!token) return;
     let intervalId: ReturnType<typeof setInterval> | null = null;
     let startId: ReturnType<typeof setTimeout> | null = null;
-    const fetchUnread = async () => {
+    const pollBadges = async () => {
       try {
-        const n = await fetchDoctorUnreadTotalOnly(token);
-        setUnreadMsgCount(n);
+        const display = await refreshDoctorHomeBadgeLiveCounts(token, { pendingRequestCount });
+        setHomeBadges(display);
       } catch {
         /* non-critical */
       }
     };
     const task = InteractionManager.runAfterInteractions(() => {
       startId = setTimeout(() => {
-        void fetchUnread();
-        intervalId = setInterval(() => void fetchUnread(), 30_000);
+        void pollBadges();
+        intervalId = setInterval(() => void pollBadges(), 30_000);
       }, 4_000);
     });
     return () => {
@@ -945,7 +961,7 @@ export default function DoctorDashboardHome() {
       if (startId) clearTimeout(startId);
       if (intervalId) clearInterval(intervalId);
     };
-  }, [token]);
+  }, [token, pendingRequestCount]);
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -1281,10 +1297,10 @@ export default function DoctorDashboardHome() {
           <TouchableOpacity style={styles.actionBtn} onPress={() => router.push("/doctor/requests")}>
             <View style={styles.actionIconWrap}>
               <Text style={styles.actionIcon}>📨</Text>
-              {pendingRequestCount > 0 && (
+              {homeBadges.requests > 0 && (
                 <View style={styles.requestsBadge}>
                   <Text style={styles.requestsBadgeTxt}>
-                    {pendingRequestCount > 99 ? "99+" : pendingRequestCount}
+                    {homeBadges.requests > 99 ? "99+" : homeBadges.requests}
                   </Text>
                 </View>
               )}
@@ -1297,10 +1313,10 @@ export default function DoctorDashboardHome() {
           >
             <View style={styles.actionIconWrap}>
               <Text style={styles.actionIcon}>💬</Text>
-              {unreadMsgCount > 0 && (
+              {homeBadges.inbox > 0 && (
                 <View style={styles.requestsBadge}>
                   <Text style={styles.requestsBadgeTxt}>
-                    {unreadMsgCount > 99 ? "99+" : unreadMsgCount}
+                    {homeBadges.inbox > 99 ? "99+" : homeBadges.inbox}
                   </Text>
                 </View>
               )}
@@ -1317,6 +1333,13 @@ export default function DoctorDashboardHome() {
           >
             <View style={styles.actionIconWrap}>
               <Text style={styles.actionIcon}>👥</Text>
+              {homeBadges.patients > 0 && (
+                <View style={styles.requestsBadge}>
+                  <Text style={styles.requestsBadgeTxt}>
+                    {homeBadges.patients > 99 ? "99+" : homeBadges.patients}
+                  </Text>
+                </View>
+              )}
             </View>
             <Text style={styles.actionLabel}>{t("doctor.quickActions.patients")}</Text>
           </TouchableOpacity>
@@ -1445,10 +1468,10 @@ export default function DoctorDashboardHome() {
         >
           <View style={styles.actionIconWrap}>
             <Text style={styles.navIcon}>👥</Text>
-            {unreadMsgCount > 0 && (
+            {homeBadges.patients > 0 && (
               <View style={styles.requestsBadge}>
                 <Text style={styles.requestsBadgeTxt}>
-                  {unreadMsgCount > 99 ? "99+" : unreadMsgCount}
+                  {homeBadges.patients > 99 ? "99+" : homeBadges.patients}
                 </Text>
               </View>
             )}

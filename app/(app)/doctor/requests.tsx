@@ -6,7 +6,7 @@ import {
   TextInput, Alert, KeyboardAvoidingView, Platform, Image, Linking,
   FlatList, InteractionManager,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuthSession } from '../../../lib/auth';
 import { useLanguage } from '../../../lib/language-context';
 import { API_BASE, setAuthToken } from '../../../lib/api';
@@ -40,6 +40,10 @@ import {
   sortDoctorRequestsForInbox,
   syncDoctorRequestUnreadFromServer,
 } from '../../../lib/doctorRequestsUnread';
+import {
+  acknowledgeDoctorHomeBadge,
+  refreshDoctorHomeBadgeLiveCounts,
+} from '../../../lib/doctorHomeBadges';
 import {
   hydrateDoctorRequestsFromDisk,
   persistDoctorRequestsList,
@@ -877,6 +881,19 @@ export default function DoctorRequestsScreen() {
     if (!token) return;
     void load({ blocking: !hasDisplayedContentRef.current });
   }, [token, load]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return;
+      let pending = 0;
+      for (const r of requestsRef.current) {
+        if (r.status === 'pending') pending += 1;
+      }
+      void refreshDoctorHomeBadgeLiveCounts(token, { pendingRequestCount: pending }).then(() => {
+        acknowledgeDoctorHomeBadge('requests');
+      });
+    }, [token]),
+  );
 
   useDeferredFocusRefresh(
     'doctor:requests:focus',

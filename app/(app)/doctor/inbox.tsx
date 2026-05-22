@@ -13,7 +13,7 @@ import {
   RefreshControl,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useDeferredFocusRefresh } from "../../../hooks/use-deferred-focus-refresh";
 import { focusPerfStart } from "../../../lib/perfFocus";
 import { markPatientChatNav } from "../../../lib/patientChatNavPerf";
@@ -33,6 +33,10 @@ import { doctorPatientPrimaryKey } from "../../../lib/doctorPatientId";
 import { navigateCanonicalChat } from "../../../lib/navigateCanonicalChat";
 import { navigateDoctorOfferOrPatientChat } from "../../../lib/offerMessagingMeta";
 import { subscribeOfferUnreadEvents } from "../../../lib/offerUnreadEvents";
+import {
+  acknowledgeDoctorHomeBadge,
+  refreshDoctorHomeBadgeLiveCounts,
+} from "../../../lib/doctorHomeBadges";
 
 function fmtPreviewTime(createdAt: number | null | undefined): string {
   if (createdAt == null || !Number.isFinite(Number(createdAt))) return "";
@@ -125,6 +129,15 @@ export default function DoctorInboxScreen() {
       void load({ refresh: true, blocking: false });
     });
   }, [token, load]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return;
+      void refreshDoctorHomeBadgeLiveCounts(token).then(() => {
+        acknowledgeDoctorHomeBadge("inbox");
+      });
+    }, [token]),
+  );
 
   useDeferredFocusRefresh(
     "doctor:inbox:focus",

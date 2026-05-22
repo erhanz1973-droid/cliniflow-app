@@ -5,13 +5,17 @@ import {
   TextInput, StyleSheet, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth, useAuthToken } from '../../../lib/auth';
 import { useLanguage } from '../../../lib/language-context';
 import { apiGet, classifyApiError, TIMEOUT_GET_LONG } from '../../../lib/api';
 import { ErrorScreen } from '../../../components/ScreenFeedback';
 import { doctorPatientPrimaryKey, resolveDoctorPatientRouteId } from '../../../lib/doctorPatientId';
-import { fetchDoctorThreadSummary } from '../../../lib/doctorMessaging';
+import { fetchDoctorThreadSummary, invalidateDoctorMessagingCache } from '../../../lib/doctorMessaging';
+import {
+  acknowledgeDoctorHomeBadge,
+  refreshDoctorHomeBadgeLiveCounts,
+} from '../../../lib/doctorHomeBadges';
 import { useDeferredFocusRefresh } from '../../../hooks/use-deferred-focus-refresh';
 import { focusPerfStart } from '../../../lib/perfFocus';
 import { markPatientChatNav } from '../../../lib/patientChatNavPerf';
@@ -302,6 +306,18 @@ export default function DoctorPatientsScreen() {
       endFetch();
     }
   }, [token]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!token.trim()) return;
+      invalidateDoctorMessagingCache();
+      void loadThreadHints().then(() =>
+        refreshDoctorHomeBadgeLiveCounts(token).then(() => {
+          acknowledgeDoctorHomeBadge('patients');
+        }),
+      );
+    }, [token, loadThreadHints]),
+  );
 
   useDeferredFocusRefresh(
     'doctor:patients:focus',

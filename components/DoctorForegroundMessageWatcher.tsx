@@ -6,6 +6,10 @@ import {
   fetchDoctorUnreadBreakdown,
   invalidateDoctorMessagingCache,
 } from "../lib/doctorMessaging";
+import {
+  refreshDoctorHomeBadgeLiveCounts,
+  resetDoctorHomeBadgeAck,
+} from "../lib/doctorHomeBadges";
 import { emitOfferUnreadEvent, subscribeOfferUnreadEvents } from "../lib/offerUnreadEvents";
 import { syncDoctorRequestUnreadFromServer } from "../lib/doctorRequestsUnread";
 import { playInAppNewMessageSoundDebouncedForThread } from "../lib/playInAppMessageSound";
@@ -102,6 +106,9 @@ export function DoctorForegroundMessageWatcher() {
           if (!lastChanged) continue;
           if (openKey && openKey === pid) continue;
 
+          resetDoctorHomeBadgeAck(["inbox", "patients"]);
+          void refreshDoctorHomeBadgeLiveCounts(token);
+
           const now = Date.now();
           const lastAlert = lastForegroundAlertAtRef.current.get(pid) ?? 0;
           if (now - lastAlert < FOREGROUND_ALERT_DEBOUNCE_MS) continue;
@@ -136,6 +143,8 @@ export function DoctorForegroundMessageWatcher() {
         const { offerUnread } = await fetchDoctorUnreadBreakdown(token);
         const prevOfferOnly = offerUnreadTotalRef.current;
         if (offerUnreadPrimedRef.current && offerUnread > prevOfferOnly) {
+          resetDoctorHomeBadgeAck(["inbox", "requests"]);
+          void refreshDoctorHomeBadgeLiveCounts(token);
           invalidateDoctorMessagingCache();
           playInAppNewMessageSoundDebouncedForThread("fg_offer_unread", 2800);
           const title =

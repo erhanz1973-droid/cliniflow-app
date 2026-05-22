@@ -22,6 +22,8 @@ import {
   getMessageSoundPreference,
   setMessageSoundPreference,
 } from '../../../lib/messageSoundPreference';
+type ProfileListItem = string | { id?: string; name?: string };
+
 interface DoctorProfile {
   doctorId: string;
   name: string;
@@ -31,8 +33,9 @@ interface DoctorProfile {
   title: string | null;
   bio: string;
   experience_years: number | null;
-  languages: string | null;
-  specialties: string | null;
+  languages: string | ProfileListItem[] | null;
+  specialties?: string | ProfileListItem[] | null;
+  specialities?: ProfileListItem[] | null;
   university: string | null;
   graduation_year: number | null;
   public_profile: boolean;
@@ -51,6 +54,28 @@ const STATUS_LABEL_KEYS: Record<string, string> = {
   PENDING: 'doctor.profile.status.pending',
   SUSPENDED: 'doctor.profile.status.suspended',
 };
+
+/** API returns languages/specialities as `{ id, name }[]` — never `.join()` raw objects. */
+function formatDoctorProfileListField(value: unknown): string {
+  if (value == null || value === '') return '';
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (item == null) return '';
+        if (typeof item === 'string') return item.trim();
+        if (typeof item === 'object' && 'name' in item) {
+          return String((item as { name?: unknown }).name ?? '').trim();
+        }
+        return String(item).trim();
+      })
+      .filter(Boolean)
+      .join(', ');
+  }
+  if (typeof value === 'object' && value !== null && 'name' in value) {
+    return String((value as { name?: unknown }).name ?? '').trim();
+  }
+  return String(value).trim();
+}
 
 function InfoRow({ icon, label, value }: { icon: string; label: string; value?: string | null }) {
   if (!value) return null;
@@ -112,8 +137,8 @@ export default function DoctorProfileScreen() {
           experience_years: d.experience_years != null ? String(d.experience_years) : '',
           university: d.university || '',
           graduation_year: d.graduation_year != null ? String(d.graduation_year) : '',
-          languages: Array.isArray(d.languages) ? (d.languages as any).join(', ') : (d.languages || ''),
-          specialties: Array.isArray(d.specialties) ? (d.specialties as any).join(', ') : (d.specialties || ''),
+          languages: formatDoctorProfileListField(d.languages),
+          specialties: formatDoctorProfileListField(d.specialities ?? d.specialties),
           public_profile: Boolean(d.public_profile),
         });
       }
@@ -392,7 +417,10 @@ export default function DoctorProfileScreen() {
                 onChangeText={v => setForm(f => ({ ...f, specialties: v }))}
                 placeholder={t('doctor.profile.specialtyAreas')} multiline />
             ) : (
-              <Text style={s.fieldValue}>{profile?.specialties || t('doctor.profile.notSpecified')}</Text>
+              <Text style={s.fieldValue}>
+                {formatDoctorProfileListField(profile?.specialities ?? profile?.specialties) ||
+                  t('doctor.profile.notSpecified')}
+              </Text>
             )}
           </View>
           <View style={s.fieldRow}>
@@ -403,9 +431,7 @@ export default function DoctorProfileScreen() {
                 placeholder={t('doctor.profile.languages')} />
             ) : (
               <Text style={s.fieldValue}>
-                {Array.isArray(profile?.languages)
-                  ? (profile.languages as any[]).map((l: any) => l?.name ?? l).filter(Boolean).join(', ') || t('doctor.profile.notSpecified')
-                  : profile?.languages || t('doctor.profile.notSpecified')}
+                {formatDoctorProfileListField(profile?.languages) || t('doctor.profile.notSpecified')}
               </Text>
             )}
           </View>

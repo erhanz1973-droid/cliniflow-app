@@ -1,5 +1,6 @@
 import { API_BASE } from "./api";
 import { invalidateDoctorMessagingCache } from "./doctorMessaging";
+import { refreshDoctorHomeBadgeLiveCounts } from "./doctorHomeBadges";
 import {
   invalidatePatientInboxUnreadCache,
   schedulePatientInboxSummaryRefresh,
@@ -39,6 +40,7 @@ export async function markDoctorPatientMessagesRead(
     );
     if (!res.ok) await res.text().catch(() => "");
     invalidateDoctorMessagingCache();
+    void refreshDoctorHomeBadgeLiveCounts(t);
   } catch {
     /* ignore */
   }
