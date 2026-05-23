@@ -51,6 +51,7 @@ import { ClinicHeader } from "../../../components/ClinicHeader";
 import { useClinicStore } from "../../../store/useClinicStore";
 import { refreshActiveClinicFromApi } from "../../../lib/fetchPatientMyClinic";
 import { setGlobalDoctorChatPatientIdOpen } from "../../../lib/doctorChatForeground";
+import { getGlobalChatOpen, setGlobalChatOpen } from "../../../hooks/chatSessionGlobal";
 import { useSupabaseMessages, type SupabasePatientMessage } from "../../../hooks/useSupabaseMessages";
 import { mergeSbMessages } from "../../../hooks/chatMessageUtils";
 
@@ -167,6 +168,7 @@ export default function ChatScreen() {
   const isSendingMessageRef = useRef(false);
   const seenServerMessageIdsRef = useRef<Set<string>>(new Set());
   const chatInboundIdsPrimedRef = useRef(false);
+  const sbClinicInboundPrimedRef = useRef(false);
   const chatSocketRef = useRef<Socket | null>(null);
   /** Throttle per-thread mark-read on tab focus (avoids spam on quick tab switches). */
   const lastChatMarkReadAtRef = useRef(0);
@@ -195,7 +197,8 @@ export default function ChatScreen() {
     enabled: viewerIsPatient && Boolean(String(patientId || "").trim()),
   });
 
-  const playInboundPatientAlert = useCallback(async () => {
+  const playInboundChatAlert = useCallback(async () => {
+    if (getGlobalChatOpen()) return;
     try {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
@@ -204,6 +207,15 @@ export default function ChatScreen() {
     const cid = String(selectedClinic?.id || "").trim();
     playInAppNewMessageSoundDebouncedForThread(`doc_chat:${patientId}:${cid}`, 3000);
   }, [patientId, selectedClinic?.id]);
+
+  const isInboundForViewer = useCallback(
+    (m: ChatMessage) => {
+      const fromUp = String(m.from).toUpperCase();
+      if (viewerIsPatient) return fromUp === "CLINIC" || fromUp === "ADMIN";
+      return fromUp === "PATIENT";
+    },
+    [viewerIsPatient],
+  );
   
   // Auto-focus input when component mounts or when messages load
   useEffect(() => {
@@ -224,6 +236,7 @@ export default function ChatScreen() {
   useEffect(() => {
     seenServerMessageIdsRef.current.clear();
     chatInboundIdsPrimedRef.current = false;
+    sbClinicInboundPrimedRef.current = false;
     setLeadThreadId(null);
     setChatHeaderDoctorName(null);
     setChatHeaderMedicalPrimaryName(null);
@@ -411,28 +424,25 @@ export default function ChatScreen() {
 
       const soundPref = await getMessageSoundPreference();
       if (isAuthSessionStale(epochStart, authSessionEpochRef)) return;
-      const inboundPatient = (m: ChatMessage) =>
-        String(m.from).toUpperCase() === "PATIENT" || String(m.from).toLowerCase() === "patient";
-
       if (!chatInboundIdsPrimedRef.current) {
         for (const m of formattedMessages) {
           const mid = String(m.id || "").trim();
           if (mid) seenServerMessageIdsRef.current.add(mid);
         }
         chatInboundIdsPrimedRef.current = true;
-      } else if (soundPref && !isSendingMessageRef.current) {
+      } else if (soundPref && !isSendingMessageRef.current && !getGlobalChatOpen()) {
         let hasNewInbound = false;
         for (const m of formattedMessages) {
           const mid = String(m.id || "").trim();
           if (!mid) continue;
           const wasSeen = seenServerMessageIdsRef.current.has(mid);
-          if (!wasSeen && inboundPatient(m)) {
+          if (!wasSeen && isInboundForViewer(m)) {
             hasNewInbound = true;
           }
           seenServerMessageIdsRef.current.add(mid);
         }
         if (hasNewInbound) {
-          void playInboundPatientAlert();
+          void playInboundChatAlert();
         }
       } else {
         for (const m of formattedMessages) {
@@ -462,7 +472,8 @@ export default function ChatScreen() {
     selectedClinic?.id,
     fetchWithRole,
     t,
-    playInboundPatientAlert,
+    playInboundChatAlert,
+    isInboundForViewer,
     authSessionEpochRef,
     sbPatientConfigured,
     sbPatientReady,
@@ -488,6 +499,7 @@ export default function ChatScreen() {
     chatRouteKeyRef.current = k;
     seenServerMessageIdsRef.current.clear();
     chatInboundIdsPrimedRef.current = false;
+    sbClinicInboundPrimedRef.current = false;
     setMessages([]);
     setLeadThreadId(null);
     setChatHeaderDoctorName(null);
@@ -499,6 +511,30 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!viewerIsPatient || !sbPatientConfigured || !sbPatientReady) return;
     const sbRows = sbPatientMessages.map(supabasePatientToChatMessage);
+    let hasNewClinicInbound = false;
+    if (!sbClinicInboundPrimedRef.current) {
+      for (const m of sbRows) {
+        if (isInboundForViewer(m)) seenServerMessageIdsRef.current.add(String(m.id || "").trim());
+      }
+      sbClinicInboundPrimedRef.current = true;
+    } else if (!getGlobalChatOpen()) {
+      for (const m of sbRows) {
+        const mid = String(m.id || "").trim();
+        if (!mid || !isInboundForViewer(m)) continue;
+        if (!seenServerMessageIdsRef.current.has(mid)) {
+          hasNewClinicInbound = true;
+          seenServerMessageIdsRef.current.add(mid);
+        }
+      }
+    } else {
+      for (const m of sbRows) {
+        const mid = String(m.id || "").trim();
+        if (mid) seenServerMessageIdsRef.current.add(mid);
+      }
+    }
+    if (hasNewClinicInbound) {
+      void playInboundChatAlert();
+    }
     setMessages((prev) => {
       const next = mergeSbMessages(prev, sbRows, (m) => !!m.pending);
       return next
@@ -514,7 +550,14 @@ export default function ChatScreen() {
         .sort((a, b) => a.createdAt - b.createdAt)
         .slice(-50);
     });
-  }, [viewerIsPatient, sbPatientMessages, sbPatientReady, sbPatientConfigured]);
+  }, [
+    viewerIsPatient,
+    sbPatientMessages,
+    sbPatientReady,
+    sbPatientConfigured,
+    isInboundForViewer,
+    playInboundChatAlert,
+  ]);
 
   useEffect(() => {
     if (!viewerIsPatient) return;
@@ -544,6 +587,15 @@ export default function ChatScreen() {
     void fetchMessages();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchMessages güncellenince tekrar çekme
   }, [isAuthReady, user?.token, patientId, selectedClinic?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      setGlobalChatOpen(true);
+      return () => {
+        setGlobalChatOpen(false);
+      };
+    }, []),
+  );
 
   useFocusEffect(
     useCallback(() => {

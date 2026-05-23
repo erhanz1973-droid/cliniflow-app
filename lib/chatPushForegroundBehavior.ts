@@ -1,6 +1,6 @@
 /**
- * Foreground chat push: no notification sound (see setNotificationHandler in registerExpoPush),
- * vibrate + badge update instead. Background/killed: sound + badge from Expo payload.
+ * Foreground chat push: custom in-app tone (notification.mp3) + vibrate + badge.
+ * Background/killed: OS notification sound from Expo payload / channel.
  * expo-notifications is loaded only when installForegroundChatNotificationEffects runs (_layout).
  */
 import { Vibration } from "react-native";

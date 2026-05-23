@@ -33,6 +33,8 @@ import { track } from "../../../lib/analytics";
 import { goToOfferChat, offerChatLastStorageKey } from "../../../lib/goToOfferChat";
 import { subscribeOfferUnreadEvents } from "../../../lib/offerUnreadEvents";
 import { invalidatePatientInboxUnreadCache } from "../../../lib/patientInboxUnread";
+import { getGlobalChatOpen, getGlobalOfferChatOpen } from "../../../hooks/chatSessionGlobal";
+import { playInAppNewMessageSoundDebouncedForThread } from "../../../lib/playInAppMessageSound";
 import { ClinicHeader } from "../../../components/ClinicHeader";
 import { ClinicHubCard } from "../../../components/home/ClinicHubCard";
 import { useClinicStore, type ActiveClinic } from "../../../store/useClinicStore";
@@ -206,6 +208,7 @@ export default function Home() {
   /** Personal referral discount % (inviter-approved milestones) for home teaser */
   const [referralDiscountPct, setReferralDiscountPct] = useState<number | null>(null);
   const previousUnreadCountRef = useRef<number>(0);
+  const messagePreviewPrimedRef = useRef(false);
   const loadHomeDataRef = useRef<(showRefreshing?: boolean, tokenOverride?: string) => Promise<void>>(
     async () => {}
   );
@@ -939,12 +942,19 @@ export default function Home() {
         __DEV__ && console.log("[HOME] Unread count:", unreadCount);
         __DEV__ && console.log("[HOME] Message preview state will be updated with:", { unreadCount, totalMessages: messages.length });
         
-        // Check if new messages arrived (unread count increased)
         const previousUnread = previousUnreadCountRef.current;
-        if (unreadCount > previousUnread && previousUnread > 0) {
-          // New messages arrived - play sound
-          playNotificationSound();
+        if (
+          messagePreviewPrimedRef.current &&
+          unreadCount > previousUnread &&
+          !getGlobalChatOpen() &&
+          !getGlobalOfferChatOpen()
+        ) {
+          playInAppNewMessageSoundDebouncedForThread(
+            `patient_clinic_fg:${patientId}:${cid || "default"}`,
+            2800,
+          );
         }
+        messagePreviewPrimedRef.current = true;
         previousUnreadCountRef.current = unreadCount;
         
         const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;

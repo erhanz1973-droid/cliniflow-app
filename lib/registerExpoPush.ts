@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import Constants from "expo-constants";
 import { API_BASE } from "./api";
 import { getMessageSoundPreference } from "./messageSoundPreference";
+import { CHAT_PUSH_CHANNEL_ID, CHAT_PUSH_SOUND_FILE } from "./chatPushSound";
 
 // Safe lazy import — expo-notifications crashes on Android Expo Go (SDK 53+).
 // In Expo Go: Notifications stays null, all push functions are no-ops.
@@ -51,24 +52,25 @@ export function ensureExpoPushPresentationSetup(): void {
 async function ensureAndroidChatChannel(): Promise<void> {
   if (!Notifications || Platform.OS !== "android") return;
   try {
-    await Notifications.setNotificationChannelAsync("chat", {
-      name: "chat",
+    const channel = {
+      name: "Messages",
       importance: Notifications.AndroidImportance.MAX,
-      sound: "default",
+      sound: CHAT_PUSH_SOUND_FILE,
       vibrationPattern: [0, 250, 250, 250],
       enableVibrate: true,
       showBadge: true,
-    });
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    };
+    await Notifications.setNotificationChannelAsync(CHAT_PUSH_CHANNEL_ID, channel);
     await Notifications.setNotificationChannelAsync("default", {
+      ...channel,
       name: "default",
-      importance: Notifications.AndroidImportance.MAX,
-      sound: "default",
-      vibrationPattern: [0, 250, 250, 250],
-      enableVibrate: true,
-      showBadge: true,
     });
     if (__DEV__) {
-      console.log("[push][PUSH_PRESENTATION] android_channels default+chat configured (sound default, MAX)");
+      console.log("[push][PUSH_PRESENTATION] android_channels", {
+        chat: CHAT_PUSH_CHANNEL_ID,
+        sound: CHAT_PUSH_SOUND_FILE,
+      });
     }
   } catch {
     /* non-fatal */

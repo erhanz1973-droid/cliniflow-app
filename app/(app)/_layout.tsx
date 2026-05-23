@@ -6,6 +6,8 @@ import { DeviceGuidanceProvider } from "../../lib/deviceGuidanceContext";
 import { ClinicBootstrap } from "../../components/ClinicBootstrap";
 import { PushNotificationNavigation } from "../../components/PushNotificationNavigation";
 import { PatientOfferUnreadWatcher } from "../../components/PatientOfferUnreadWatcher";
+import { PatientForegroundClinicMessageWatcher } from "../../components/PatientForegroundClinicMessageWatcher";
+import { DoctorForegroundMessageWatcher } from "../../components/DoctorForegroundMessageWatcher";
 
 const AppOutlet = memo(function AppOutlet() {
   return <Slot />;
@@ -20,6 +22,8 @@ export default function AppShellLayout() {
           <ClinicBootstrap />
           <PushNotificationNavigation />
           <PatientOfferUnreadWatcher />
+          <PatientForegroundClinicMessageWatcher />
+          <DoctorForegroundMessageWatcher />
           <AppOutlet />
         </DeviceGuidanceProvider>
       </AuthProvider>
