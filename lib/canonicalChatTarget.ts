@@ -258,12 +258,12 @@ export function resolveCanonicalChatTarget(input: ResolveCanonicalChatInput): Ca
     };
   }
 
-  // Enrolled patients: generic clinic tab — unless opening coordination (same offer_messages thread)
-  if (enrolled && !offerId) {
+  // Enrolled clinic members: main Messages tab (CEM Clinic UI) — not legacy offer-chat / (patient)/messages.
+  if (enrolled) {
     return {
       channel: "patient",
       kind: "patient_chat_tab",
-      path: "/(patient)/messages",
+      path: "/(tabs)/chat",
     };
   }
 

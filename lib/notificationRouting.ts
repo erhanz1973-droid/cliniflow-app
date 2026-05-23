@@ -59,6 +59,15 @@ export function getPathFromNotificationData(
       return pathFromCanonicalTarget(target);
     }
     if (vt === "patient") {
+      const enrolled =
+        data.enrolled === true ||
+        data.enrolled === "true" ||
+        data.enrolled === 1 ||
+        data.enrolled === "1";
+      const routeHint = firstStringField(data, ["route", "bootstrapRoute"]).toLowerCase();
+      if (enrolled || routeHint === "patient_chat") {
+        return "/(tabs)/chat";
+      }
       const offerId = firstStringField(data, ["offerId", "offer_id"]);
       if (offerId) {
         const input = pushDataToResolveInput(data, "patient");
