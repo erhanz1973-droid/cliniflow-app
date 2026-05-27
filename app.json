@@ -44,6 +44,8 @@
       [
         "expo-notifications",
         {
+          "icon": "./assets/images/icon.png",
+          "color": "#2563EB",
           "defaultChannel": "chat_alerts",
           "sounds": ["./assets/audio/notification.wav"],
           "enableBackgroundRemoteNotifications": true
