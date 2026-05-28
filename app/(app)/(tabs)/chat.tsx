@@ -164,6 +164,7 @@ export default function ChatScreen() {
   const inputRef = useRef<TextInput>(null);
   const [uploading, setUploading] = useState(false);
   const scrollRef = useRef<FlatList<ChatMessage>>(null);
+  const lastMessageCountRef = useRef(0);
   const isRedirectingRef = useRef(false);
   const isSendingMessageRef = useRef(false);
   const seenServerMessageIdsRef = useRef<Set<string>>(new Set());
@@ -708,11 +709,14 @@ export default function ChatScreen() {
   ]);
 
   useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => {
-        scrollRef.current?.scrollToOffset({ offset: 0, animated: true });
-      }, 100);
-    }
+    const prev = lastMessageCountRef.current;
+    const next = messages.length;
+    lastMessageCountRef.current = next;
+    if (next <= 0 || next <= prev) return;
+    const t = setTimeout(() => {
+      scrollRef.current?.scrollToOffset({ offset: 0, animated: true });
+    }, 80);
+    return () => clearTimeout(t);
   }, [messages.length]);
 
   async function sendMessage() {
@@ -1842,9 +1846,6 @@ export default function ChatScreen() {
             <View style={styles.emptyState}>
               <Text style={styles.emptyStateText}>{t("chat.noMessages")}</Text>
             </View>
-          }
-          onContentSizeChange={() =>
-            scrollRef.current?.scrollToOffset({ offset: 0, animated: false })
           }
         />
 
