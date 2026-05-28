@@ -714,7 +714,9 @@ export default function ChatScreen() {
     lastMessageCountRef.current = next;
     if (next <= 0 || next <= prev) return;
     const t = setTimeout(() => {
-      scrollRef.current?.scrollToOffset({ offset: 0, animated: true });
+      // Inverted lists can visibly jitter when animated auto-scroll competes with
+      // realtime updates; keep this snap non-animated for stability.
+      scrollRef.current?.scrollToOffset({ offset: 0, animated: false });
     }, 80);
     return () => clearTimeout(t);
   }, [messages.length]);
@@ -1835,7 +1837,6 @@ export default function ChatScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
           inverted
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
           initialNumToRender={10}
           maxToRenderPerBatch={10}
           windowSize={5}
