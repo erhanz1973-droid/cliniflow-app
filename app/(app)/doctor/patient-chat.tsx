@@ -36,6 +36,12 @@ import {
   peekPatientChatCache,
   persistPatientChatCache,
 } from '../../../lib/doctorPatientChatCache';
+import {
+  fetchDoctorAiCoordination,
+  snoozeDoctorAiForPatient,
+  snoozeRemainingLabel,
+  type DoctorAiCoordinationState,
+} from '../../../lib/doctorAiSnooze';
 
 function applySnapshot(
   snapshot: { messages: DoctorChatMessage[]; leadThreadId: string | null; enrolledSharedCare: boolean },
@@ -83,6 +89,9 @@ export default function DoctorPatientChatScreen() {
   const [enrolledSharedCare, setEnrolledSharedCare] = useState(
     initialSnapshot?.enrolledSharedCare ?? false
   );
+  const [aiCoord, setAiCoord] = useState<DoctorAiCoordinationState | null>(null);
+  const [aiSnoozeBusy, setAiSnoozeBusy] = useState(false);
+  const [snoozeTick, setSnoozeTick] = useState(0);
 
   const flatRef = useRef<FlatList>(null);
   const chatSocketRef = useRef<Socket | null>(null);
@@ -166,7 +175,9 @@ export default function DoctorPatientChatScreen() {
             enrolledSharedCare: meta.enrolledSharedCare,
           });
           focusPerfMark('doctor:patient-chat:data_ready', { count: slice.length, silent });
-          if (!silent && slice.length > 0) autoScrollEndRef.current = true;
+          if (slice.length > 0 && (!silent || isAtBottomRef.current)) {
+            pendingScrollToLatestRef.current = true;
+          }
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -252,18 +263,60 @@ export default function DoctorPatientChatScreen() {
     { enabled: !!token && !!patientId, minIntervalMs: 50_000 }
   );
 
+  const refreshAiCoordination = useCallback(async () => {
+    if (!token || !patientKey) return;
+    const state = await fetchDoctorAiCoordination(token, patientKey);
+    if (state) setAiCoord(state);
+  }, [token, patientKey]);
+
   useFocusEffect(
     useCallback(() => {
       if (!token || !patientId) return;
       void markDoctorPatientMessagesRead(token, patientId);
+      void refreshAiCoordination();
       pendingScrollToLatestRef.current = true;
       isAtBottomRef.current = true;
       const task = InteractionManager.runAfterInteractions(() => {
         scrollToLatest({ force: true });
       });
       return () => task.cancel?.();
-    }, [token, patientId, scrollToLatest]),
+    }, [token, patientId, scrollToLatest, refreshAiCoordination]),
   );
+
+  useEffect(() => {
+    if (!aiCoord?.aiSnoozeActive || !aiCoord.aiSnoozedUntil) return;
+    const id = setInterval(() => {
+      const untilMs = Date.parse(aiCoord.aiSnoozedUntil || '');
+      if (!Number.isFinite(untilMs) || Date.now() >= untilMs) {
+        void refreshAiCoordination();
+      }
+      setSnoozeTick((n) => n + 1);
+    }, 15_000);
+    return () => clearInterval(id);
+  }, [aiCoord?.aiSnoozeActive, aiCoord?.aiSnoozedUntil, refreshAiCoordination]);
+
+  const handleSnoozeAi = useCallback(async () => {
+    if (!token || !patientKey || aiSnoozeBusy) return;
+    setAiSnoozeBusy(true);
+    try {
+      const result = await snoozeDoctorAiForPatient(token, patientKey, 5);
+      if (!result.ok) {
+        Alert.alert('AI susturma', result.message || 'İşlem başarısız.');
+        return;
+      }
+      if (result.state) setAiCoord(result.state);
+      else await refreshAiCoordination();
+    } catch (e) {
+      Alert.alert('AI susturma', e instanceof Error ? e.message : 'Ağ hatası');
+    } finally {
+      setAiSnoozeBusy(false);
+    }
+  }, [token, patientKey, aiSnoozeBusy, refreshAiCoordination]);
+
+  const snoozeRemaining = useMemo(() => {
+    void snoozeTick;
+    return snoozeRemainingLabel(aiCoord?.aiSnoozedUntil ?? null);
+  }, [aiCoord?.aiSnoozedUntil, snoozeTick]);
 
   const resolvedThreadId = useMemo(() => {
     const la = leadThreadId != null ? String(leadThreadId).trim() : '';
@@ -495,10 +548,32 @@ export default function DoctorPatientChatScreen() {
         <View style={styles.headerTrail}>
           {silentRefreshing ? (
             <ActivityIndicator size="small" color="#2563EB" />
-          ) : (
-            <View style={{ width: 24 }} />
-          )}
+          ) : null}
         </View>
+      </View>
+
+      <View style={styles.aiSnoozeBar}>
+        {aiCoord?.aiSnoozeActive ? (
+          <View style={styles.aiSnoozeActivePill} accessibilityRole="text">
+            <Text style={styles.aiSnoozeActiveText}>
+              AI susturuldu{snoozeRemaining ? ` · ${snoozeRemaining} kaldı` : ''}
+            </Text>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={[styles.aiSnoozeBtn, aiSnoozeBusy && styles.aiSnoozeBtnDisabled]}
+            onPress={handleSnoozeAi}
+            disabled={aiSnoozeBusy || !token || !patientKey}
+            accessibilityRole="button"
+            accessibilityLabel="AI yi 5 dakika sustur"
+          >
+            {aiSnoozeBusy ? (
+              <ActivityIndicator size="small" color="#1E40AF" />
+            ) : (
+              <Text style={styles.aiSnoozeBtnText}>AI · 5 dk sustur</Text>
+            )}
+          </TouchableOpacity>
+        )}
       </View>
 
       {(archivedOfferId || enrolledSharedCare) ? (
@@ -625,6 +700,36 @@ const styles = StyleSheet.create({
   avatarChar: { fontSize: 16, fontWeight: '700', color: '#2563EB' },
   headerName: { fontSize: 15, fontWeight: '700', color: '#111827', maxWidth: 180 },
   headerSub: { fontSize: 11, color: '#6B7280' },
+  aiSnoozeBar: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  aiSnoozeBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  aiSnoozeBtnDisabled: { opacity: 0.6 },
+  aiSnoozeBtnText: { fontSize: 13, fontWeight: '700', color: '#92400E' },
+  aiSnoozeActivePill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#6EE7B7',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  aiSnoozeActiveText: { fontSize: 13, fontWeight: '600', color: '#047857' },
   enrolledBanner: {
     backgroundColor: '#EFF6FF',
     borderBottomWidth: 1,
