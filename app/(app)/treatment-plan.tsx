@@ -10,7 +10,7 @@ import { useAuth, useAuthSession } from '../../lib/auth';
 import { useLanguage } from '../../lib/language-context';
 import { API_ROUTES } from '../../lib/api-routes';
 import { secureGet, securePost } from '../../lib/secure-fetch';
-import { API_BASE } from '../../lib/api';
+import { API_BASE, TIMEOUT_POST } from '../../lib/api';
 import { focusPerfMark, focusPerfStart } from '../../lib/perfFocus';
 import { peekCachedResource, setCachedResource } from '../../lib/resourceCache';
 import { recordCacheMetric } from '../../lib/cacheMetrics';
@@ -320,7 +320,9 @@ function AddModal({
       };
       const res = await securePost(
         API_ROUTES.doctor.addPatientTreatment(patientId),
-        body, token
+        body,
+        token,
+        { timeoutMs: Math.max(TIMEOUT_POST, 30_000) }
       );
       if (!res?.ok) {
         const apiErr = new Error(res?.message || res?.error || t('common.error')) as Error & {

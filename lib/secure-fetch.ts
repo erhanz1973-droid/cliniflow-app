@@ -1,11 +1,11 @@
 import { API_BASE, TIMEOUT_GET, TIMEOUT_POST } from './api';
 
-const SECURE_TIMEOUT_MS = 10_000; // 10 s default for secure-fetch calls
+export type SecureFetchOptions = RequestInit & { timeoutMs?: number };
 
 // Secure fetch pattern with proper error handling
 export async function secureFetch(
   endpoint: string,
-  options: RequestInit = {},
+  options: SecureFetchOptions = {},
   token?: string
 ): Promise<any> {
   const url = `${API_BASE}${endpoint}`;
@@ -15,22 +15,24 @@ export async function secureFetch(
     ...(token && { Authorization: `Bearer ${token}` }),
   };
 
-  // Abort after timeout unless the caller has already provided a signal
+  const { timeoutMs: timeoutOverride, ...fetchOptions } = options;
   const controller = new AbortController();
-  const timeoutMs = (options.method === 'POST' || options.method === 'PUT') ? TIMEOUT_POST : TIMEOUT_GET;
+  const timeoutMs =
+    timeoutOverride ??
+    ((fetchOptions.method === 'POST' || fetchOptions.method === 'PUT') ? TIMEOUT_POST : TIMEOUT_GET);
   const timerId = setTimeout(() => controller.abort(), timeoutMs);
 
   const mergedOptions: RequestInit = {
-    ...options,
-    signal: (options as any).signal ?? controller.signal,
+    ...fetchOptions,
+    signal: (fetchOptions as any).signal ?? controller.signal,
     headers: {
       ...defaultHeaders,
-      ...options.headers,
+      ...fetchOptions.headers,
     },
   };
 
   try {
-    console.log(`[API] ${options.method || 'GET'} ${endpoint}`);
+    console.log(`[API] ${fetchOptions.method || 'GET'} ${endpoint}`);
     
     const res = await fetch(url, mergedOptions);
     clearTimeout(timerId);
@@ -87,11 +89,13 @@ export async function secureFetch(
 export async function securePost(
   endpoint: string,
   body: any,
-  token?: string
+  token?: string,
+  opts?: { timeoutMs?: number }
 ): Promise<any> {
   return secureFetch(endpoint, {
     method: 'POST',
     body: JSON.stringify(body),
+    timeoutMs: opts?.timeoutMs,
   }, token);
 }
 

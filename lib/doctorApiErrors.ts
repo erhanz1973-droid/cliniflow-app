@@ -9,7 +9,10 @@ const FALLBACK_TR: Record<string, string> = {
 };
 
 export function formatDoctorApiError(err: unknown): string {
-  const e = err as { code?: string; message?: string; status?: number };
+  const e = err as { code?: string; message?: string; status?: number; kind?: string };
+  if (e?.kind === "timeout" || String(e?.message || "").includes("Request timeout")) {
+    return "Sunucu yanıt vermedi (zaman aşımı). Kayıt arka planda tamamlanmış olabilir; listeyi yenileyip tekrar deneyin.";
+  }
   if (e?.message && String(e.message).trim().length > 8 && !String(e.message).startsWith("{")) {
     return String(e.message).trim();
   }
