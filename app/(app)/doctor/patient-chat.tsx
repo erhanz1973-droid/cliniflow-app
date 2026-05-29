@@ -74,7 +74,10 @@ export default function DoctorPatientChatScreen() {
   const [silentRefreshing, setSilentRefreshing] = useState(false);
   const hasDisplayedContentRef = useRef((initialSnapshot?.messages?.length ?? 0) > 0);
   const firstPaintMarkedRef = useRef(false);
-  const autoScrollEndRef = useRef(!hasDisplayedContentRef.current);
+  /** Snap to newest message on open / after fetch — not on silent poll while scrolled up. */
+  const pendingScrollToLatestRef = useRef(true);
+  const isAtBottomRef = useRef(true);
+  const lastScrollSnapAtRef = useRef(0);
   const [sending, setSending] = useState(false);
   const [leadThreadId, setLeadThreadId] = useState<string | null>(initialSnapshot?.leadThreadId ?? null);
   const [enrolledSharedCare, setEnrolledSharedCare] = useState(
@@ -91,6 +94,18 @@ export default function DoctorPatientChatScreen() {
     focusPerfMark('doctor:patient-chat:first_paint', { source });
     markPatientChatNav('first_frame', { patientId: patientKey.slice(0, 12) });
   }, [patientKey]);
+
+  const scrollToLatest = useCallback((opts?: { force?: boolean }) => {
+    if (!flatRef.current || messages.length === 0) return;
+    if (!opts?.force && !pendingScrollToLatestRef.current && !isAtBottomRef.current) return;
+    const now = Date.now();
+    if (now - lastScrollSnapAtRef.current < 48) return;
+    lastScrollSnapAtRef.current = now;
+    pendingScrollToLatestRef.current = false;
+    requestAnimationFrame(() => {
+      flatRef.current?.scrollToOffset({ offset: 0, animated: false });
+    });
+  }, [messages.length]);
 
   const persistSnapshot = useCallback(
     (next: {
@@ -190,14 +205,16 @@ export default function DoctorPatientChatScreen() {
       applySnapshot(snap, { setMessages, setLeadThreadId, setEnrolledSharedCare });
       hasDisplayedContentRef.current = snap.messages.length > 0;
       setLoading(false);
-      autoScrollEndRef.current = false;
+      pendingScrollToLatestRef.current = snap.messages.length > 0;
+      isAtBottomRef.current = true;
     } else {
       setMessages([]);
       setLeadThreadId(null);
       setEnrolledSharedCare(false);
       hasDisplayedContentRef.current = false;
       setLoading(true);
-      autoScrollEndRef.current = true;
+      pendingScrollToLatestRef.current = true;
+      isAtBottomRef.current = true;
     }
 
     if (!k) return;
@@ -208,7 +225,8 @@ export default function DoctorPatientChatScreen() {
         applySnapshot(disk, { setMessages, setLeadThreadId, setEnrolledSharedCare });
         hasDisplayedContentRef.current = true;
         setLoading(false);
-        autoScrollEndRef.current = false;
+        pendingScrollToLatestRef.current = true;
+        isAtBottomRef.current = true;
         focusPerfMark('doctor:patient-chat:data_ready', {
           count: disk.messages.length,
           source: 'disk',
@@ -238,7 +256,13 @@ export default function DoctorPatientChatScreen() {
     useCallback(() => {
       if (!token || !patientId) return;
       void markDoctorPatientMessagesRead(token, patientId);
-    }, [token, patientId]),
+      pendingScrollToLatestRef.current = true;
+      isAtBottomRef.current = true;
+      const task = InteractionManager.runAfterInteractions(() => {
+        scrollToLatest({ force: true });
+      });
+      return () => task.cancel?.();
+    }, [token, patientId, scrollToLatest]),
   );
 
   const resolvedThreadId = useMemo(() => {
@@ -289,7 +313,7 @@ export default function DoctorPatientChatScreen() {
               enrolledSharedCare,
             });
           }
-          autoScrollEndRef.current = true;
+          if (isAtBottomRef.current) pendingScrollToLatestRef.current = true;
           return next;
         });
       },
@@ -304,20 +328,20 @@ export default function DoctorPatientChatScreen() {
   }, [token, resolvedThreadId, patientKey, enrolledSharedCare, persistSnapshot]);
 
   useEffect(() => {
-    if (messages.length === 0 || !autoScrollEndRef.current) return;
-    const id = requestAnimationFrame(() => {
-      flatRef.current?.scrollToEnd({ animated: !hasDisplayedContentRef.current });
-      autoScrollEndRef.current = false;
+    if (messages.length === 0) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      scrollToLatest();
     });
-    return () => cancelAnimationFrame(id);
-  }, [messages.length]);
+    return () => task.cancel?.();
+  }, [messages, scrollToLatest]);
 
   const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed || sending || !token || !patientId) return;
 
     const optimisticId = `tmp-${Date.now()}`;
-    autoScrollEndRef.current = true;
+    pendingScrollToLatestRef.current = true;
+    isAtBottomRef.current = true;
     setMessages((prev) =>
       [
         ...prev,
@@ -512,13 +536,18 @@ export default function DoctorPatientChatScreen() {
             renderItem={renderDoctorMessageItem}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
+            inverted
             initialNumToRender={12}
             maxToRenderPerBatch={8}
             windowSize={7}
-            removeClippedSubviews
-            onContentSizeChange={() => {
-              if (autoScrollEndRef.current) {
-                flatRef.current?.scrollToEnd({ animated: false });
+            removeClippedSubviews={Platform.OS === 'android'}
+            onScroll={(e) => {
+              isAtBottomRef.current = e.nativeEvent.contentOffset.y < 72;
+            }}
+            scrollEventThrottle={100}
+            onLayout={() => {
+              if (pendingScrollToLatestRef.current && messages.length > 0) {
+                scrollToLatest({ force: true });
               }
             }}
             ListEmptyComponent={
