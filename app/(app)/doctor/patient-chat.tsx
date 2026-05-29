@@ -38,6 +38,7 @@ import {
 } from '../../../lib/doctorPatientChatCache';
 import {
   fetchDoctorAiCoordination,
+  resumeDoctorAiForPatient,
   snoozeDoctorAiForPatient,
   snoozeRemainingLabel,
   type DoctorAiCoordinationState,
@@ -294,6 +295,24 @@ export default function DoctorPatientChatScreen() {
     }, 15_000);
     return () => clearInterval(id);
   }, [aiCoord?.aiSnoozeActive, aiCoord?.aiSnoozedUntil, refreshAiCoordination]);
+
+  const handleResumeAi = useCallback(async () => {
+    if (!token || !patientKey || aiSnoozeBusy) return;
+    setAiSnoozeBusy(true);
+    try {
+      const result = await resumeDoctorAiForPatient(token, patientKey);
+      if (!result.ok) {
+        Alert.alert('AI devam', result.message || 'İşlem başarısız.');
+        return;
+      }
+      if (result.state) setAiCoord(result.state);
+      else await refreshAiCoordination();
+    } catch (e) {
+      Alert.alert('AI devam', e instanceof Error ? e.message : 'Ağ hatası');
+    } finally {
+      setAiSnoozeBusy(false);
+    }
+  }, [token, patientKey, aiSnoozeBusy, refreshAiCoordination]);
 
   const handleSnoozeAi = useCallback(async () => {
     if (!token || !patientKey || aiSnoozeBusy) return;
@@ -574,10 +593,25 @@ export default function DoctorPatientChatScreen() {
 
       <View style={styles.aiSnoozeBar}>
         {aiCoord?.aiSnoozeActive ? (
-          <View style={styles.aiSnoozeActivePill} accessibilityRole="text">
-            <Text style={styles.aiSnoozeActiveText}>
-              AI susturuldu{snoozeRemaining ? ` · ${snoozeRemaining} kaldı` : ''}
-            </Text>
+          <View style={styles.aiSnoozeActiveRow}>
+            <View style={styles.aiSnoozeActivePill} accessibilityRole="text">
+              <Text style={styles.aiSnoozeActiveText}>
+                AI susturuldu{snoozeRemaining ? ` · ${snoozeRemaining} kaldı` : ''}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.aiResumeBtn, aiSnoozeBusy && styles.aiSnoozeBtnDisabled]}
+              onPress={handleResumeAi}
+              disabled={aiSnoozeBusy || !token || !patientKey}
+              accessibilityRole="button"
+              accessibilityLabel="AI devam etsin"
+            >
+              {aiSnoozeBusy ? (
+                <ActivityIndicator size="small" color="#166534" />
+              ) : (
+                <Text style={styles.aiResumeBtnText}>AI devam</Text>
+              )}
+            </TouchableOpacity>
           </View>
         ) : (
           <TouchableOpacity
@@ -740,8 +774,14 @@ const styles = StyleSheet.create({
   },
   aiSnoozeBtnDisabled: { opacity: 0.6 },
   aiSnoozeBtnText: { fontSize: 13, fontWeight: '700', color: '#92400E' },
+  aiSnoozeActiveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
   aiSnoozeActivePill: {
-    alignSelf: 'flex-start',
+    flex: 1,
     backgroundColor: '#ECFDF5',
     borderWidth: 1,
     borderColor: '#6EE7B7',
@@ -750,6 +790,17 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   aiSnoozeActiveText: { fontSize: 13, fontWeight: '600', color: '#047857' },
+  aiResumeBtn: {
+    backgroundColor: '#DCFCE7',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  aiResumeBtnText: { fontSize: 13, fontWeight: '700', color: '#166534' },
   enrolledBanner: {
     backgroundColor: '#EFF6FF',
     borderBottomWidth: 1,

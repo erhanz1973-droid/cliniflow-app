@@ -64,6 +64,49 @@ export async function fetchDoctorAiCoordination(
   return parseDoctorAiCoordination(json);
 }
 
+export async function resumeDoctorAiForPatient(
+  token: string,
+  patientId: string,
+): Promise<{ ok: boolean; state?: DoctorAiCoordinationState; message?: string }> {
+  const res = await fetch(
+    `${API_BASE}/api/doctor/patients/${encodeURIComponent(patientId)}/ai-coordination`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ action: "resumeAi", clearEscalation: true }),
+    },
+  );
+  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok || json.ok === false) {
+    return {
+      ok: false,
+      message:
+        typeof json.message === "string"
+          ? json.message
+          : typeof json.error === "string"
+            ? json.error
+            : "Kaydedilemedi",
+    };
+  }
+  const delegation =
+    json.delegation && typeof json.delegation === "object"
+      ? (json.delegation as Record<string, unknown>)
+      : null;
+  return {
+    ok: true,
+    state: {
+      aiSnoozeActive: false,
+      aiSnoozedUntil: null,
+      aiPaused: json.aiPaused === true,
+      autoReplyAllowed: delegation?.autoReplyAllowed === true,
+    },
+  };
+}
+
 export async function snoozeDoctorAiForPatient(
   token: string,
   patientId: string,
