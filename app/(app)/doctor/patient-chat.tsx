@@ -463,18 +463,31 @@ export default function DoctorPatientChatScreen() {
               : leg.created_at
                 ? new Date(leg.created_at).getTime()
                 : Date.now();
-          if (id) {
+          const confirmSent = (confirmedId: string) => {
             setMessages((prev) => {
               const withoutOpt = prev.filter((m) => m.id !== optimisticId);
-              if (withoutOpt.some((m) => m.id === id)) return withoutOpt;
+              if (withoutOpt.some((m) => m.id === confirmedId)) return withoutOpt;
               const tidRaw = leg.thread_id ?? leg.threadId;
               const thread_id =
                 tidRaw != null && String(tidRaw).trim() !== ''
                   ? String(tidRaw).trim()
                   : undefined;
+              const senderName =
+                leg.senderName != null
+                  ? String(leg.senderName)
+                  : leg.sender_name != null
+                    ? String(leg.sender_name)
+                    : undefined;
               const next = [
                 ...withoutOpt,
-                { id, text: textOut || trimmed, from, createdAt, ...(thread_id ? { thread_id } : {}) },
+                {
+                  id: confirmedId,
+                  text: textOut || trimmed,
+                  from,
+                  createdAt,
+                  ...(thread_id ? { thread_id } : {}),
+                  ...(senderName ? { senderName } : {}),
+                },
               ]
                 .sort((a, b) => a.createdAt - b.createdAt)
                 .slice(-50);
@@ -487,12 +500,19 @@ export default function DoctorPatientChatScreen() {
               }
               return next;
             });
+          };
+          if (id) {
+            confirmSent(id);
           } else {
-            setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+            confirmSent(`sent-${Date.now()}`);
             void fetchMessages({ silent: true });
           }
         } else {
-          setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === optimisticId ? { ...m, pending: false, text: trimmed } : m
+            )
+          );
           void fetchMessages({ silent: true });
         }
         invalidateDoctorMessagingCache();

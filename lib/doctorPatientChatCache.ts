@@ -125,10 +125,20 @@ export function mapApiMessages(raw: unknown[]): DoctorChatMessage[] {
         ? String(threadIdRaw).trim()
         : undefined;
     const text = displayTextFromApiMessage(m);
+    const fromRaw = String(m.from || m.senderRole || "CLINIC").toUpperCase();
+    const inboundKind = String(m.inboundKind || m.inbound_kind || "").toLowerCase();
+    const from =
+      fromRaw === "PATIENT"
+        ? "PATIENT"
+        : fromRaw === "DOCTOR" || inboundKind === "doctor"
+          ? "CLINIC"
+          : fromRaw === "CLINIC" || fromRaw === "ADMIN"
+            ? "CLINIC"
+            : "CLINIC";
     return {
       id: String(m.id || m.message_id || Math.random()),
       text: text || (m.attachment || m.attachments ? "📎 Ek" : ""),
-      from: String(m.from || m.senderRole || "CLINIC"),
+      from,
       createdAt: parseMessageCreatedAtMs(m.createdAt ?? m.created_at),
       senderName:
         m.senderName != null
