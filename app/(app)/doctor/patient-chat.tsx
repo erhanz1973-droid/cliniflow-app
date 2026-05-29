@@ -37,6 +37,11 @@ import {
   persistPatientChatCache,
 } from '../../../lib/doctorPatientChatCache';
 import {
+  DOCTOR_CHAT_MESSAGE_CAP,
+  capDoctorChatMessages,
+  mergeFetchedWithLocalMessages,
+} from '../../../lib/doctorPatientChatMerge';
+import {
   fetchDoctorAiCoordination,
   resumeDoctorAiForPatient,
   snoozeDoctorAiForPatient,
@@ -96,8 +101,35 @@ export default function DoctorPatientChatScreen() {
 
   const flatRef = useRef<FlatList>(null);
   const chatSocketRef = useRef<Socket | null>(null);
+  const socketJoinedRef = useRef(false);
+  const fetchGenerationRef = useRef(0);
   const patientRouteKeyRef = useRef('');
+  const aiReplyFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const MESSAGE_CAP = DOCTOR_CHAT_MESSAGE_CAP;
+
+  const logDoctorChatSocket = useCallback(
+    (phase: string, extra?: Record<string, unknown>) => {
+      const tid = resolvedThreadIdRef.current || '';
+      const sock = chatSocketRef.current;
+      if (__DEV__ || phase === 'pre_send' || phase === 'send_ok') {
+        console.log(
+          '[DOCTOR_CHAT_SOCKET]',
+          JSON.stringify({
+            phase,
+            thread_id: tid || null,
+            room_id: tid ? `chat:${tid}` : null,
+            connected: sock?.connected === true,
+            joined: socketJoinedRef.current,
+            ...extra,
+          })
+        );
+      }
+    },
+    []
+  );
+
+  const resolvedThreadIdRef = useRef('');
   const markFirstPaint = useCallback((source: string) => {
     if (firstPaintMarkedRef.current) return;
     firstPaintMarkedRef.current = true;
@@ -133,6 +165,8 @@ export default function DoctorPatientChatScreen() {
     async (opts?: { silent?: boolean }) => {
       if (!token || !patientId) return;
       const silent = opts?.silent === true;
+      const generation = ++fetchGenerationRef.current;
+      const fetchStartedAt = Date.now();
       if (!silent && !hasDisplayedContentRef.current) setLoading(true);
       if (silent) setSilentRefreshing(true);
 
@@ -142,10 +176,14 @@ export default function DoctorPatientChatScreen() {
       setAuthToken(token);
       try {
         const res = await fetch(
-          `${API_BASE}/api/doctor/patient/${encodeURIComponent(patientId)}/messages?limit=250`,
+          `${API_BASE}/api/doctor/patient/${encodeURIComponent(patientId)}/messages?limit=${MESSAGE_CAP}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
+        if (generation !== fetchGenerationRef.current) return;
+
         const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        if (generation !== fetchGenerationRef.current) return;
+
         const meta = parseLeadAssignment(json);
         setLeadThreadId(meta.leadThreadId);
         setEnrolledSharedCare(meta.enrolledSharedCare);
@@ -168,12 +206,19 @@ export default function DoctorPatientChatScreen() {
               total: slice.length,
             });
           }
-          setMessages(slice);
-          hasDisplayedContentRef.current = slice.length > 0 || hasDisplayedContentRef.current;
-          persistSnapshot({
-            messages: slice,
-            leadThreadId: meta.leadThreadId,
-            enrolledSharedCare: meta.enrolledSharedCare,
+          setMessages((prev) => {
+            const merged = mergeFetchedWithLocalMessages(slice, prev, {
+              fetchStartedAt,
+              cap: MESSAGE_CAP,
+            });
+            hasDisplayedContentRef.current =
+              merged.length > 0 || hasDisplayedContentRef.current;
+            persistSnapshot({
+              messages: merged,
+              leadThreadId: meta.leadThreadId,
+              enrolledSharedCare: meta.enrolledSharedCare,
+            });
+            return merged;
           });
           focusPerfMark('doctor:patient-chat:data_ready', { count: slice.length, silent });
           if (slice.length > 0 && (!silent || isAtBottomRef.current)) {
@@ -184,12 +229,14 @@ export default function DoctorPatientChatScreen() {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[DR CHAT fetch]', msg);
       } finally {
-        setLoading(false);
-        setSilentRefreshing(false);
+        if (generation === fetchGenerationRef.current) {
+          setLoading(false);
+          setSilentRefreshing(false);
+        }
         endFetch();
       }
     },
-    [token, patientId, patientKey, persistSnapshot]
+    [token, patientId, patientKey, persistSnapshot, MESSAGE_CAP]
   );
 
   useEffect(() => {
@@ -261,7 +308,7 @@ export default function DoctorPatientChatScreen() {
   useDeferredFocusRefresh(
     'doctor:patient-chat:focus',
     () => fetchMessages({ silent: true }),
-    { enabled: !!token && !!patientId, minIntervalMs: 50_000 }
+    { enabled: !!token && !!patientId, minIntervalMs: 15_000 }
   );
 
   const refreshAiCoordination = useCallback(async () => {
@@ -345,11 +392,16 @@ export default function DoctorPatientChatScreen() {
   }, [leadThreadId, messages]);
 
   useEffect(() => {
+    resolvedThreadIdRef.current = resolvedThreadId.trim();
+  }, [resolvedThreadId]);
+
+  useEffect(() => {
     if (!token) return () => {};
 
     const tid = resolvedThreadId.trim();
     if (!tid) return () => {};
 
+    socketJoinedRef.current = false;
     const { unsubscribe, socket } = subscribePrimaryChatRealtime({
       token,
       threadId: tid,
@@ -377,7 +429,10 @@ export default function DoctorPatientChatScreen() {
             createdAt: typeof legacy.createdAt === 'number' ? legacy.createdAt : Date.now(),
             ...(thread_id ? { thread_id } : {}),
           };
-          const next = [...withoutPending, row].sort((a, b) => a.createdAt - b.createdAt).slice(-50);
+          const next = capDoctorChatMessages(
+            [...withoutPending, row].sort((a, b) => a.createdAt - b.createdAt),
+            MESSAGE_CAP
+          );
           if (patientKey) {
             persistSnapshot({
               messages: next,
@@ -386,18 +441,39 @@ export default function DoctorPatientChatScreen() {
             });
           }
           if (isAtBottomRef.current) pendingScrollToLatestRef.current = true;
+          if (from === 'PATIENT') {
+            if (aiReplyFetchTimerRef.current) clearTimeout(aiReplyFetchTimerRef.current);
+            aiReplyFetchTimerRef.current = setTimeout(() => {
+              void fetchMessages({ silent: true });
+            }, 2500);
+          }
           return next;
         });
       },
-      onConnect: () => {},
-      onDisconnect: () => {},
+      onConnect: () => {
+        socketJoinedRef.current = true;
+        logDoctorChatSocket('joined', { message_id: null });
+      },
+      onDisconnect: () => {
+        socketJoinedRef.current = false;
+        logDoctorChatSocket('disconnected');
+      },
     });
     chatSocketRef.current = socket;
+    logDoctorChatSocket('subscribe', {
+      connected: socket?.connected === true,
+      message_id: null,
+    });
     return () => {
       unsubscribe();
       chatSocketRef.current = null;
+      socketJoinedRef.current = false;
+      if (aiReplyFetchTimerRef.current) {
+        clearTimeout(aiReplyFetchTimerRef.current);
+        aiReplyFetchTimerRef.current = null;
+      }
     };
-  }, [token, resolvedThreadId, patientKey, enrolledSharedCare, persistSnapshot]);
+  }, [token, resolvedThreadId, patientKey, enrolledSharedCare, persistSnapshot, fetchMessages, logDoctorChatSocket, MESSAGE_CAP]);
 
   useEffect(() => {
     if (messages.length === 0) return;
@@ -415,21 +491,24 @@ export default function DoctorPatientChatScreen() {
     pendingScrollToLatestRef.current = true;
     isAtBottomRef.current = true;
     setMessages((prev) =>
-      [
-        ...prev,
-        {
-          id: optimisticId,
-          text: trimmed,
-          from: 'CLINIC' as const,
-          createdAt: Date.now(),
-          pending: true,
-        },
-      ]
-        .sort((a, b) => a.createdAt - b.createdAt)
-        .slice(-50)
+      capDoctorChatMessages(
+        [
+          ...prev,
+          {
+            id: optimisticId,
+            text: trimmed,
+            from: 'CLINIC' as const,
+            createdAt: Date.now(),
+            pending: true,
+          },
+        ].sort((a, b) => a.createdAt - b.createdAt),
+        MESSAGE_CAP
+      )
     );
     setText('');
     setSending(true);
+
+    logDoctorChatSocket('pre_send', { message_id: optimisticId, text_preview: trimmed.slice(0, 40) });
 
     logCanonicalSendAttempt({
       source: 'doctor/patient-chat',
@@ -497,19 +576,20 @@ export default function DoctorPatientChatScreen() {
                   : leg.sender_name != null
                     ? String(leg.sender_name)
                     : undefined;
-              const next = [
-                ...withoutOpt,
-                {
-                  id: confirmedId,
-                  text: textOut || trimmed,
-                  from,
-                  createdAt,
-                  ...(thread_id ? { thread_id } : {}),
-                  ...(senderName ? { senderName } : {}),
-                },
-              ]
-                .sort((a, b) => a.createdAt - b.createdAt)
-                .slice(-50);
+              const next = capDoctorChatMessages(
+                [
+                  ...withoutOpt,
+                  {
+                    id: confirmedId,
+                    text: textOut || trimmed,
+                    from,
+                    createdAt,
+                    ...(thread_id ? { thread_id } : {}),
+                    ...(senderName ? { senderName } : {}),
+                  },
+                ].sort((a, b) => a.createdAt - b.createdAt),
+                MESSAGE_CAP
+              );
               if (patientKey) {
                 persistSnapshot({
                   messages: next,
@@ -522,6 +602,7 @@ export default function DoctorPatientChatScreen() {
           };
           if (id) {
             confirmSent(id);
+            logDoctorChatSocket('send_ok', { message_id: id, socket_emitted_expected: true });
           } else {
             confirmSent(`sent-${Date.now()}`);
             void fetchMessages({ silent: true });

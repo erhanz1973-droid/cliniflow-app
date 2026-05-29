@@ -149,7 +149,17 @@ export function mapApiMessages(raw: unknown[]): DoctorChatMessage[] {
       ...(thread_id ? { thread_id } : {}),
     };
   });
-  return [...mapped].sort((a, b) => a.createdAt - b.createdAt).slice(-250);
+  const sorted = [...mapped].sort((a, b) => a.createdAt - b.createdAt);
+  const deduped: DoctorChatMessage[] = [];
+  const seen = new Set<string>();
+  for (const m of sorted) {
+    const bucket = Math.floor(m.createdAt / 4000);
+    const fp = `${m.from}|${m.text.slice(0, 160)}|${bucket}`;
+    if (seen.has(fp)) continue;
+    seen.add(fp);
+    deduped.push(m);
+  }
+  return deduped.slice(-250);
 }
 
 export function parseLeadAssignment(json: Record<string, unknown>): {
