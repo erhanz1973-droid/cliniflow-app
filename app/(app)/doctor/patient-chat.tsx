@@ -901,8 +901,16 @@ const styles = StyleSheet.create({
 
 const MessageItem = React.memo(
   function MessageItem({ message }: { message: DoctorChatMessage }) {
-    const isDoctor =
-      message.from === 'CLINIC' || message.from === 'DOCTOR' || message.from === 'admin';
+    const isPatient = message.from === 'PATIENT';
+    const isAi =
+      !isPatient &&
+      (message.senderName === 'AI' ||
+        message.senderName === 'Care Team' ||
+        message.senderName === 'Klinik');
+    const isDoctorSide =
+      !isPatient &&
+      !isAi &&
+      (message.from === 'CLINIC' || message.from === 'DOCTOR' || message.from === 'admin');
     const ts =
       typeof message.createdAt === 'number' && Number.isFinite(message.createdAt)
         ? message.createdAt
@@ -912,14 +920,14 @@ const MessageItem = React.memo(
       minute: '2-digit',
     });
     return (
-      <View style={[styles.bubble, isDoctor ? styles.bubbleDoctor : styles.bubblePatient]}>
-        {!isDoctor && message.senderName ? (
+      <View style={[styles.bubble, isDoctorSide ? styles.bubbleDoctor : styles.bubblePatient]}>
+        {!isDoctorSide && message.senderName ? (
           <Text style={styles.bubbleSender}>{message.senderName}</Text>
         ) : null}
-        <Text style={[styles.bubbleText, isDoctor && styles.bubbleTextDoctor]}>
+        <Text style={[styles.bubbleText, isDoctorSide && styles.bubbleTextDoctor]}>
           {message.text?.trim() ? message.text : '…'}
         </Text>
-        <Text style={[styles.bubbleTime, isDoctor && styles.bubbleTimeDoctor]}>{timeStr}</Text>
+        <Text style={[styles.bubbleTime, isDoctorSide && styles.bubbleTimeDoctor]}>{timeStr}</Text>
       </View>
     );
   },
