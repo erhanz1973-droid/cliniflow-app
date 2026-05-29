@@ -43,8 +43,20 @@ export async function secureFetch(
     if (!res.ok) {
       const raw = await res.text();
       console.error(`[API] Request failed (${res.status}):`, raw);
-      console.error(`[API] Raw response starts with:`, raw.substring(0, 100));
-      throw new Error(raw || `Request failed with status ${res.status}`);
+      let parsed: { error?: string; message?: string } | null = null;
+      try {
+        parsed = raw ? JSON.parse(raw) : null;
+      } catch {
+        parsed = null;
+      }
+      const detail =
+        (parsed && (parsed.message || parsed.error)) ||
+        raw ||
+        `Request failed with status ${res.status}`;
+      const err = new Error(detail) as Error & { code?: string; status?: number };
+      if (parsed?.error) err.code = String(parsed.error);
+      err.status = res.status;
+      throw err;
     }
 
     // Ensure we get JSON response

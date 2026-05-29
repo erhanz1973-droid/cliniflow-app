@@ -20,6 +20,7 @@ import {
   type TreatmentPlanCachePayload,
 } from '../../lib/treatmentPlanCache';
 import { useDeferredFocusRefresh } from '../../hooks/use-deferred-focus-refresh';
+import { formatDoctorApiError } from '../../lib/doctorApiErrors';
 
 /** Format a Date as local ISO string (no Z / no UTC offset) so the civil date
  *  is preserved regardless of the device's timezone. */
@@ -321,11 +322,17 @@ function AddModal({
         API_ROUTES.doctor.addPatientTreatment(patientId),
         body, token
       );
-      if (!res?.ok) throw new Error(res?.error || t('common.error'));
+      if (!res?.ok) {
+        const apiErr = new Error(res?.message || res?.error || t('common.error')) as Error & {
+          code?: string;
+        };
+        if (res?.error) apiErr.code = String(res.error);
+        throw apiErr;
+      }
       onAdded(res.treatment);
       reset();
     } catch (e: any) {
-      Alert.alert(t('common.error'), e.message || t('common.error'));
+      Alert.alert(t('common.error'), formatDoctorApiError(e));
     } finally {
       setSaving(false);
     }
@@ -702,8 +709,11 @@ export default function TreatmentPlanScreen() {
 
   const treatmentsRef = useRef(treatments);
   const diagnosesRef = useRef(diagnoses);
+  const doctorsRef = useRef(doctors);
+  const doctorsLoadStartedRef = useRef(false);
   treatmentsRef.current = treatments;
   diagnosesRef.current = diagnoses;
+  doctorsRef.current = doctors;
 
   const persistCache = useCallback(
     (payload: TreatmentPlanCachePayload) => {
@@ -741,6 +751,8 @@ export default function TreatmentPlanScreen() {
   }, [pid, token, persistCache]);
 
   const scheduleDoctorsLoad = useCallback(() => {
+    if (doctorsLoadStartedRef.current) return;
+    doctorsLoadStartedRef.current = true;
     InteractionManager.runAfterInteractions(() => {
       void loadDoctors();
     });
@@ -768,7 +780,7 @@ export default function TreatmentPlanScreen() {
         const payload: TreatmentPlanCachePayload = {
           treatments: nextTx,
           diagnoses: nextDx,
-          doctors: doctors,
+          doctors: doctorsRef.current,
         };
         applyPayload(payload);
         persistCache(payload);
@@ -782,8 +794,12 @@ export default function TreatmentPlanScreen() {
         endFetch();
       }
     },
-    [pid, token, doctors, applyPayload, persistCache, scheduleDoctorsLoad],
+    [pid, token, applyPayload, persistCache, scheduleDoctorsLoad],
   );
+
+  useEffect(() => {
+    doctorsLoadStartedRef.current = false;
+  }, [pid]);
 
   useEffect(() => {
     if (!pid || !token) return;
@@ -800,11 +816,11 @@ export default function TreatmentPlanScreen() {
     if (!pid || !token) return;
     if (hasDisplayedContentRef.current) {
       void loadCritical({ silent: true });
-      if (!doctors.length) scheduleDoctorsLoad();
+      if (!doctorsRef.current.length) scheduleDoctorsLoad();
       return;
     }
     void loadCritical({ silent: false });
-  }, [pid, token, loadCritical, scheduleDoctorsLoad, doctors.length]);
+  }, [pid, token, loadCritical, scheduleDoctorsLoad]);
 
   useDeferredFocusRefresh(
     'doctor:treatment-plan:focus',
