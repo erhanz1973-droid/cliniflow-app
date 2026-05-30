@@ -214,6 +214,10 @@ export default function DoctorPatientChatScreen() {
             const uniqueApiIds = new Set(
               raw.map((m) => String(m?.id || m?.message_id || '').trim()).filter(Boolean),
             );
+            const newestMs = slice.reduce(
+              (max, m) => Math.max(max, Number(m.createdAt) || 0),
+              0,
+            );
             console.log('[DR-CHAT] unified thread', {
               canonicalPatientId: canonicalPid.slice(0, 12),
               offerArchiveCount: json.offerArchiveCount,
@@ -222,6 +226,7 @@ export default function DoctorPatientChatScreen() {
               mappedCount: slice.length,
               patientRows: slice.filter((m) => m.from === 'PATIENT').length,
               doctorRows: slice.filter((m) => m.inboundKind === 'doctor').length,
+              newestAt: newestMs ? new Date(newestMs).toISOString() : null,
             });
           }
           setMessages((prev) => {
