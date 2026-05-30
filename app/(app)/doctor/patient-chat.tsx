@@ -33,6 +33,7 @@ import {
   hydratePatientChatFromDisk,
   mapApiMessages,
   parseLeadAssignment,
+  decodeJwtPayloadForDebug,
   peekPatientChatCache,
   persistPatientChatCache,
 } from '../../../lib/doctorPatientChatCache';
@@ -188,12 +189,18 @@ export default function DoctorPatientChatScreen() {
         setLeadThreadId(meta.leadThreadId);
         setEnrolledSharedCare(meta.enrolledSharedCare);
 
-        if (__DEV__) {
-          console.log(
-            '[DR-CHAT] leadAssignment.threadId',
-            meta.leadThreadId || '(none)'
-          );
-        }
+        console.log(
+          '[DOCTOR_CHAT_SCREEN_OPEN]',
+          JSON.stringify({
+            phase: 'fetch_complete',
+            patient_id: String(patientId || '').slice(0, 8),
+            thread_id: meta.leadThreadId ? meta.leadThreadId.slice(0, 8) : null,
+            access_thread_id: String(json.accessThreadId || '').slice(0, 8) || null,
+            offer_archive: json.offerArchiveCount,
+            coordinator_archive: json.coordinatorArchiveCount,
+            message_count: Array.isArray(json.messages) ? json.messages.length : 0,
+          }),
+        );
 
         const canonicalPid = String(json.canonicalPatientId || patientId || '').trim();
 
@@ -394,6 +401,24 @@ export default function DoctorPatientChatScreen() {
   useEffect(() => {
     resolvedThreadIdRef.current = resolvedThreadId.trim();
   }, [resolvedThreadId]);
+
+  useEffect(() => {
+    if (!patientKey) return;
+    const payload = decodeJwtPayloadForDebug(token || '');
+    const doctorId = String(
+      payload?.doctorId || payload?.doctor_id || payload?.id || payload?.sub || '',
+    ).trim();
+    console.log(
+      '[DOCTOR_CHAT_SCREEN_OPEN]',
+      JSON.stringify({
+        doctor_id: doctorId ? doctorId.slice(0, 8) : null,
+        patient_id: patientKey.slice(0, 8),
+        thread_id: resolvedThreadId.trim() ? resolvedThreadId.trim().slice(0, 8) : null,
+        lead_thread_id: leadThreadId ? String(leadThreadId).slice(0, 8) : null,
+        socket_joined: socketJoinedRef.current,
+      }),
+    );
+  }, [patientKey, token, resolvedThreadId, leadThreadId]);
 
   useEffect(() => {
     if (!token) return () => {};

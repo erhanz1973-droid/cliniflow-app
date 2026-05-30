@@ -140,11 +140,20 @@ export function subscribePrimaryChatRealtime(opts: ChatRealtimeOptions): ChatRea
     opts.onDisconnect?.();
   });
 
-  socket.on("connect", () => {
+    socket.on("connect", () => {
     const threadId = threadIdFixed;
     console.log("SOCKET CONNECTED");
     console.log("SOCKET CONNECTED", socket.id);
     console.log("JOIN_CHAT SENT", threadId);
+    console.log(
+      "[DOCTOR_CHAT_JOIN]",
+      JSON.stringify({
+        phase: "client_emit",
+        thread_id: threadId.slice(0, 8),
+        room_id: `chat:${threadId}`,
+        socket_id: socket.id,
+      }),
+    );
     const connectAt = Date.now();
     socket.emit("join_chat", { threadId }, (resp: unknown) => {
       const ackAt = Date.now();
@@ -152,13 +161,12 @@ export function subscribePrimaryChatRealtime(opts: ChatRealtimeOptions): ChatRea
         resp && typeof resp === "object" ? (resp as Record<string, unknown>) : {};
       const joined = ackObj.ok === true || ackObj.joined === true;
       console.log(
-        "[DOCTOR_CHAT_SOCKET]",
+        "[DOCTOR_CHAT_JOIN]",
         JSON.stringify({
-          phase: "join_ack",
-          thread_id: threadId,
+          phase: "client_ack",
+          thread_id: threadId.slice(0, 8),
           room_id: `chat:${threadId}`,
-          connected: socket.connected === true,
-          joined,
+          join_success: joined,
           ms_since_connect: ackAt - connectAt,
           ack: resp,
         }),

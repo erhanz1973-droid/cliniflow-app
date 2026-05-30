@@ -167,10 +167,12 @@ export function parseLeadAssignment(json: Record<string, unknown>): {
   enrolledSharedCare: boolean;
 } {
   const laRaw = json.leadAssignment;
-  const tid =
+  const accessTid = String(json.accessThreadId || json.access_thread_id || "").trim();
+  const fromLa =
     laRaw && typeof laRaw === "object" && (laRaw as { threadId?: string }).threadId != null
       ? String((laRaw as { threadId?: string }).threadId).trim()
       : "";
+  const tid = fromLa || accessTid;
   const laThreadIsLead =
     laRaw && typeof laRaw === "object"
       ? (laRaw as { threadIsLead?: boolean }).threadIsLead
@@ -179,4 +181,20 @@ export function parseLeadAssignment(json: Record<string, unknown>): {
     leadThreadId: tid || null,
     enrolledSharedCare: laThreadIsLead === false,
   };
+}
+
+/** Decode JWT payload for diagnostic logs only — not verified. */
+export function decodeJwtPayloadForDebug(token: string): Record<string, unknown> | null {
+  try {
+    const part = String(token || "").split(".")[1];
+    if (!part) return null;
+    const padded = part.replace(/-/g, "+").replace(/_/g, "/");
+    const json =
+      typeof atob !== "undefined"
+        ? atob(padded)
+        : Buffer.from(padded, "base64").toString("utf8");
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }
