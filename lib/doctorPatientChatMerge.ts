@@ -22,8 +22,8 @@ export function mergeFetchedWithLocalMessages(
   for (const m of local) {
     const id = String(m.id || '').trim();
     if (!id) continue;
-    const keep =
-      m.pending === true || m.createdAt >= cutoff || !byId.has(id);
+    // Keep only in-flight / just-sent rows — do not re-merge stale disk cache ids missing from fetch.
+    const keep = m.pending === true || m.createdAt >= cutoff;
     if (!keep) continue;
     const existing = byId.get(id);
     if (!existing) {

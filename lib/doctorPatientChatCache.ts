@@ -8,6 +8,7 @@ export type DoctorChatMessage = {
   from: "PATIENT" | "CLINIC" | "DOCTOR" | string;
   createdAt: number;
   senderName?: string;
+  inboundKind?: string;
   pending?: boolean;
   thread_id?: string;
 };
@@ -19,7 +20,7 @@ export type DoctorPatientChatSnapshot = {
 };
 
 const CACHE_PREFIX = "doctor:patient-chat:";
-const DISK_PREFIX = "doctor.patient-chat.v1.";
+const DISK_PREFIX = "doctor.patient-chat.v4.";
 
 export function doctorPatientChatCacheKey(patientId: string): string {
   return `${CACHE_PREFIX}${String(patientId || "").trim()}`;
@@ -116,6 +117,19 @@ function parseMessageCreatedAtMs(raw: unknown): number {
   return Date.now();
 }
 
+function resolveApiMessageFrom(m: Record<string, unknown>): "PATIENT" | "CLINIC" {
+  const direct = String(m.from || "").toUpperCase();
+  if (direct === "PATIENT" || direct === "USER") return "PATIENT";
+  const role = String(
+    m.senderRole || m.sender_role || m.sender_type || m.senderType || "",
+  ).toLowerCase();
+  if (role === "patient" || role === "user" || role === "lead") return "PATIENT";
+  if (m.from_patient === true) return "PATIENT";
+  const inboundKind = String(m.inboundKind || m.inbound_kind || "").toLowerCase();
+  if (inboundKind === "patient") return "PATIENT";
+  return "CLINIC";
+}
+
 export function mapApiMessages(raw: unknown[]): DoctorChatMessage[] {
   const mapped = raw.map((row: unknown) => {
     const m = row as Record<string, unknown>;
@@ -125,41 +139,47 @@ export function mapApiMessages(raw: unknown[]): DoctorChatMessage[] {
         ? String(threadIdRaw).trim()
         : undefined;
     const text = displayTextFromApiMessage(m);
-    const fromRaw = String(m.from || m.senderRole || "CLINIC").toUpperCase();
-    const inboundKind = String(m.inboundKind || m.inbound_kind || "").toLowerCase();
-    const from =
-      fromRaw === "PATIENT"
-        ? "PATIENT"
-        : fromRaw === "DOCTOR" || inboundKind === "doctor"
-          ? "CLINIC"
-          : fromRaw === "CLINIC" || fromRaw === "ADMIN"
-            ? "CLINIC"
-            : "CLINIC";
+    const from = resolveApiMessageFrom(m);
+    const inboundKindRaw = String(m.inboundKind || m.inbound_kind || "").trim().toLowerCase();
+    const senderName =
+      m.senderName != null
+        ? String(m.senderName)
+        : m.sender_name != null
+          ? String(m.sender_name)
+          : undefined;
     return {
       id: String(m.id || m.message_id || Math.random()),
       text: text || (m.attachment || m.attachments ? "📎 Ek" : ""),
       from,
       createdAt: parseMessageCreatedAtMs(m.createdAt ?? m.created_at),
-      senderName:
-        m.senderName != null
-          ? String(m.senderName)
-          : m.sender_name != null
-            ? String(m.sender_name)
-            : undefined,
+      ...(senderName ? { senderName } : {}),
+      ...(inboundKindRaw ? { inboundKind: inboundKindRaw } : {}),
       ...(thread_id ? { thread_id } : {}),
     };
   });
   const sorted = [...mapped].sort((a, b) => a.createdAt - b.createdAt);
-  const deduped: DoctorChatMessage[] = [];
-  const seen = new Set<string>();
+  const byId = new Map<string, DoctorChatMessage>();
   for (const m of sorted) {
-    const bucket = Math.floor(m.createdAt / 4000);
-    const fp = `${m.from}|${m.text.slice(0, 160)}|${bucket}`;
-    if (seen.has(fp)) continue;
-    seen.add(fp);
-    deduped.push(m);
+    const id = String(m.id || "").trim();
+    if (!id) continue;
+    const existing = byId.get(id);
+    if (!existing) {
+      byId.set(id, m);
+      continue;
+    }
+    if (m.from === "PATIENT" && existing.from !== "PATIENT") {
+      byId.set(id, m);
+      continue;
+    }
+    if (existing.from === "PATIENT") continue;
+    if (m.inboundKind === "doctor" && existing.inboundKind !== "doctor") {
+      byId.set(id, m);
+      continue;
+    }
+    if (existing.inboundKind === "doctor") continue;
+    if ((m.text?.length || 0) >= (existing.text?.length || 0)) byId.set(id, m);
   }
-  return deduped.slice(-250);
+  return [...byId.values()].slice(-250);
 }
 
 export function parseLeadAssignment(json: Record<string, unknown>): {

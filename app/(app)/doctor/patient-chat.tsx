@@ -198,6 +198,9 @@ export default function DoctorPatientChatScreen() {
             access_thread_id: String(json.accessThreadId || '').slice(0, 8) || null,
             offer_archive: json.offerArchiveCount,
             coordinator_archive: json.coordinatorArchiveCount,
+            clinic_messages: json.clinicMessageCount,
+            patient_inbound: json.patientInboundCount,
+            doctor_outbound: json.doctorOutboundCount,
             message_count: Array.isArray(json.messages) ? json.messages.length : 0,
           }),
         );
@@ -207,10 +210,18 @@ export default function DoctorPatientChatScreen() {
         if (json.ok && Array.isArray(json.messages)) {
           const slice = mapApiMessages(json.messages as Record<string, unknown>[]);
           if (__DEV__ && json.unifiedThread) {
+            const raw = json.messages as Record<string, unknown>[];
+            const uniqueApiIds = new Set(
+              raw.map((m) => String(m?.id || m?.message_id || '').trim()).filter(Boolean),
+            );
             console.log('[DR-CHAT] unified thread', {
               canonicalPatientId: canonicalPid.slice(0, 12),
               offerArchiveCount: json.offerArchiveCount,
-              total: slice.length,
+              apiCount: raw.length,
+              uniqueApiIds: uniqueApiIds.size,
+              mappedCount: slice.length,
+              patientRows: slice.filter((m) => m.from === 'PATIENT').length,
+              doctorRows: slice.filter((m) => m.inboundKind === 'doctor').length,
             });
           }
           setMessages((prev) => {
@@ -657,10 +668,10 @@ export default function DoctorPatientChatScreen() {
     []
   );
 
-  const doctorMessageKeyExtractor = useCallback((item: DoctorChatMessage) => {
+  const doctorMessageKeyExtractor = useCallback((item: DoctorChatMessage, index: number) => {
     const id = String(item.id ?? '').trim();
-    if (id !== '') return id;
-    return `fb-${item.createdAt}-${item.from}`;
+    if (id !== '') return `${id}:${item.createdAt}:${item.from}:${index}`;
+    return `fb-${item.createdAt}-${item.from}-${index}`;
   }, []);
 
   const showListSkeleton = loading && messages.length === 0;
@@ -1008,15 +1019,20 @@ const styles = StyleSheet.create({
 const MessageItem = React.memo(
   function MessageItem({ message }: { message: DoctorChatMessage }) {
     const isPatient = message.from === 'PATIENT';
+    const isDoctorMsg =
+      message.inboundKind === 'doctor' ||
+      message.from === 'DOCTOR';
     const isAi =
       !isPatient &&
+      !isDoctorMsg &&
       (message.senderName === 'AI' ||
         message.senderName === 'Care Team' ||
         message.senderName === 'Klinik');
     const isDoctorSide =
-      !isPatient &&
-      !isAi &&
-      (message.from === 'CLINIC' || message.from === 'DOCTOR' || message.from === 'admin');
+      isDoctorMsg ||
+      (!isPatient &&
+        !isAi &&
+        (message.from === 'CLINIC' || message.from === 'DOCTOR' || message.from === 'admin'));
     const ts =
       typeof message.createdAt === 'number' && Number.isFinite(message.createdAt)
         ? message.createdAt
@@ -1027,8 +1043,10 @@ const MessageItem = React.memo(
     });
     return (
       <View style={[styles.bubble, isDoctorSide ? styles.bubbleDoctor : styles.bubblePatient]}>
-        {!isDoctorSide && message.senderName ? (
-          <Text style={styles.bubbleSender}>{message.senderName}</Text>
+        {!isDoctorSide && (isPatient || message.senderName) ? (
+          <Text style={styles.bubbleSender}>
+            {isPatient && !message.senderName ? 'Hasta' : message.senderName}
+          </Text>
         ) : null}
         <Text style={[styles.bubbleText, isDoctorSide && styles.bubbleTextDoctor]}>
           {message.text?.trim() ? message.text : '…'}
@@ -1039,6 +1057,7 @@ const MessageItem = React.memo(
   },
   (prev, next) =>
     prev.message.id === next.message.id &&
+    prev.message.from === next.message.from &&
     prev.message.text === next.message.text &&
     prev.message.pending === next.message.pending &&
     prev.message.createdAt === next.message.createdAt
