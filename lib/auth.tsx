@@ -9,7 +9,7 @@ import React, {
   useCallback,
   type MutableRefObject,
 } from "react";
-import { InteractionManager, Platform } from "react-native";
+import { InteractionManager, Platform, AppState, type AppStateStatus } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { router } from "expo-router";
@@ -140,6 +140,37 @@ function PushNotificationEffects() {
       task.cancel?.();
       if (tid) clearTimeout(tid);
     };
+  }, [isAuthReady, user?.token, user?.type, authSessionEpochRef]);
+
+  useEffect(() => {
+    if (!authSessionEpochRef || !isAuthReady || !user?.token) return;
+    const role =
+      user.type === "doctor" ? "doctor" : user.type === "patient" ? "patient" : null;
+    if (!role) return;
+
+    const token = user.token;
+    const epochAtStart = authSessionEpochRef.current;
+    let lastResyncAt = 0;
+
+    const resyncPushRegistration = () => {
+      const now = Date.now();
+      if (now - lastResyncAt < 45_000) return;
+      lastResyncAt = now;
+      if (authSessionEpochRef.current !== epochAtStart) return;
+      void registerExpoPushForSession({
+        role,
+        authToken: token,
+        authSessionEpochAtStart: epochAtStart,
+        authSessionEpochRef,
+      });
+    };
+
+    const onAppState = (next: AppStateStatus) => {
+      if (next === "active") resyncPushRegistration();
+    };
+
+    const sub = AppState.addEventListener("change", onAppState);
+    return () => sub.remove();
   }, [isAuthReady, user?.token, user?.type, authSessionEpochRef]);
 
   useEffect(() => {
