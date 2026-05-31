@@ -676,8 +676,11 @@ const RequestCard = memo(function RequestCard({
                 <Text style={cs.quickLabel}>{t(q.labelKey) || q.value}</Text>
               </TouchableOpacity>
             ))}
-            <TouchableOpacity style={cs.quickBtnMore} onPress={openFull} activeOpacity={0.75}>
-              <Text style={cs.quickMoreTxt}>···</Text>
+            <TouchableOpacity style={cs.quickBtn} onPress={openFull} activeOpacity={0.75}>
+              <Text style={cs.quickEmoji}>📝</Text>
+              <Text style={cs.quickLabel} numberOfLines={2}>
+                {t('requests.card.makeOffer') || t('requests.modal.makeOffer') || 'Make Offer'}
+              </Text>
             </TouchableOpacity>
           </View>
         </>
@@ -736,7 +739,7 @@ const RequestCard = memo(function RequestCard({
       {hasMyOffer && !enrolledShared && isChatsFilter && (
         <TouchableOpacity style={cs.offerDetailLink} onPress={() => setOfferDetailOpen(true)} activeOpacity={0.75}>
           <Text style={cs.offerDetailLinkText}>
-            📋 {t('requests.card.viewMyOffer') || 'View my offer'}
+            📋 {t('requests.card.viewMyOffer')}
           </Text>
         </TouchableOpacity>
       )}

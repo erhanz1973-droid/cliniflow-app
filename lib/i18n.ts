@@ -1319,6 +1319,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "requests.chat.missingOffer":
       "Bu talep için teklif bulunamadı. Önce teklif gönderin, ardından mesajlaşmayı açın.",
     "requests.card.another": "+ Başka",
+    "requests.card.makeOffer": "Teklif Ver",
+    "requests.card.viewMyOffer": "Teklifimi gör",
     "requests.offerDetail.enrolledNoPayloadHint":
       "Bu satır yalnızca geçmiş bağlam içindir. Mesajlaşmaya Hastalar → 💬 Mesajlar üzerinden devam edin.",
     "requests.enrolled.openPatientsList": "Hastalar sayfasını aç",
@@ -3210,6 +3212,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "requests.chat.missingOffer":
       "No offer found for this request. Send an offer first, then open messaging.",
     "requests.card.another": "+ Another",
+    "requests.card.makeOffer": "Make Offer",
+    "requests.card.viewMyOffer": "View my offer",
     "requests.offerDetail.enrolledNoPayloadHint":
       "This row is historical context only. Continue messaging from Patients → Messages.",
     "requests.enrolled.openPatientsList": "Open Patients",
@@ -5074,6 +5078,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "requests.chat.missingOffer":
       "ამ მოთხოვნისთვის შეთავაზება ვერ მოიძებნა. ჯერ გაგზავნეთ შეთავაზება, შემდეგ გახსენით ჩატი.",
     "requests.card.another": "+ სხვა",
+    "requests.card.makeOffer": "შეთავაზება",
+    "requests.card.viewMyOffer": "ჩემი შეთავაზება",
     "requests.offerDetail.enrolledNoPayloadHint":
       "ეს სტრიქონი მხოლოდ ისტორიისთვისაა. საუბარი განაგრძეთ პაციენტები → შეტყობინებები.",
     "requests.enrolled.openPatientsList": "პაციენტების გვერდი",
@@ -5934,6 +5940,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "home.referralTeaserCta": "Реферальная программа",
     "home.referralTeaserDiscount": "Текущая скидка: {percent}%",
     "doctor.quickActions.messages": "Входящие лидов",
+    "requests.card.makeOffer": "Сделать предложение",
+    "requests.card.viewMyOffer": "Моё предложение",
     "doctor.inbox.title": "Входящие лидов",
     "doctor.inbox.empty": "Пока нет переписки.",
     "doctor.inbox.noPreview": "Сообщений пока нет",
