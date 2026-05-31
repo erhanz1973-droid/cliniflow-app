@@ -25,6 +25,12 @@ import {
 import { setDoctorPreferredLanguage } from '../../../lib/doctorPreferredLanguage';
 type ProfileListItem = string | { id?: string; name?: string };
 
+interface ProcedureOption {
+  id: string;
+  name: string;
+  category?: string;
+}
+
 interface DoctorProfile {
   doctorId: string;
   name: string;
@@ -34,9 +40,11 @@ interface DoctorProfile {
   title: string | null;
   bio: string;
   experience_years: number | null;
+  years_of_experience?: number | null;
   languages: string | ProfileListItem[] | null;
   specialties?: string | ProfileListItem[] | null;
   specialities?: ProfileListItem[] | null;
+  procedures?: ProfileListItem[] | null;
   university: string | null;
   graduation_year: number | null;
   public_profile: boolean;
@@ -78,6 +86,30 @@ function formatDoctorProfileListField(value: unknown): string {
   return String(value).trim();
 }
 
+function resolveExperienceYears(d: {
+  experience_years?: number | null;
+  years_of_experience?: number | null;
+}): number | null {
+  if (d.experience_years != null && !Number.isNaN(Number(d.experience_years))) {
+    return Number(d.experience_years);
+  }
+  if (d.years_of_experience != null && !Number.isNaN(Number(d.years_of_experience))) {
+    return Number(d.years_of_experience);
+  }
+  return null;
+}
+
+function procedureIdsFromProfile(procedures: ProfileListItem[] | null | undefined): string[] {
+  if (!Array.isArray(procedures)) return [];
+  return procedures
+    .map((item) => {
+      if (item == null) return '';
+      if (typeof item === 'string') return item.trim();
+      return String(item.id || item.name || '').trim();
+    })
+    .filter(Boolean);
+}
+
 function InfoRow({ icon, label, value }: { icon: string; label: string; value?: string | null }) {
   if (!value) return null;
   return (
@@ -111,6 +143,8 @@ export default function DoctorProfileScreen() {
   const [editing, setEditing] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [messageSoundOn, setMessageSoundOn] = useState(true);
+  const [procedureCatalog, setProcedureCatalog] = useState<ProcedureOption[]>([]);
+  const [selectedProcedureIds, setSelectedProcedureIds] = useState<string[]>([]);
 
   useEffect(() => {
     void getMessageSoundPreference().then(setMessageSoundOn);
@@ -127,15 +161,19 @@ export default function DoctorProfileScreen() {
       setLoading(true);
       const res = await apiGet<any>('/api/doctor/me');
       if (res?.ok && res.doctor) {
-        const d = res.doctor as DoctorProfile;
+        const raw = res.doctor as DoctorProfile;
+        const experienceYears = resolveExperienceYears(raw);
+        const d: DoctorProfile = { ...raw, experience_years: experienceYears };
+        const procIds = procedureIdsFromProfile(d.procedures);
         setProfile(d);
+        setSelectedProcedureIds(procIds);
         setForm({
           name: d.name || '',
           phone: d.phone || '',
           title: d.title || '',
           bio: d.bio || '',
           department: d.department || '',
-          experience_years: d.experience_years != null ? String(d.experience_years) : '',
+          experience_years: experienceYears != null ? String(experienceYears) : '',
           university: d.university || '',
           graduation_year: d.graduation_year != null ? String(d.graduation_year) : '',
           languages: formatDoctorProfileListField(d.languages),
@@ -151,6 +189,24 @@ export default function DoctorProfileScreen() {
   }, []);
 
   useEffect(() => { if (user?.token) load(); }, [user?.token, load]);
+
+  useEffect(() => {
+    if (!editing || !user?.token) return;
+    const lang = currentLanguage === 'tr' ? 'tr' : 'en';
+    void apiGet<any>(`/api/doctor/procedures-list?lang=${lang}`)
+      .then((res) => {
+        if (res?.ok && Array.isArray(res.procedures)) {
+          setProcedureCatalog(res.procedures as ProcedureOption[]);
+        }
+      })
+      .catch((e) => console.warn('[Profile] procedures-list:', e));
+  }, [editing, user?.token, currentLanguage]);
+
+  const toggleProcedure = (id: string) => {
+    setSelectedProcedureIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  };
 
   const handleSave = async () => {
     try {
@@ -169,6 +225,13 @@ export default function DoctorProfileScreen() {
         public_profile: form.public_profile,
       });
       if (res?.ok) {
+        const procRes = await apiPut<any>('/api/doctor/procedures-list', {
+          procedure_ids: selectedProcedureIds,
+        });
+        if (!procRes?.ok) {
+          Alert.alert(t('common.error'), procRes?.error || t('doctor.profile.updateError'));
+          return;
+        }
         Alert.alert('', t('doctor.profile.updated'));
         setEditing(false);
         await load();
@@ -429,10 +492,39 @@ export default function DoctorProfileScreen() {
             {editing ? (
               <TextInput style={s.input} value={form.languages}
                 onChangeText={v => setForm(f => ({ ...f, languages: v }))}
-                placeholder={t('doctor.profile.languages')} />
+                placeholder="Türkçe, Almanca, İngilizce" />
             ) : (
               <Text style={s.fieldValue}>
                 {formatDoctorProfileListField(profile?.languages) || t('doctor.profile.notSpecified')}
+              </Text>
+            )}
+          </View>
+          <View style={s.fieldRow}>
+            <Text style={s.fieldLabel}>{t('doctor.profile.procedures')}</Text>
+            {editing ? (
+              procedureCatalog.length > 0 ? (
+                <View style={s.procGrid}>
+                  {procedureCatalog.map((proc) => {
+                    const active = selectedProcedureIds.includes(proc.id);
+                    return (
+                      <Pressable
+                        key={proc.id}
+                        style={[s.procChip, active && s.procChipActive]}
+                        onPress={() => toggleProcedure(proc.id)}
+                      >
+                        <Text style={[s.procChipText, active && s.procChipTextActive]}>
+                          {proc.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : (
+                <ActivityIndicator size="small" color="#2563EB" />
+              )
+            ) : (
+              <Text style={s.fieldValue}>
+                {formatDoctorProfileListField(profile?.procedures) || t('doctor.profile.notSpecified')}
               </Text>
             )}
           </View>
@@ -595,6 +687,15 @@ const s = StyleSheet.create({
     borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: '#111827',
   },
   multiline: { minHeight: 70, textAlignVertical: 'top' },
+
+  procGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  procChip: {
+    paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999,
+    borderWidth: 1, borderColor: '#D1D5DB', backgroundColor: '#F9FAFB',
+  },
+  procChipActive: { borderColor: '#2563EB', backgroundColor: '#EFF6FF' },
+  procChipText: { fontSize: 12, color: '#374151', fontWeight: '600' },
+  procChipTextActive: { color: '#1D4ED8' },
 
   cancelBtn: {
     backgroundColor: '#F3F4F6', borderRadius: 10, padding: 14, alignItems: 'center',
