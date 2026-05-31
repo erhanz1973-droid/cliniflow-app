@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import {
   ActivityIndicator,
   Dimensions,
+  InteractionManager,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -35,8 +36,12 @@ type Props = {
 export function DoctorCoordinationWorkspace({ patientId }: Props) {
   const intentRef = useRef<ScrollView>(null);
   const mainScrollRef = useRef<ScrollView>(null);
+  const feedBottomRef = useRef<View>(null);
   const keyboardInsetRef = useRef(0);
   const scrollYRef = useRef(0);
+  const feedNearBottomRef = useRef(true);
+  const initialFeedScrollDoneRef = useRef(false);
+  const lastFeedTurnIdRef = useRef<string | undefined>(undefined);
   const lastFocusedFieldRef = useRef<RefObject<View | null> | null>(null);
   const insets = useSafeAreaInsets();
   const [keyboardInset, setKeyboardInset] = useState(0);
@@ -84,6 +89,83 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
       mainScrollRef.current?.scrollToEnd({ animated: true });
     }
   };
+
+  const scrollFeedToLatest = useCallback(
+    (animated: boolean) => {
+      if (isWide) return;
+      const anchor = feedBottomRef.current;
+      if (!anchor) return;
+      requestAnimationFrame(() => {
+        anchor.measureInWindow((_x, y, _w, h) => {
+          const winH = Dimensions.get("window").height;
+          const kb = keyboardInsetRef.current || 0;
+          const visibleBottom = winH - kb - insets.bottom - 32;
+          const feedBottom = y + h;
+          const overflow = feedBottom - visibleBottom;
+          if (overflow > 0) {
+            mainScrollRef.current?.scrollTo({
+              y: Math.max(0, scrollYRef.current + overflow + 8),
+              animated,
+            });
+          }
+        });
+      });
+    },
+    [isWide, insets.bottom],
+  );
+
+  const scrollToReplyComposer = useCallback(
+    (animated: boolean) => {
+      if (isWide) {
+        scrollToIntent();
+        return;
+      }
+      InteractionManager.runAfterInteractions(() => {
+        requestAnimationFrame(() => {
+          mainScrollRef.current?.scrollToEnd({ animated });
+        });
+      });
+    },
+    [isWide],
+  );
+
+  useEffect(() => {
+    initialFeedScrollDoneRef.current = false;
+    feedNearBottomRef.current = true;
+    lastFeedTurnIdRef.current = undefined;
+  }, [patientId]);
+
+  const handleEmbeddedFeedChange = useCallback(() => {
+    if (isWide || messageTurns.length === 0) return;
+    if (!initialFeedScrollDoneRef.current) {
+      InteractionManager.runAfterInteractions(() => {
+        scrollFeedToLatest(false);
+        scrollToReplyComposer(false);
+        initialFeedScrollDoneRef.current = true;
+        feedNearBottomRef.current = true;
+        lastFeedTurnIdRef.current = messageTurns[messageTurns.length - 1]?.id;
+      });
+    }
+  }, [isWide, messageTurns, scrollFeedToLatest, scrollToReplyComposer]);
+
+  useEffect(() => {
+    if (isWide || loading || messageTurns.length === 0) return;
+
+    const lastId = messageTurns[messageTurns.length - 1]?.id;
+    const isNewTail = lastId !== lastFeedTurnIdRef.current;
+    lastFeedTurnIdRef.current = lastId;
+
+    if (!initialFeedScrollDoneRef.current) return;
+
+    if (isNewTail && feedNearBottomRef.current) {
+      scrollFeedToLatest(true);
+    }
+  }, [isWide, loading, messageTurns, scrollFeedToLatest]);
+
+  useEffect(() => {
+    if (isWide || loading || !data?.profile) return;
+    scrollToReplyComposer(false);
+  }, [patientId, isWide, loading, data?.profile, scrollToReplyComposer]);
 
   const scrollFieldIntoView = useCallback(
     (fieldRef?: RefObject<View | null>) => {
@@ -226,7 +308,9 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
         patientName={data.profile.patientName}
         flex={isWide}
         embedInParentScroll={!isWide}
+        onEmbeddedLayout={handleEmbeddedFeedChange}
       />
+      {!isWide ? <View ref={feedBottomRef} collapsable={false} /> : null}
     </View>
   );
 
@@ -319,6 +403,10 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
         nestedScrollEnabled
         onScroll={(e) => {
           scrollYRef.current = e.nativeEvent.contentOffset.y;
+          const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+          const distFromBottom =
+            contentSize.height - (layoutMeasurement.height + contentOffset.y);
+          feedNearBottomRef.current = distFromBottom < 120;
         }}
         scrollEventThrottle={16}
       >

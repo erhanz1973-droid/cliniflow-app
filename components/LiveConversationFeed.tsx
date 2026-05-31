@@ -94,6 +94,8 @@ type Props = {
   flex?: boolean;
   /** Render static rows inside a parent ScrollView (no nested VirtualizedList). */
   embedInParentScroll?: boolean;
+  /** Fires after embedded feed lays out — parent can scroll to latest message. */
+  onEmbeddedLayout?: () => void;
 };
 
 function TurnRow({
@@ -134,6 +136,7 @@ export function LiveConversationFeed({
   patientName,
   flex,
   embedInParentScroll = false,
+  onEmbeddedLayout,
 }: Props) {
   const listRef = useRef<FlatList<ConversationTurn>>(null);
 
@@ -155,7 +158,12 @@ export function LiveConversationFeed({
 
   if (embedInParentScroll) {
     return (
-      <View style={[styles.list, styles.listEmbedded]}>
+      <View
+        style={[styles.list, styles.listEmbedded]}
+        onLayout={() => {
+          if (turns.length > 0) onEmbeddedLayout?.();
+        }}
+      >
         {turns.map((item) => (
           <TurnRow key={item.id} item={item} patientName={patientName} />
         ))}
