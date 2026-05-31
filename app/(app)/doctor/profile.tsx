@@ -22,6 +22,7 @@ import {
   getMessageSoundPreference,
   setMessageSoundPreference,
 } from '../../../lib/messageSoundPreference';
+import { setDoctorPreferredLanguage } from '../../../lib/doctorPreferredLanguage';
 type ProfileListItem = string | { id?: string; name?: string };
 
 interface DoctorProfile {
@@ -473,12 +474,18 @@ export default function DoctorProfileScreen() {
         </SectionCard>
 
         <SectionCard title={t('doctor.profile.appLanguage')}>
+          <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 8, lineHeight: 17 }}>
+            Hasta mesajları «Çeviriyi göster» ile bu dile çevrilir.
+          </Text>
           <View style={s.langRow}>
             {SUPPORTED_LANGUAGES.map((lang) => (
               <TouchableOpacity
                 key={lang}
                 style={[s.langBtn, currentLanguage === lang && s.langBtnActive]}
-                onPress={() => setLanguage(lang as Language)}
+                onPress={() => {
+                  void setLanguage(lang as Language);
+                  void setDoctorPreferredLanguage(lang);
+                }}
               >
                 <Text style={[s.langBtnText, currentLanguage === lang && s.langBtnTextActive]}>
                   {LANGUAGE_NAMES[lang as Language]}

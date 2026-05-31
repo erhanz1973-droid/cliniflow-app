@@ -6,6 +6,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Pressable,
   FlatList,
   StyleSheet,
   ActivityIndicator,
@@ -15,6 +16,7 @@ import {
   InteractionManager,
   type ListRenderItemInfo,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useDeferredFocusRefresh } from '../../../hooks/use-deferred-focus-refresh';
@@ -49,6 +51,13 @@ import {
   snoozeRemainingLabel,
   type DoctorAiCoordinationState,
 } from '../../../lib/doctorAiSnooze';
+import {
+  langFlag,
+  pickCachedTranslation,
+  translateDoctorMessage,
+  type MessageTranslation,
+} from '../../../lib/doctorChatTranslationApi';
+import { getDoctorPreferredLanguage } from '../../../lib/doctorPreferredLanguage';
 
 function applySnapshot(
   snapshot: { messages: DoctorChatMessage[]; leadThreadId: string | null; enrolledSharedCare: boolean },
@@ -99,6 +108,10 @@ export default function DoctorPatientChatScreen() {
   const [aiCoord, setAiCoord] = useState<DoctorAiCoordinationState | null>(null);
   const [aiSnoozeBusy, setAiSnoozeBusy] = useState(false);
   const [snoozeTick, setSnoozeTick] = useState(0);
+  const [doctorLang, setDoctorLang] = useState('tr');
+  const [translationById, setTranslationById] = useState<Record<string, MessageTranslation>>({});
+  const [visibleTranslationIds, setVisibleTranslationIds] = useState<Set<string>>(new Set());
+  const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
 
   const flatRef = useRef<FlatList>(null);
   const chatSocketRef = useRef<Socket | null>(null);
@@ -297,6 +310,28 @@ export default function DoctorPatientChatScreen() {
       });
     }
   }, [initialSnapshot]);
+
+  useEffect(() => {
+    void getDoctorPreferredLanguage().then(setDoctorLang);
+  }, []);
+
+  useEffect(() => {
+    if (!doctorLang || !messages.length) return;
+    setTranslationById((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const msg of messages) {
+        const id = String(msg.id || '').trim();
+        if (!id || next[id]) continue;
+        const cached = pickCachedTranslation(msg.translation, doctorLang);
+        if (cached) {
+          next[id] = cached;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [messages, doctorLang]);
 
   useEffect(() => {
     const k = String(patientId ?? '').trim();
@@ -708,9 +743,127 @@ export default function DoctorPatientChatScreen() {
     }
   };
 
+  const toggleTranslationVisibility = useCallback((messageId: string, visible: boolean) => {
+    setVisibleTranslationIds((prev) => {
+      const next = new Set(prev);
+      if (visible) next.add(messageId);
+      else next.delete(messageId);
+      return next;
+    });
+  }, []);
+
+  const ensureTranslation = useCallback(
+    async (message: DoctorChatMessage) => {
+      const messageId = String(message.id || '').trim();
+      if (!messageId) return null;
+
+      const existing = translationById[messageId];
+      if (existing?.translatedText) return existing;
+
+      setTranslatingIds((prev) => new Set(prev).add(messageId));
+      try {
+        setAuthToken(token);
+        const lang = doctorLang || (await getDoctorPreferredLanguage());
+        const res = await translateDoctorMessage(messageId, lang);
+        const tr: MessageTranslation = {
+          sourceLanguage: String(res.sourceLanguage || res.translation?.sourceLanguage || 'auto'),
+          targetLanguage: String(res.targetLanguage || res.translation?.targetLanguage || lang),
+          translatedText: String(res.translatedText || res.translation?.translatedText || '').trim(),
+          translatedAt: res.translation?.translatedAt,
+        };
+        if (!tr.translatedText) {
+          Alert.alert('Çeviri', 'Çeviri boş döndü. Lütfen tekrar deneyin.');
+          return null;
+        }
+        setTranslationById((prev) => ({ ...prev, [messageId]: tr }));
+        return tr;
+      } catch (err: unknown) {
+        const code =
+          err && typeof err === 'object' && 'code' in err
+            ? String((err as { code?: string }).code || '')
+            : '';
+        const msg =
+          code === 'message_not_found'
+            ? 'Bu mesaj çeviri için bulunamadı.'
+            : code === 'forbidden' || code === 'assigned_doctor_only'
+              ? 'Bu hasta için çeviri yetkiniz yok.'
+              : code === 'translate_provider_failed'
+                ? 'Çeviri servisi yanıt vermedi. Biraz sonra tekrar deneyin.'
+                : 'Mesaj çevrilemedi. Lütfen tekrar deneyin.';
+        if (__DEV__) {
+          console.warn('[DR CHAT translate]', code || err);
+        }
+        Alert.alert('Çeviri', msg);
+        return null;
+      } finally {
+        setTranslatingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(messageId);
+          return next;
+        });
+      }
+    },
+    [doctorLang, token, translationById],
+  );
+
+  const openPatientMessageMenu = useCallback(
+    (message: DoctorChatMessage) => {
+      const messageId = String(message.id || '').trim();
+      const body = String(message.text || '').trim();
+      if (!messageId || !body) return;
+
+      const hasVisible = visibleTranslationIds.has(messageId);
+      const hasTranslation = Boolean(translationById[messageId]?.translatedText);
+
+      Alert.alert('', undefined, [
+        {
+          text: '📋 Kopyala',
+          onPress: () => {
+            void Clipboard.setStringAsync(body);
+          },
+        },
+        {
+          text: hasVisible ? '🌐 Çeviriyi gizle' : '🌐 Çeviriyi göster',
+          onPress: () => {
+            void (async () => {
+              if (hasVisible) {
+                toggleTranslationVisibility(messageId, false);
+                return;
+              }
+              if (!hasTranslation) {
+                const tr = await ensureTranslation(message);
+                if (!tr) return;
+              }
+              toggleTranslationVisibility(messageId, true);
+            })();
+          },
+        },
+        { text: 'İptal', style: 'cancel' },
+      ]);
+    },
+    [ensureTranslation, toggleTranslationVisibility, translationById, visibleTranslationIds],
+  );
+
   const renderDoctorMessageItem = useCallback(
-    ({ item }: ListRenderItemInfo<DoctorChatMessage>) => <MessageItem message={item} />,
-    []
+    ({ item }: ListRenderItemInfo<DoctorChatMessage>) => (
+      <MessageItem
+        message={item}
+        doctorLang={doctorLang}
+        translation={
+          translationById[item.id] || pickCachedTranslation(item.translation, doctorLang)
+        }
+        translationVisible={visibleTranslationIds.has(item.id)}
+        translating={translatingIds.has(item.id)}
+        onOpenMenu={openPatientMessageMenu}
+      />
+    ),
+    [
+      doctorLang,
+      openPatientMessageMenu,
+      translationById,
+      translatingIds,
+      visibleTranslationIds,
+    ],
   );
 
   const doctorMessageKeyExtractor = useCallback((item: DoctorChatMessage, index: number) => {
@@ -1024,6 +1177,29 @@ const styles = StyleSheet.create({
   bubbleTextDoctor: { color: '#fff' },
   bubbleTime: { fontSize: 10, color: '#9CA3AF', marginTop: 4, alignSelf: 'flex-end' },
   bubbleTimeDoctor: { color: 'rgba(255,255,255,0.65)' },
+  bubbleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 2,
+  },
+  menuBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: '#E5E7EB',
+  },
+  menuBtnText: { fontSize: 16, lineHeight: 18, color: '#6B7280', fontWeight: '700' },
+  translationBlock: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#CBD5E1',
+  },
+  translationLine: { fontSize: 14, color: '#334155', lineHeight: 20 },
+  translatingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  translatingText: { fontSize: 12, color: '#64748B' },
   emptyBox: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 80, gap: 10 },
   emptyIcon: { fontSize: 48 },
   emptyText: { fontSize: 15, color: '#9CA3AF' },
@@ -1059,8 +1235,24 @@ const styles = StyleSheet.create({
   sendBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 });
 
+type MessageItemProps = {
+  message: DoctorChatMessage;
+  doctorLang?: string;
+  translation?: MessageTranslation | null;
+  translationVisible?: boolean;
+  translating?: boolean;
+  onOpenMenu?: (message: DoctorChatMessage) => void;
+};
+
 const MessageItem = React.memo(
-  function MessageItem({ message }: { message: DoctorChatMessage }) {
+  function MessageItem({
+    message,
+    doctorLang = 'tr',
+    translation = null,
+    translationVisible = false,
+    translating = false,
+    onOpenMenu,
+  }: MessageItemProps) {
     const isPatient = message.from === 'PATIENT';
     const isDoctorMsg =
       message.inboundKind === 'doctor' ||
@@ -1076,6 +1268,7 @@ const MessageItem = React.memo(
       (!isPatient &&
         !isAi &&
         (message.from === 'CLINIC' || message.from === 'DOCTOR' || message.from === 'admin'));
+    const canTranslate = isPatient && !isDoctorSide && String(message.text || '').trim().length > 0;
     const ts =
       typeof message.createdAt === 'number' && Number.isFinite(message.createdAt)
         ? message.createdAt
@@ -1086,14 +1279,50 @@ const MessageItem = React.memo(
     });
     return (
       <View style={[styles.bubble, isDoctorSide ? styles.bubbleDoctor : styles.bubblePatient]}>
-        {!isDoctorSide && (isPatient || message.senderName) ? (
+        {canTranslate ? (
+          <View style={styles.bubbleHeader}>
+            {!isDoctorSide && (isPatient || message.senderName) ? (
+              <Text style={[styles.bubbleSender, { flex: 1 }]}>
+                {isPatient && !message.senderName ? 'Hasta' : message.senderName}
+              </Text>
+            ) : (
+              <View style={{ flex: 1 }} />
+            )}
+            <Pressable
+              onPress={() => onOpenMenu?.(message)}
+              hitSlop={8}
+              style={styles.menuBtn}
+              accessibilityLabel="Mesaj menüsü"
+            >
+              <Text style={styles.menuBtnText}>⋯</Text>
+            </Pressable>
+          </View>
+        ) : !isDoctorSide && (isPatient || message.senderName) ? (
           <Text style={styles.bubbleSender}>
             {isPatient && !message.senderName ? 'Hasta' : message.senderName}
           </Text>
         ) : null}
-        <Text style={[styles.bubbleText, isDoctorSide && styles.bubbleTextDoctor]}>
-          {message.text?.trim() ? message.text : '…'}
-        </Text>
+        <Pressable
+          onLongPress={canTranslate ? () => onOpenMenu?.(message) : undefined}
+          delayLongPress={280}
+        >
+          <Text style={[styles.bubbleText, isDoctorSide && styles.bubbleTextDoctor]}>
+            {message.text?.trim() ? message.text : '…'}
+          </Text>
+          {translationVisible && translation?.translatedText ? (
+            <View style={styles.translationBlock}>
+              <Text style={styles.translationLine}>
+                {langFlag(translation.targetLanguage || doctorLang)} {translation.translatedText}
+              </Text>
+            </View>
+          ) : null}
+          {translating ? (
+            <View style={styles.translatingRow}>
+              <ActivityIndicator size="small" color="#64748B" />
+              <Text style={styles.translatingText}>Çevriliyor…</Text>
+            </View>
+          ) : null}
+        </Pressable>
         <Text style={[styles.bubbleTime, isDoctorSide && styles.bubbleTimeDoctor]}>{timeStr}</Text>
       </View>
     );
@@ -1103,5 +1332,9 @@ const MessageItem = React.memo(
     prev.message.from === next.message.from &&
     prev.message.text === next.message.text &&
     prev.message.pending === next.message.pending &&
-    prev.message.createdAt === next.message.createdAt
+    prev.message.createdAt === next.message.createdAt &&
+    prev.doctorLang === next.doctorLang &&
+    prev.translationVisible === next.translationVisible &&
+    prev.translating === next.translating &&
+    prev.translation?.translatedText === next.translation?.translatedText
 );

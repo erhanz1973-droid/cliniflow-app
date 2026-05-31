@@ -11,6 +11,7 @@ export type DoctorChatMessage = {
   inboundKind?: string;
   pending?: boolean;
   thread_id?: string;
+  translation?: unknown;
 };
 
 export type DoctorPatientChatSnapshot = {
@@ -165,6 +166,7 @@ export function mapApiMessages(raw: unknown[]): DoctorChatMessage[] {
       ...(senderName ? { senderName } : {}),
       ...(inboundKindRaw ? { inboundKind: inboundKindRaw } : {}),
       ...(thread_id ? { thread_id } : {}),
+      ...(m.translation != null ? { translation: m.translation } : {}),
     };
   });
   const sorted = [...mapped].sort((a, b) => a.createdAt - b.createdAt);
