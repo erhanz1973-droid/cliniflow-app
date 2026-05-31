@@ -106,6 +106,8 @@ export default function DoctorPatientChatScreen() {
   const fetchGenerationRef = useRef(0);
   const patientRouteKeyRef = useRef('');
   const aiReplyFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollRafRef = useRef<number | null>(null);
+  const prevNewestMessageIdRef = useRef('');
 
   const MESSAGE_CAP = DOCTOR_CHAT_MESSAGE_CAP;
 
@@ -140,15 +142,21 @@ export default function DoctorPatientChatScreen() {
 
   const scrollToLatest = useCallback((opts?: { force?: boolean }) => {
     if (!flatRef.current || messages.length === 0) return;
-    if (!opts?.force && !pendingScrollToLatestRef.current && !isAtBottomRef.current) return;
+    if (!opts?.force && !pendingScrollToLatestRef.current) return;
     const now = Date.now();
-    if (now - lastScrollSnapAtRef.current < 48) return;
-    lastScrollSnapAtRef.current = now;
-    pendingScrollToLatestRef.current = false;
-    requestAnimationFrame(() => {
-      flatRef.current?.scrollToOffset({ offset: 0, animated: false });
+    if (now - lastScrollSnapAtRef.current < 120) return;
+    if (scrollRafRef.current != null) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      if (!flatRef.current) return;
+      if (!opts?.force && !pendingScrollToLatestRef.current) return;
+      lastScrollSnapAtRef.current = Date.now();
+      pendingScrollToLatestRef.current = false;
+      flatRef.current.scrollToOffset({ offset: 0, animated: false });
     });
   }, [messages.length]);
+
+  const listData = useMemo(() => [...messages].reverse(), [messages]);
 
   const persistSnapshot = useCallback(
     (next: {
@@ -178,7 +186,10 @@ export default function DoctorPatientChatScreen() {
       try {
         const res = await fetch(
           `${API_BASE}/api/doctor/patient/${encodeURIComponent(patientId)}/messages?limit=${MESSAGE_CAP}`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: 'no-store',
+          },
         );
         if (generation !== fetchGenerationRef.current) return;
 
@@ -244,8 +255,19 @@ export default function DoctorPatientChatScreen() {
             return merged;
           });
           focusPerfMark('doctor:patient-chat:data_ready', { count: slice.length, silent });
-          if (slice.length > 0 && (!silent || isAtBottomRef.current)) {
+          if (slice.length > 0 && !silent) {
             pendingScrollToLatestRef.current = true;
+          } else if (slice.length > 0 && silent && isAtBottomRef.current) {
+            const prevNewest = prevNewestMessageIdRef.current;
+            const newest = slice[slice.length - 1];
+            const newestId = String(newest?.id || '').trim();
+            if (newestId && newestId !== prevNewest) {
+              pendingScrollToLatestRef.current = true;
+            }
+          }
+          if (slice.length > 0) {
+            const tail = slice[slice.length - 1];
+            prevNewestMessageIdRef.current = String(tail?.id || '').trim();
           }
         }
       } catch (err: unknown) {
@@ -345,13 +367,10 @@ export default function DoctorPatientChatScreen() {
       if (!token || !patientId) return;
       void markDoctorPatientMessagesRead(token, patientId);
       void refreshAiCoordination();
-      pendingScrollToLatestRef.current = true;
-      isAtBottomRef.current = true;
-      const task = InteractionManager.runAfterInteractions(() => {
-        scrollToLatest({ force: true });
-      });
-      return () => task.cancel?.();
-    }, [token, patientId, scrollToLatest, refreshAiCoordination]),
+      if (isAtBottomRef.current) {
+        pendingScrollToLatestRef.current = true;
+      }
+    }, [token, patientId, refreshAiCoordination]),
   );
 
   useEffect(() => {
@@ -452,12 +471,32 @@ export default function DoctorPatientChatScreen() {
         setMessages((prev) => {
           if (prev.find((m) => m.id === id)) return prev;
           const textMsg = String(legacy.text || '');
+          const fromRaw = String(legacy.from || '').toUpperCase();
+          const from = fromRaw === 'PATIENT' ? 'PATIENT' : 'CLINIC';
+          const createdAt =
+            typeof legacy.createdAt === 'number' ? legacy.createdAt : Date.now();
+          if (from === 'CLINIC' && textMsg.trim().length >= 4) {
+            const bucket = Math.floor(createdAt / 120_000);
+            const fp = `${bucket}|${textMsg.trim().replace(/\s+/g, ' ').toLowerCase().slice(0, 280)}`;
+            if (
+              prev.some((m) => {
+                if (String(m.from).toUpperCase() !== 'CLINIC') return false;
+                const b = Math.floor((Number(m.createdAt) || 0) / 120_000);
+                const pfp = `${b}|${String(m.text || '')
+                  .trim()
+                  .replace(/\s+/g, ' ')
+                  .toLowerCase()
+                  .slice(0, 280)}`;
+                return pfp === fp;
+              })
+            ) {
+              return prev;
+            }
+          }
           const withoutPending = prev.filter(
             (m) =>
               !(m.pending && String(m.from).toUpperCase() === 'CLINIC' && m.text === textMsg)
           );
-          const fromRaw = String(legacy.from || '').toUpperCase();
-          const from = fromRaw === 'PATIENT' ? 'PATIENT' : 'CLINIC';
           const tidLegacy = legacy.thread_id ?? legacy.threadId;
           const thread_id =
             tidLegacy != null && String(tidLegacy).trim() !== ''
@@ -467,7 +506,7 @@ export default function DoctorPatientChatScreen() {
             id,
             text: textMsg,
             from,
-            createdAt: typeof legacy.createdAt === 'number' ? legacy.createdAt : Date.now(),
+            createdAt,
             ...(thread_id ? { thread_id } : {}),
           };
           const next = capDoctorChatMessages(
@@ -517,12 +556,13 @@ export default function DoctorPatientChatScreen() {
   }, [token, resolvedThreadId, patientKey, enrolledSharedCare, persistSnapshot, fetchMessages, logDoctorChatSocket, MESSAGE_CAP]);
 
   useEffect(() => {
-    if (messages.length === 0) return;
-    const task = InteractionManager.runAfterInteractions(() => {
-      scrollToLatest();
-    });
-    return () => task.cancel?.();
-  }, [messages, scrollToLatest]);
+    return () => {
+      if (scrollRafRef.current != null) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
+    };
+  }, []);
 
   const handleSend = async () => {
     const trimmed = text.trim();
@@ -781,26 +821,24 @@ export default function DoctorPatientChatScreen() {
         ) : (
           <FlatList
             ref={flatRef}
-            data={messages}
+            data={listData}
             keyExtractor={doctorMessageKeyExtractor}
             contentContainerStyle={styles.listContent}
             renderItem={renderDoctorMessageItem}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             inverted
-            initialNumToRender={12}
-            maxToRenderPerBatch={8}
-            windowSize={7}
+            initialNumToRender={16}
+            maxToRenderPerBatch={10}
+            windowSize={9}
             removeClippedSubviews={Platform.OS === 'android'}
+            onContentSizeChange={() => {
+              scrollToLatest();
+            }}
             onScroll={(e) => {
               isAtBottomRef.current = e.nativeEvent.contentOffset.y < 72;
             }}
-            scrollEventThrottle={100}
-            onLayout={() => {
-              if (pendingScrollToLatestRef.current && messages.length > 0) {
-                scrollToLatest({ force: true });
-              }
-            }}
+            scrollEventThrottle={160}
             ListEmptyComponent={
               <View style={styles.emptyBox}>
                 <Text style={styles.emptyIcon}>💬</Text>

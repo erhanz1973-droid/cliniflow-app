@@ -20,7 +20,7 @@ export type DoctorPatientChatSnapshot = {
 };
 
 const CACHE_PREFIX = "doctor:patient-chat:";
-const DISK_PREFIX = "doctor.patient-chat.v4.";
+const DISK_PREFIX = "doctor.patient-chat.v6.";
 
 export function doctorPatientChatCacheKey(patientId: string): string {
   return `${CACHE_PREFIX}${String(patientId || "").trim()}`;
@@ -130,6 +130,16 @@ function resolveApiMessageFrom(m: Record<string, unknown>): "PATIENT" | "CLINIC"
   return "CLINIC";
 }
 
+function outboundClinicDedupeKey(m: DoctorChatMessage): string | null {
+  const text = String(m.text || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+  if (!text || text.length < 4) return null;
+  const bucket = Number.isFinite(m.createdAt) ? Math.floor(m.createdAt / 120_000) : 0;
+  return `${bucket}|${text.slice(0, 280)}`;
+}
+
 export function mapApiMessages(raw: unknown[]): DoctorChatMessage[] {
   const mapped = raw.map((row: unknown) => {
     const m = row as Record<string, unknown>;
@@ -158,28 +168,17 @@ export function mapApiMessages(raw: unknown[]): DoctorChatMessage[] {
     };
   });
   const sorted = [...mapped].sort((a, b) => a.createdAt - b.createdAt);
-  const byId = new Map<string, DoctorChatMessage>();
+  const out: DoctorChatMessage[] = [];
+  const clinicKeys = new Set<string>();
   for (const m of sorted) {
-    const id = String(m.id || "").trim();
-    if (!id) continue;
-    const existing = byId.get(id);
-    if (!existing) {
-      byId.set(id, m);
-      continue;
+    if (String(m.from).toUpperCase() === 'CLINIC') {
+      const key = outboundClinicDedupeKey(m);
+      if (key && clinicKeys.has(key)) continue;
+      if (key) clinicKeys.add(key);
     }
-    if (m.from === "PATIENT" && existing.from !== "PATIENT") {
-      byId.set(id, m);
-      continue;
-    }
-    if (existing.from === "PATIENT") continue;
-    if (m.inboundKind === "doctor" && existing.inboundKind !== "doctor") {
-      byId.set(id, m);
-      continue;
-    }
-    if (existing.inboundKind === "doctor") continue;
-    if ((m.text?.length || 0) >= (existing.text?.length || 0)) byId.set(id, m);
+    out.push(m);
   }
-  return [...byId.values()].slice(-250);
+  return out.slice(-250);
 }
 
 export function parseLeadAssignment(json: Record<string, unknown>): {
