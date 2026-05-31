@@ -48,6 +48,7 @@ import {
   hydrateDoctorRequestsFromDisk,
   persistDoctorRequestsList,
 } from '../../../lib/doctorRequestsPersistence';
+import { CoordinationResponderChip } from '../../../components/CoordinationResponderChip';
 
 // ── Quick treatment presets ───────────────────────────────────────────────────
 const QUICK = [
@@ -548,7 +549,14 @@ const RequestCard = memo(function RequestCard({
               <Text style={cs.assignedText}>{t('requests.card.assignedToMe') || '📌 Assigned to me'}</Text>
             </View>
           ) : null}
-          <Text style={cs.patientName}>👤 {req.patient_name}</Text>
+          <View style={cs.patientNameRow}>
+            <Text style={cs.patientName}>👤 {req.patient_name}</Text>
+            <CoordinationResponderChip
+              responder={req.coordination_responder ?? req.coordinationResponder ?? null}
+              t={t}
+              compact
+            />
+          </View>
         </View>
         <View style={cs.topRight}>
           <Text style={cs.ts}>{fmtTs(req.created_at, t)}</Text>
@@ -1240,6 +1248,7 @@ const cs = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1, borderColor: '#BFDBFE',
   },
   assignedText: { fontSize: 10, color: '#1D4ED8', fontWeight: '700' },
+  patientNameRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 },
   patientName: { fontSize: 14, fontWeight: '700', color: '#111827' },
   ts: { fontSize: 11, color: '#9CA3AF' },
   statusDot: { width: 8, height: 8, borderRadius: 4 },

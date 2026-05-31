@@ -1,4 +1,5 @@
 import { normalizeLeadThreadIsLead } from "./canonicalChatTarget";
+import type { CoordinationResponder } from "./coordinationResponderLabel";
 
 export const DOCTOR_REQUESTS_LIST_CACHE_KEY = "doctor:requests:list";
 
@@ -35,6 +36,8 @@ export type DoctorRequestRow = {
   unread_count: number;
   is_assigned_to_me: boolean;
   photos: RequestPhoto[] | null;
+  coordination_responder?: CoordinationResponder | null;
+  coordinationResponder?: CoordinationResponder | null;
 };
 
 /** API may return photos as string[] or {url,type}[] — normalize for Image uri. */
@@ -67,6 +70,14 @@ export function normalizeDoctorRequests(rows: unknown[]): DoctorRequestRow[] {
       id: String(r.id ?? ""),
       patient_name: String(r.patient_name ?? "Patient"),
       lead_thread_is_lead,
+      coordination_responder:
+        (r.coordination_responder as CoordinationResponder | null | undefined) ??
+        (r.coordinationResponder as CoordinationResponder | null | undefined) ??
+        null,
+      coordinationResponder:
+        (r.coordinationResponder as CoordinationResponder | null | undefined) ??
+        (r.coordination_responder as CoordinationResponder | null | undefined) ??
+        null,
       my_offer: (r.my_offer as MyOfferSummary | null | undefined) ?? null,
       unread_count: Math.max(0, Number(r.unread_count) || 0),
       photos: normalizeRequestPhotos(r.photos),

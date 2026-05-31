@@ -37,6 +37,7 @@ import {
   acknowledgeDoctorHomeBadge,
   refreshDoctorHomeBadgeLiveCounts,
 } from "../../../lib/doctorHomeBadges";
+import { CoordinationResponderChip } from "../../../components/CoordinationResponderChip";
 
 function fmtPreviewTime(createdAt: number | null | undefined): string {
   if (createdAt == null || !Number.isFinite(Number(createdAt))) return "";
@@ -312,9 +313,16 @@ export default function DoctorInboxScreen() {
                       </View>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <View style={styles.rowTop}>
-                          <Text style={styles.nameEnrolled} numberOfLines={1}>
-                            {item.patientName || "—"}
-                          </Text>
+                          <View style={styles.nameRow}>
+                            <Text style={styles.nameEnrolled} numberOfLines={1}>
+                              {item.patientName || "—"}
+                            </Text>
+                            <CoordinationResponderChip
+                              responder={item.coordinationResponder}
+                              t={t}
+                              compact
+                            />
+                          </View>
                           {ts ? <Text style={styles.timeMuted}>{ts}</Text> : null}
                         </View>
                         {ownerLine ? (
@@ -378,9 +386,16 @@ export default function DoctorInboxScreen() {
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <View style={styles.rowTop}>
-                    <Text style={styles.name} numberOfLines={1}>
-                      {item.patientName || "—"}
-                    </Text>
+                    <View style={styles.nameRow}>
+                      <Text style={styles.name} numberOfLines={1}>
+                        {item.patientName || "—"}
+                      </Text>
+                      <CoordinationResponderChip
+                        responder={item.coordinationResponder}
+                        t={t}
+                        compact
+                      />
+                    </View>
                     {ts ? <Text style={styles.time}>{ts}</Text> : null}
                   </View>
                   {ownerLine ? (
@@ -456,6 +471,7 @@ const styles = StyleSheet.create({
   },
   avatarTxt: { fontSize: 18, fontWeight: "700", color: "#1d4ed8" },
   rowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
+  nameRow: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 4 },
   ownerLine: { fontSize: 12, fontWeight: "600", color: "#047857", marginTop: 2 },
   enrolledHint: {
     fontSize: 11,

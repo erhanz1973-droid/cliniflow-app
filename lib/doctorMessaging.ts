@@ -1,4 +1,5 @@
 import { API_BASE } from "./api";
+import type { CoordinationResponder } from "./coordinationResponderLabel";
 
 /** Client-side: align roughly with server DOCTOR_MSG_THREAD_SUMMARY_TTL_MS (12s). */
 const THREAD_SUMMARY_CLIENT_TTL_MS = 18_000;
@@ -47,6 +48,8 @@ export type DoctorThreadSummaryRow = {
   lastActivityAt?: number | null;
   /** Present when this row is a lead (`patient_chat_threads.is_lead`) for the clinic. */
   leadPrimaryResponder?: LeadPrimaryResponder | null;
+  /** AI vs doctor conversation owner for coordination leads. */
+  coordinationResponder?: CoordinationResponder | null;
 };
 
 export type DoctorThreadSummaryResponse = {
