@@ -7,8 +7,8 @@ import {
 } from "../lib/clinicInviteStorage";
 
 /**
- * Captures invite deep links (clinifly://clinic-invite/CODE, https://…/invite/CODE)
- * and routes to the welcome screen while persisting the clinic code for signup.
+ * Captures clinic invite deep links and opens signup with the clinic code prefilled.
+ * Uses /register-patient so store builds without /invite/[code] still work.
  */
 export function ClinicInviteBootstrap() {
   const router = useRouter();
@@ -21,8 +21,8 @@ export function ClinicInviteBootstrap() {
       if (!code || cancelled) return;
       await savePendingClinicInvite({ code, viaInvitation: true });
       router.replace({
-        pathname: "/invite/[code]",
-        params: { code },
+        pathname: "/register-patient",
+        params: { prefillClinicCode: code, fromClinicInvite: "1" },
       });
     };
 

@@ -8,7 +8,7 @@ import {
 
 /**
  * Alias for https://…/invite/CLINIC_CODE and clinifly://invite/CLINIC_CODE
- * (QR / web landing URL). Forwards to the clinic welcome screen.
+ * (QR / web landing URL). Forwards to patient signup with clinic code prefilled.
  */
 export default function ClinicInviteUrlAliasScreen() {
   const router = useRouter();
@@ -27,8 +27,8 @@ export default function ClinicInviteUrlAliasScreen() {
       await savePendingClinicInvite({ code, viaInvitation: true });
       if (cancelled) return;
       router.replace({
-        pathname: "/clinic-invite/[code]",
-        params: { code },
+        pathname: "/register-patient",
+        params: { prefillClinicCode: code, fromClinicInvite: "1" },
       });
     })();
     return () => {

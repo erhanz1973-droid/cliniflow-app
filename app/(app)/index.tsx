@@ -16,8 +16,11 @@ export default function Index() {
         if (!alive) return;
         if (pendingInvite?.code) {
           router.replace({
-            pathname: "/invite/[code]",
-            params: { code: pendingInvite.code },
+            pathname: "/register-patient",
+            params: {
+              prefillClinicCode: pendingInvite.code,
+              fromClinicInvite: "1",
+            },
           });
           return;
         }

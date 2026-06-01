@@ -28,7 +28,10 @@ export function parseClinicInviteFromUrl(url: string | null | undefined): string
     if (inviteMatch?.[1]) return normalizeClinicInviteCode(decodeURIComponent(inviteMatch[1]));
     const deepMatch = path.match(/\/clinic-invite\/([^/?#]+)/i);
     if (deepMatch?.[1]) return normalizeClinicInviteCode(decodeURIComponent(deepMatch[1]));
-    const q = parsed.searchParams.get("invite") || parsed.searchParams.get("clinicCode");
+    const q =
+      parsed.searchParams.get("prefillClinicCode") ||
+      parsed.searchParams.get("invite") ||
+      parsed.searchParams.get("clinicCode");
     if (q) return normalizeClinicInviteCode(q);
   } catch {
     const m = u.match(/(?:invite|clinic-invite)\/([A-Za-z0-9_-]+)/i);
