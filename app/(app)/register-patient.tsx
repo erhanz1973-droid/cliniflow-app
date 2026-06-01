@@ -31,6 +31,11 @@ import {
 } from "../../lib/patientOAuth";
 import { getSupabaseAuthClient, isSupabaseAuthConfigured } from "../../lib/supabaseAuthClient";
 import { emitAuthTelemetryV1 } from "../../lib/authTelemetry";
+import {
+  clearPendingClinicInvite,
+  getPendingClinicInvite,
+  normalizeClinicInviteCode,
+} from "../../lib/clinicInviteStorage";
 
 const WARMUP_TIMEOUT_MS = 30_000;
 
@@ -46,7 +51,14 @@ export default function RegisterPatientScreen() {
     oauthComplete?: string;
     provider?: string;
     prefillClinicCode?: string;
+    fromClinicInvite?: string;
   }>();
+  const fromClinicInviteFlow = useMemo(
+    () =>
+      String(params.fromClinicInvite || "") === "1" ||
+      String(Array.isArray(params.fromClinicInvite) ? params.fromClinicInvite[0] : "") === "1",
+    [params.fromClinicInvite],
+  );
   const fromOauthComplete = useMemo(
     () => String(params.oauthComplete || "") === "1",
     [params.oauthComplete],
@@ -88,7 +100,26 @@ export default function RegisterPatientScreen() {
   const [pendingOtpResume, setPendingOtpResume] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
   const [oauthStatusMsg, setOauthStatusMsg] = useState("");
+  const [inviteLocked, setInviteLocked] = useState(fromClinicInviteFlow);
   const oauthConfigured = isSupabaseAuthConfigured();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const pending = await getPendingClinicInvite();
+      if (cancelled) return;
+      const paramCode = normalizeClinicInviteCode(prefillClinicParam);
+      const code = paramCode || pending?.code || "";
+      if (!code) return;
+      setFormData((prev) => ({ ...prev, clinicCode: code }));
+      if (fromClinicInviteFlow || pending?.viaInvitation) {
+        setInviteLocked(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fromClinicInviteFlow, prefillClinicParam]);
 
   useEffect(() => {
     if (!fromOauthComplete) return;
@@ -134,6 +165,7 @@ export default function RegisterPatientScreen() {
       language: payload.language as string | undefined,
       referralCode: (payload.referralCode as string | null) ?? null,
     });
+    await clearPendingClinicInvite().catch(() => {});
     router.replace("/(patient)" as const);
   };
 
@@ -332,7 +364,8 @@ export default function RegisterPatientScreen() {
         name: formData.patientName,
         email: formData.email,
         phone: formData.phone,
-        clinicCode: formData.clinicCode,
+        clinicCode: formData.clinicCode.trim() || undefined,
+        joinedViaInvitation: inviteLocked && Boolean(formData.clinicCode.trim()),
         password: formData.password,
         inviterReferralCode: normalizedReferral || undefined,
         ...(oauthLink ? oauthLink : {}),
@@ -488,17 +521,25 @@ export default function RegisterPatientScreen() {
           </View>
         )}
 
-        <View style={styles.field}>
-          <Text style={styles.label}>
-            {t("auth.clinic_code")} ({t("common.optional")})
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={formData.clinicCode}
-            onChangeText={(text) => setFormData({ ...formData, clinicCode: text.toUpperCase() })}
-            autoCapitalize="characters"
-          />
-        </View>
+        {inviteLocked && formData.clinicCode ? (
+          <View style={styles.inviteBanner}>
+            <Text style={styles.inviteBannerText}>
+              {t("clinicInvite.linkedClinic", { code: formData.clinicCode })}
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.field}>
+            <Text style={styles.label}>
+              {t("auth.clinic_code")} ({t("common.optional")})
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={formData.clinicCode}
+              onChangeText={(text) => setFormData({ ...formData, clinicCode: text.toUpperCase() })}
+              autoCapitalize="characters"
+            />
+          </View>
+        )}
 
         <View style={styles.field}>
           <Text style={styles.label}>{t("auth.full_name")}</Text>
@@ -805,6 +846,20 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
 
+  inviteBanner: {
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+  },
+  inviteBannerText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#047857",
+    textAlign: "center",
+  },
   oauthBanner: {
     backgroundColor: "#EFF6FF",
     borderWidth: 1,

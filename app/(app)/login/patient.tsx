@@ -25,6 +25,7 @@ import {
   type OAuthProvider,
 } from "../../../lib/patientOAuth";
 import { emitAuthTelemetryV1 } from "../../../lib/authTelemetry";
+import { getPendingClinicInvite } from "../../../lib/clinicInviteStorage";
 
 const WARMUP_TIMEOUT_MS = 30_000;
 const LOGIN_TIMEOUT_MS = 15_000;
@@ -60,6 +61,10 @@ export default function PatientLoginScreen() {
       (async () => {
         const s = await loadPendingOtpSession();
         if (!cancelled) setPendingOtpResume(!!s);
+        const invite = await getPendingClinicInvite();
+        if (!cancelled && invite?.code) {
+          setClinicCode(invite.code);
+        }
       })();
       return () => {
         cancelled = true;
@@ -147,6 +152,7 @@ export default function PatientLoginScreen() {
                 oauthComplete: "1",
                 provider,
                 prefillClinicCode: clinicCode.trim() || "",
+                fromClinicInvite: clinicCode.trim() ? "1" : "",
               },
             });
             return;

@@ -3,6 +3,7 @@ import { View, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ROLE_KEY } from "./(auth)/role-select";
+import { getPendingClinicInvite } from "../../lib/clinicInviteStorage";
 
 export default function Index() {
   const router = useRouter();
@@ -11,6 +12,15 @@ export default function Index() {
     let alive = true;
     (async () => {
       try {
+        const pendingInvite = await getPendingClinicInvite();
+        if (!alive) return;
+        if (pendingInvite?.code) {
+          router.replace({
+            pathname: "/clinic-invite/[code]",
+            params: { code: pendingInvite.code },
+          });
+          return;
+        }
         const v = await AsyncStorage.getItem(ROLE_KEY);
         if (!alive) return;
         const role = v === "doctor" || v === "patient" ? v : null;

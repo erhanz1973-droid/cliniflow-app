@@ -11,6 +11,8 @@ export interface PatientRegisterRequest {
   email: string;
   phone: string;
   clinicCode?: string;
+  joinedViaInvitation?: boolean;
+  invitationSource?: string;
   password?: string;
   inviterReferralCode?: string;
   userType: string;
@@ -47,6 +49,9 @@ export async function registerPatient(data: PatientRegisterRequest): Promise<Pat
       body: JSON.stringify({
         ...data,
         userType: "PATIENT",
+        ...(data.joinedViaInvitation
+          ? { joinedViaInvitation: true, invitationSource: data.invitationSource || "clinic_qr" }
+          : {}),
         ...(data.supabaseAccessToken && data.oauthProvider
           ? { supabaseAccessToken: data.supabaseAccessToken, oauthProvider: data.oauthProvider }
           : {}),
@@ -98,6 +103,7 @@ export function usePatientRegistration() {
     email?: string;
     phone: string;
     clinicCode?: string;
+    joinedViaInvitation?: boolean;
     password?: string;
     inviterReferralCode?: string;
     supabaseAccessToken?: string;
@@ -109,6 +115,8 @@ export function usePatientRegistration() {
       email: data.email || '',
       phone: data.phone,
       clinicCode: data.clinicCode,
+      joinedViaInvitation: data.joinedViaInvitation,
+      invitationSource: data.joinedViaInvitation ? "clinic_qr" : undefined,
       password: data.password,
       inviterReferralCode: data.inviterReferralCode,
       userType: 'PATIENT',
