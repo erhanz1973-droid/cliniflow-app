@@ -836,7 +836,7 @@ export default function DoctorPatientChatScreen() {
       try {
         setAuthToken(token);
         const lang = translationLang || doctorLang || (await getDoctorPreferredLanguage());
-        const res = await translateDoctorMessage(messageId, lang);
+        const res = await translateDoctorMessage(messageId, lang, patientKey || undefined);
         const tr: MessageTranslation = {
           sourceLanguage: String(res.sourceLanguage || res.translation?.sourceLanguage || 'auto'),
           targetLanguage: String(res.targetLanguage || res.translation?.targetLanguage || lang),
