@@ -862,7 +862,8 @@ export default function DoctorPatientChatScreen() {
             ? t('doctor.chat.translateNotFound')
             : code === 'forbidden' || code === 'assigned_doctor_only'
               ? t('doctor.chat.translateForbidden')
-              : code === 'translate_provider_failed'
+              : code === 'translate_provider_failed' ||
+                  code === 'Translation service unavailable'
                 ? t('doctor.chat.translateProviderFailed')
                 : t('doctor.chat.translateFailed');
         if (__DEV__) {
