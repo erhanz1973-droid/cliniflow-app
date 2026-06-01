@@ -528,6 +528,24 @@ export default function DoctorPatientChatScreen() {
               return prev;
             }
           }
+          if (from === 'PATIENT' && textMsg.trim().length >= 2) {
+            const bucket = Math.floor(createdAt / 120_000);
+            const fp = `${bucket}|${textMsg.trim().replace(/\s+/g, ' ').toLowerCase().slice(0, 280)}`;
+            if (
+              prev.some((m) => {
+                if (String(m.from).toUpperCase() !== 'PATIENT') return false;
+                const b = Math.floor((Number(m.createdAt) || 0) / 120_000);
+                const pfp = `${b}|${String(m.text || '')
+                  .trim()
+                  .replace(/\s+/g, ' ')
+                  .toLowerCase()
+                  .slice(0, 280)}`;
+                return pfp === fp;
+              })
+            ) {
+              return prev;
+            }
+          }
           const withoutPending = prev.filter(
             (m) =>
               !(m.pending && String(m.from).toUpperCase() === 'CLINIC' && m.text === textMsg)

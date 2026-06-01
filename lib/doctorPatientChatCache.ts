@@ -141,6 +141,16 @@ function outboundClinicDedupeKey(m: DoctorChatMessage): string | null {
   return `${bucket}|${text.slice(0, 280)}`;
 }
 
+function inboundPatientDedupeKey(m: DoctorChatMessage): string | null {
+  const text = String(m.text || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+  if (!text || text.length < 2) return null;
+  const bucket = Number.isFinite(m.createdAt) ? Math.floor(m.createdAt / 120_000) : 0;
+  return `${bucket}|${text.slice(0, 280)}`;
+}
+
 export function mapApiMessages(raw: unknown[]): DoctorChatMessage[] {
   const mapped = raw.map((row: unknown) => {
     const m = row as Record<string, unknown>;
@@ -172,11 +182,17 @@ export function mapApiMessages(raw: unknown[]): DoctorChatMessage[] {
   const sorted = [...mapped].sort((a, b) => a.createdAt - b.createdAt);
   const out: DoctorChatMessage[] = [];
   const clinicKeys = new Set<string>();
+  const patientKeys = new Set<string>();
   for (const m of sorted) {
-    if (String(m.from).toUpperCase() === 'CLINIC') {
+    const from = String(m.from).toUpperCase();
+    if (from === 'CLINIC') {
       const key = outboundClinicDedupeKey(m);
       if (key && clinicKeys.has(key)) continue;
       if (key) clinicKeys.add(key);
+    } else if (from === 'PATIENT') {
+      const key = inboundPatientDedupeKey(m);
+      if (key && patientKeys.has(key)) continue;
+      if (key) patientKeys.add(key);
     }
     out.push(m);
   }
