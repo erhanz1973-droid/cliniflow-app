@@ -26,6 +26,7 @@ import {
 } from "../../lib/pendingOtpSession";
 import { useAuth } from "../../lib/auth";
 import { useLanguage } from "../../lib/language-context";
+import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES, type Language } from "../../lib/i18n";
 import {
   runPatientOAuthWithBridge,
   type OAuthProvider,
@@ -83,7 +84,7 @@ export default function RegisterPatientScreen() {
 
   const { signIn } = useAuth();
   const { handlePatientRegistration } = usePatientRegistration();
-  const { t } = useLanguage();
+  const { t, currentLanguage, setLanguage } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [netError, setNetError] = useState<"network" | "warmingUp" | null>(null);
   const [infoMsg, setInfoMsg] = useState<{ text: string; goToLogin?: boolean } | null>(null);
@@ -378,6 +379,7 @@ export default function RegisterPatientScreen() {
         joinedViaInvitation: inviteLocked && Boolean(formData.clinicCode.trim()),
         password: formData.password,
         inviterReferralCode: normalizedReferral || undefined,
+        language: currentLanguage,
         ...(oauthLink ? oauthLink : {}),
       });
     } catch (error: any) {
@@ -443,6 +445,29 @@ export default function RegisterPatientScreen() {
         contentContainerStyle={styles.container}
         keyboardShouldPersistTaps="handled"
       >
+        <View style={styles.langSection}>
+          <Text style={styles.langLabel}>{t("settings.selectLanguage")}</Text>
+          <View style={styles.langRow}>
+            {SUPPORTED_LANGUAGES.map((lang) => (
+              <Pressable
+                key={lang}
+                style={[styles.langBtn, currentLanguage === lang && styles.langBtnActive]}
+                onPress={() => void setLanguage(lang as Language)}
+                disabled={loading || oauthLoading}
+              >
+                <Text
+                  style={[
+                    styles.langBtnText,
+                    currentLanguage === lang && styles.langBtnTextActive,
+                  ]}
+                >
+                  {LANGUAGE_NAMES[lang as Language]}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
         <Text style={styles.title}>{t("register.patientTitle")}</Text>
 
         {fromOauthComplete && (
@@ -676,6 +701,42 @@ const styles = StyleSheet.create({
     padding: 24,
     justifyContent: "center",
     flexGrow: 1,
+  },
+  langSection: {
+    marginBottom: 16,
+  },
+  langLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#374151",
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  langRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 8,
+  },
+  langBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#fff",
+  },
+  langBtnActive: {
+    backgroundColor: "#2563EB",
+    borderColor: "#2563EB",
+  },
+  langBtnText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#6B7280",
+  },
+  langBtnTextActive: {
+    color: "#fff",
   },
   title: {
     fontSize: 26,

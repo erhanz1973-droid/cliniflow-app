@@ -6,7 +6,10 @@ import { useAuthSession } from "../lib/auth";
 import { pushDataToResolveInput } from "../lib/canonicalChatTarget";
 import { navigateCanonicalChat, openDoctorPatientChat } from "../lib/navigateCanonicalChat";
 import { navigateDoctorOfferOrPatientChat } from "../lib/offerMessagingMeta";
-import { getPathFromNotificationData } from "../lib/notificationRouting";
+import {
+  getPathFromNotificationData,
+  shouldReplaceStackForNotificationPath,
+} from "../lib/notificationRouting";
 import { emitOfferUnreadEvent } from "../lib/offerUnreadEvents";
 import { bumpDoctorRequestUnreadByOfferId } from "../lib/doctorRequestsUnread";
 import { invalidateDoctorUnreadCacheOnly } from "../lib/doctorMessaging";
@@ -103,7 +106,11 @@ export function usePushNotificationNavigation(): void {
       const path = getPathFromNotificationData(data, { type: viewerType ?? undefined });
       if (!path) return;
       if (__DEV__) console.log("[push:nav]", { delivery, path, type });
-      router.push(path as never);
+      if (shouldReplaceStackForNotificationPath(path, viewerType)) {
+        router.replace(path as never);
+      } else {
+        router.push(path as never);
+      }
     },
     [router, token, isDoctor, isPatient, viewerType],
   );

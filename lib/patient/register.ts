@@ -15,6 +15,7 @@ export interface PatientRegisterRequest {
   invitationSource?: string;
   password?: string;
   inviterReferralCode?: string;
+  language?: string;
   userType: string;
   /** When set with `oauthProvider`, backend persists `patients.auth_user_id` for the OAuth JWT bridge. */
   supabaseAccessToken?: string;
@@ -106,6 +107,7 @@ export function usePatientRegistration() {
     joinedViaInvitation?: boolean;
     password?: string;
     inviterReferralCode?: string;
+    language?: string;
     supabaseAccessToken?: string;
     oauthProvider?: "google" | "apple";
   }) => {
@@ -119,6 +121,7 @@ export function usePatientRegistration() {
       invitationSource: data.joinedViaInvitation ? "clinic_qr" : undefined,
       password: data.password,
       inviterReferralCode: data.inviterReferralCode,
+      language: data.language,
       userType: 'PATIENT',
       ...(data.supabaseAccessToken && data.oauthProvider
         ? { supabaseAccessToken: data.supabaseAccessToken, oauthProvider: data.oauthProvider }
