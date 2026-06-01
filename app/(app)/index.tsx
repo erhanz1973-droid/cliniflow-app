@@ -2,16 +2,27 @@ import { useEffect } from "react";
 import { View, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useAuth } from "../../lib/auth";
 import { ROLE_KEY } from "./(auth)/role-select";
 import { getPendingClinicInvite } from "../../lib/clinicInviteStorage";
+import { getAuthenticatedHomeRoute } from "../../lib/authRouting";
 
 export default function Index() {
   const router = useRouter();
+  const { user, isAuthReady, isAuthLoading } = useAuth();
 
   useEffect(() => {
+    if (!isAuthReady || isAuthLoading) return;
+
     let alive = true;
+
     (async () => {
       try {
+        if (user?.token) {
+          router.replace(getAuthenticatedHomeRoute(user) as never);
+          return;
+        }
+
         const pendingInvite = await getPendingClinicInvite();
         if (!alive) return;
         if (pendingInvite?.code) {
@@ -25,6 +36,7 @@ export default function Index() {
           });
           return;
         }
+
         const v = await AsyncStorage.getItem(ROLE_KEY);
         if (!alive) return;
         const role = v === "doctor" || v === "patient" ? v : null;
@@ -39,10 +51,11 @@ export default function Index() {
         if (alive) router.replace("/role-select");
       }
     })();
+
     return () => {
       alive = false;
     };
-  }, [router]);
+  }, [router, user?.token, user?.type, user?.status, isAuthReady, isAuthLoading]);
 
   return (
     <View

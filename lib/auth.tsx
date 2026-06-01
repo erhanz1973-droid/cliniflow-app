@@ -23,6 +23,7 @@ import { emitAuthTelemetryV1 } from "./authTelemetry";
 import { getSupabaseAuthClient } from "./supabaseAuthClient";
 import { markStartupOnce } from "./startupPerf";
 import { clearDoctorDashboardDiskCache } from "./doctorDashboardPersistence";
+import { refreshSessionTokenIfNeeded } from "./sessionRefresh";
 
 /* ================= TYPES ================= */
 
@@ -304,12 +305,14 @@ function decodeJwtPayload(token: string): Record<string, any> | null {
   }
 }
 
-/** Client-side JWT `exp` check (server still authorizes). `skewMs` avoids edge clock skew. */
-function isCliniflyJwtLikelyExpired(token: string, skewMs = 120_000): boolean {
+/**
+ * Client-side JWT `exp` hint only — we do NOT log users out on restore when expired.
+ * Short-lived tokens are renewed at login; clearing storage here caused unwanted logouts.
+ */
+function jwtExpiresAtMs(token: string): number | null {
   const p = decodeJwtPayload(token);
   const exp = p && typeof p.exp === "number" ? p.exp : null;
-  if (exp == null) return false;
-  return exp * 1000 < Date.now() + skewMs;
+  return exp == null ? null : exp * 1000;
 }
 
 function safeParseUser(raw: string | null): User | null {
@@ -374,14 +377,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(null);
             setAuthToken(null);
             console.log('[AUTH] Cleared corrupt auth storage');
-          } else if (parsed?.token && isCliniflyJwtLikelyExpired(parsed.token)) {
-            emitAuthTelemetryV1("session_restore_cleared_expired", { userType: parsed.type });
-            await storageSet(AUTH_KEY, null);
-            setUser(null);
-            setAuthToken(null);
-            parsed = null;
-            console.log('[AUTH] Cleared expired JWT from storage');
           } else if (parsed) {
+            const expMs = parsed.token ? jwtExpiresAtMs(parsed.token) : null;
+            if (expMs != null && expMs < Date.now()) {
+              emitAuthTelemetryV1("session_restore_expired_refresh", { userType: parsed.type });
+              const renewed = await refreshSessionTokenIfNeeded(parsed);
+              if (renewed.token !== parsed.token) {
+                parsed = renewed;
+                await storageSet(AUTH_KEY, JSON.stringify(parsed));
+                emitAuthTelemetryV1("session_refresh_ok", { userType: parsed.type });
+              } else {
+                emitAuthTelemetryV1("session_restore_expired_kept", { userType: parsed.type });
+                console.warn("[AUTH] Stored JWT past exp — keeping session (refresh unavailable)");
+              }
+            }
             setUser(parsed);
             console.log('[AUTH] Setting token for user:', parsed.id, 'Token:', parsed.token ? 'exists' : 'missing');
             setAuthToken(parsed.token); // 🔥 CRITICAL: Sync token with API layer
@@ -426,9 +435,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             reason: "exception",
             message: String(error instanceof Error ? error.message : error).slice(0, 160),
           });
-          await storageSet(AUTH_KEY, null);
-          setUser(null);
-          setAuthToken(null); // 🔥 CRITICAL: Clear token from API layer
+          /* Keep in-memory session if we already had one — avoid logout on transient storage errors. */
         } finally {
           setIsAuthLoading(false);
           setIsInitialized(true);
@@ -596,6 +603,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('[AuthProvider] Auth initialization failed but loading false');
       }
     })();
+  }, [refreshAuth]);
+
+  /** Re-read persisted session when app returns to foreground (no expiry purge). */
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") void refreshAuth();
+    });
+    return () => sub.remove();
   }, [refreshAuth]);
 
   const sessionValue = useMemo<AuthSessionContextValue>(() => {
