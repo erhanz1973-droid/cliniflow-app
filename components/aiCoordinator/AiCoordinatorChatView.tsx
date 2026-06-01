@@ -113,6 +113,10 @@ export function AiCoordinatorChatView({
   const [sessionLeadData, setSessionLeadData] = useState<AiLeadData>(
     () => priorLeadDataProp ?? emptyLeadData(),
   );
+  const [leadSummarySections, setLeadSummarySections] = useState<
+    Array<{ id: string; title: string; bullets: string[] }>
+  >([]);
+  const [leadSummaryLines, setLeadSummaryLines] = useState<string[]>([]);
   const [conversationSummary, setConversationSummary] = useState("");
   const [draft, setDraft] = useState(() => String(initialDraft || "").trim());
   const [sending, setSending] = useState(false);
@@ -158,7 +162,14 @@ export function AiCoordinatorChatView({
 
     try {
       const history = buildCoordinatorHistory(messages, patientMsg.id);
-      const { reply, leadData, conversationSummary: nextSummary, intake } = await postAiCoordinatorChat({
+      const {
+        reply,
+        leadData,
+        leadSummarySections: nextLeadSummarySections,
+        leadSummaryLines: nextLeadSummaryLines,
+        conversationSummary: nextSummary,
+        intake,
+      } = await postAiCoordinatorChat({
         message: text,
         sessionId,
         contextMode,
@@ -169,6 +180,8 @@ export function AiCoordinatorChatView({
         priorLeadData: sessionLeadData,
       });
       setSessionLeadData(leadData);
+      if (nextLeadSummarySections.length) setLeadSummarySections(nextLeadSummarySections);
+      if (nextLeadSummaryLines.length) setLeadSummaryLines(nextLeadSummaryLines);
       if (intake) onIntakeUpdate?.(intake);
       if (nextSummary) setConversationSummary(nextSummary);
       setMessages((prev) => [
@@ -245,6 +258,8 @@ export function AiCoordinatorChatView({
   const insightsBar = (
     <LeadInsightsBar
       leadData={sessionLeadData}
+      leadSummarySections={leadSummarySections}
+      leadSummaryLines={leadSummaryLines}
       variant={isGuide ? "treatment_guide" : "coordinator"}
     />
   );

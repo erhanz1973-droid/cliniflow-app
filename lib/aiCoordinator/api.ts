@@ -19,6 +19,8 @@ export type AiCoordinatorApiError = {
 export type AiCoordinatorChatResult = {
   reply: string;
   leadData: AiLeadData;
+  leadSummarySections: Array<{ id: string; title: string; bullets: string[] }>;
+  leadSummaryLines: string[];
   conversationSummary: string;
   leadPipeline?: AiCoordinatorLeadPipelineMeta;
   sessionId?: string;
@@ -147,9 +149,30 @@ export async function postAiCoordinatorChat(
           })
         : undefined;
 
+    const leadSummaryLines = Array.isArray(json.leadSummaryLines)
+      ? json.leadSummaryLines.map((line) => String(line || "").trim()).filter(Boolean)
+      : [];
+    const leadSummarySections = Array.isArray(json.leadSummarySections)
+      ? json.leadSummarySections
+          .map((section) => {
+            if (!section || typeof section !== "object") return null;
+            const s = section as Record<string, unknown>;
+            const bullets = Array.isArray(s.bullets)
+              ? s.bullets.map((b) => String(b || "").trim()).filter(Boolean)
+              : [];
+            const title = String(s.title || "").trim();
+            const id = String(s.id || "").trim();
+            if (!title || !bullets.length) return null;
+            return { id: id || title, title, bullets };
+          })
+          .filter(Boolean)
+      : [];
+
     return {
       reply,
       leadData: intake?.leadData || leadData,
+      leadSummarySections,
+      leadSummaryLines,
       conversationSummary,
       leadPipeline: json.leadPipeline,
       sessionId: json.leadPipeline?.sessionId || body.sessionId,

@@ -66,9 +66,19 @@ export type CurrentStrategy = {
   lastCtaType?: string | null;
 };
 
+export type LeadSummarySection = {
+  id: string;
+  title: string;
+  bullets: string[];
+};
+
 export type WorkspaceProfile = {
   patientName?: string;
-  treatmentInterest?: string | null;
+  leadSummarySections?: LeadSummarySection[];
+  leadSummaryLines?: string[];
+  leadSummaryParagraph?: string;
+  treatmentInterestSummary?: string | null;
+  patientReportedTagSummaries?: string[];
   country?: string | null;
   responderMode?: string;
   responderModeLabel?: string;

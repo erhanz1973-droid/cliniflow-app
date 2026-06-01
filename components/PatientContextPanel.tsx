@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
 
+import { LeadInsightsSummary } from "@/components/LeadInsightsSummary";
 import type { AiState, CurrentStrategy, LeadHeat, WorkspaceProfile } from "@/lib/coordinationWorkspaceTypes";
 
 const CONTEXT_LABELS: Record<string, string> = {
@@ -27,8 +28,13 @@ export function PatientContextPanel({ profile, aiState, leadHeat, strategy }: Pr
   return (
     <View style={styles.wrap}>
       <Text style={styles.patientName}>{profile?.patientName || "Hasta"}</Text>
-      {profile?.treatmentInterest ? (
-        <Text style={styles.line}>🦷 {profile.treatmentInterest}</Text>
+      {profile?.leadSummarySections?.length || profile?.leadSummaryLines?.length ? (
+        <LeadInsightsSummary
+          sections={profile.leadSummarySections}
+          lines={profile.leadSummaryLines}
+        />
+      ) : profile?.treatmentInterestSummary ? (
+        <Text style={styles.line}>{profile.treatmentInterestSummary}</Text>
       ) : null}
       {profile?.country ? <Text style={styles.line}>🌍 {profile.country}</Text> : null}
 

@@ -62,6 +62,9 @@ export type AiCoordinatorChatResponse =
       success: true;
       reply: string;
       leadData: AiLeadData;
+      leadSummarySections?: Array<{ id: string; title: string; bullets: string[] }>;
+      leadSummaryLines?: string[];
+      leadSummaryParagraph?: string;
       conversationSummary?: string;
       leadPipeline?: AiCoordinatorLeadPipelineMeta;
       operationalIntakeFlags?: Record<string, unknown> | null;
