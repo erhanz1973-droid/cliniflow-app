@@ -1,5 +1,8 @@
 import { StyleSheet, Text, View } from "react-native";
 
+import { cx } from "@/lib/coordinationUiLabels";
+import { useLanguage } from "@/lib/language-context";
+
 import type { OperationalEvent } from "@/lib/coordinationWorkspaceTypes";
 
 type Props = {
@@ -7,13 +10,16 @@ type Props = {
 };
 
 export function OperationalActivityLog({ events }: Props) {
+  const { t } = useLanguage();
   if (!events.length) return null;
 
   const recent = [...events].reverse().slice(0, 12);
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.title}>Operasyonel olaylar</Text>
+      <Text style={styles.title}>
+        {cx(t, "doctor.coordination.operationalEvents", "Operational events")}
+      </Text>
       {recent.map((ev) => (
         <View key={ev.id} style={styles.row}>
           <Text style={styles.dot}>•</Text>

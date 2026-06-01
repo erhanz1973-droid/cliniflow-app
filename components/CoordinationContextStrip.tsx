@@ -1,13 +1,8 @@
 import { StyleSheet, Text, View } from "react-native";
 
+import { contextClassLabel, conversationOwnerLabel, cx } from "@/lib/coordinationUiLabels";
 import type { AiState, CurrentStrategy, LeadHeat } from "@/lib/coordinationWorkspaceTypes";
-
-const CONTEXT_LABELS: Record<string, string> = {
-  local_patient: "Yerel hasta",
-  domestic_traveler: "Yurt içi seyahat",
-  international_patient: "Uluslararası",
-  unknown_context: "Bağlam bilinmiyor",
-};
+import { useLanguage } from "@/lib/language-context";
 
 type Props = {
   aiState?: AiState;
@@ -16,10 +11,9 @@ type Props = {
 };
 
 export function CoordinationContextStrip({ aiState, leadHeat, strategy }: Props) {
+  const { t } = useLanguage();
   const doctorOwns = aiState?.conversationOwner === "doctor";
-  const ownerLabel =
-    aiState?.conversationOwnerLabel ||
-    (doctorOwns ? "Doktor konuşmayı yönetiyor" : "AI konuşmayı yönetiyor");
+  const ownerLabel = conversationOwnerLabel(t, doctorOwns, aiState?.conversationOwnerLabel);
 
   const heatColor = leadHeat?.isHot
     ? "#dc2626"
@@ -30,51 +24,67 @@ export function CoordinationContextStrip({ aiState, leadHeat, strategy }: Props)
   return (
     <View style={styles.wrap}>
       <View style={[styles.ownerCard, doctorOwns ? styles.ownerDoctor : styles.ownerAi]}>
-        <Text style={styles.ownerEyebrow}>Tek aktif konuşmacı</Text>
+        <Text style={styles.ownerEyebrow}>
+          {cx(t, "doctor.coordination.activeSpeaker", "Active speaker")}
+        </Text>
         <Text style={styles.ownerMain}>{ownerLabel}</Text>
         {aiState?.aiEscalationRequired ? (
-          <Chip label="İnsan incelemesi gerekli" tone="danger" />
+          <Chip
+            label={cx(t, "doctor.coordination.humanReviewRequired", "Human review required")}
+            tone="danger"
+          />
         ) : null}
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Lead sıcaklığı</Text>
+        <Text style={styles.cardTitle}>{cx(t, "doctor.coordination.leadHeat", "Lead heat")}</Text>
         <Text style={[styles.heat, { color: heatColor }]}>
           {leadHeat?.label || "—"}
           {leadHeat?.score != null ? ` · ${leadHeat.score}` : ""}
         </Text>
         {leadHeat?.messageCount != null ? (
-          <Text style={styles.sub}>{leadHeat.messageCount} mesaj</Text>
+          <Text style={styles.sub}>
+            {t("doctor.coordination.messageCount", { count: leadHeat.messageCount }) ||
+              `${leadHeat.messageCount} messages`}
+          </Text>
         ) : null}
       </View>
 
       <View style={[styles.card, styles.cardWide]}>
-        <Text style={styles.cardTitle}>Güncel strateji</Text>
+        <Text style={styles.cardTitle}>
+          {cx(t, "doctor.coordination.currentStrategy", "Current strategy")}
+        </Text>
         <Text style={styles.primary}>
-          {CONTEXT_LABELS[strategy?.patientContextClass || ""] ||
-            strategy?.patientContextClass ||
-            "—"}
+          {contextClassLabel(t, strategy?.patientContextClass)}
         </Text>
         {strategy?.journeyStageLabel ? (
-          <Text style={styles.sub}>Yolculuk: {strategy.journeyStageLabel}</Text>
+          <Text style={styles.sub}>
+            {t("doctor.coordination.journey", { label: strategy.journeyStageLabel }) ||
+              `Journey: ${strategy.journeyStageLabel}`}
+          </Text>
         ) : null}
         {strategy?.readinessPercent != null ? (
-          <Text style={styles.sub}>Hazırlık: %{strategy.readinessPercent}</Text>
+          <Text style={styles.sub}>
+            {t("doctor.coordination.readinessPct", { pct: strategy.readinessPercent }) ||
+              `Readiness: ${strategy.readinessPercent}%`}
+          </Text>
         ) : null}
         {strategy?.waitingPartyLabel ? (
           <Text style={styles.sub}>{strategy.waitingPartyLabel}</Text>
         ) : null}
         {strategy?.travelContextDetected ? (
-          <Chip label="Seyahat bağlamı açık" tone="info" />
+          <Chip label={cx(t, "doctor.coordination.travelContext", "Travel context detected")} tone="info" />
         ) : (
-          <Chip label="Yerel hasta varsayımı" tone="muted" />
+          <Chip label={cx(t, "doctor.coordination.localAssumption", "Local patient assumed")} tone="muted" />
         )}
         {strategy?.pricingAlreadyDiscussed ? (
-          <Chip label="Fiyat konuşuldu" tone="warn" />
+          <Chip label={cx(t, "doctor.coordination.pricingDiscussed", "Pricing discussed")} tone="warn" />
         ) : null}
         {strategy?.recentTopics?.length ? (
           <Text style={styles.sub} numberOfLines={2}>
-            Son konular: {strategy.recentTopics.slice(-4).join(", ")}
+            {t("doctor.coordination.recentTopics", {
+              topics: strategy.recentTopics.slice(-4).join(", "),
+            }) || `Recent topics: ${strategy.recentTopics.slice(-4).join(", ")}`}
           </Text>
         ) : null}
       </View>
@@ -152,7 +162,6 @@ const styles = StyleSheet.create({
   primary: { fontSize: 13, fontWeight: "600", color: "#111827" },
   sub: { fontSize: 11, color: "#6b7280", marginTop: 2 },
   heat: { fontSize: 16, fontWeight: "700" },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 },
   chip: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3, marginTop: 6 },
   chipText: { fontSize: 10, fontWeight: "600" },
 });

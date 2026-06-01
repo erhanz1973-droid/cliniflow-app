@@ -103,7 +103,8 @@ export function DoctorForegroundMessageWatcher() {
           const unread = Math.max(0, Number(row.unreadFromPatient) || 0);
           const prev = snapRef.current.get(pid);
           const lastChanged = lastId !== "" && lastId !== (prev?.lastId ?? "");
-          if (!lastChanged) continue;
+          const unreadIncreased = unread > (prev?.unread ?? 0);
+          if (!lastChanged && !unreadIncreased) continue;
           if (openKey && openKey === pid) continue;
 
           resetDoctorHomeBadgeAck(["inbox", "patients"]);

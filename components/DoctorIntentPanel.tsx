@@ -19,30 +19,15 @@ import {
   type IntentTag,
   type RewriteAction,
 } from "@/lib/clinicalGuidanceApi";
+import {
+  REWRITE_ACTION_IDS,
+  cx,
+  intentTagLabel,
+  rewriteActionLabel,
+} from "@/lib/coordinationUiLabels";
+import { useLanguage } from "@/lib/language-context";
 
 export type DoctorSendMode = "direct" | "ai_assist";
-
-const REWRITE_ACTIONS: { id: RewriteAction; label: string }[] = [
-  { id: "shorter", label: "Kısa" },
-  { id: "simpler", label: "Basit" },
-  { id: "more_empathetic", label: "Empatik" },
-  { id: "more_professional", label: "Profesyonel" },
-  { id: "reassure_patient", label: "Güven ver" },
-  { id: "more_concise", label: "Öz" },
-];
-
-const TAG_LABELS: Record<string, string> = {
-  reassure_patient: "Güven",
-  explain_process: "Süreç",
-  request_xray: "Röntgen",
-  request_cbct: "CBCT",
-  explain_timeline: "Zaman çizelgesi",
-  discuss_pricing: "Fiyat",
-  reduce_anxiety: "Kaygı",
-  encourage_consultation: "Konsültasyon",
-  collect_patient_info: "Bilgi topla",
-  schedule_visit: "Ziyaret",
-};
 
 type Props = {
   patientId: string;
@@ -57,9 +42,9 @@ type Props = {
   compact?: boolean;
 };
 
-function intentFromTags(tags: IntentTag[]): string {
+function intentFromTags(tags: IntentTag[], t: (key: string) => string): string {
   if (!tags.length) return "";
-  return tags.map((tag) => TAG_LABELS[tag] || tag).join(". ");
+  return tags.map((tag) => intentTagLabel(t, tag)).join(". ");
 }
 
 export function DoctorIntentPanel({
@@ -70,6 +55,7 @@ export function DoctorIntentPanel({
   onMessageSent,
   compact,
 }: Props) {
+  const { t } = useLanguage();
   const [expansionAllowed, setExpansionAllowed] = useState(draftAllowedProp !== false);
   const [intentTags, setIntentTags] = useState<IntentTag[]>([]);
   const [selectedTags, setSelectedTags] = useState<IntentTag[]>([]);
@@ -105,7 +91,7 @@ export function DoctorIntentPanel({
     if (draftAllowedProp !== undefined) {
       setExpansionAllowed(draftAllowedProp !== false);
       if (draftAllowedProp === false) {
-        setError("YZ genişletme bu modda kapalı (eskalasyon veya politika).");
+        setError(cx(t, "doctor.coordination.err.expansionOffPolicy", "AI expansion is off in this mode."));
       }
       return;
     }
@@ -117,7 +103,7 @@ export function DoctorIntentPanel({
       .then((res) => {
         const allowed = res.profile?.delegation?.draftGenerationAllowed !== false;
         setExpansionAllowed(allowed);
-        if (!allowed) setError("YZ genişletme bu başvuruda kapalı (yalnızca insan modu).");
+        if (!allowed) setError(cx(t, "doctor.coordination.err.expansionOffHuman", "AI expansion is off (human-only mode)."));
       })
       .catch(() => setExpansionAllowed(true));
   }, [patientId, draftAllowedProp]);
@@ -136,8 +122,8 @@ export function DoctorIntentPanel({
   const resolveIntentText = useCallback(() => {
     const typed = (intentTextRef.current || intentText).trim();
     if (typed) return typed;
-    return intentFromTags(selectedTags);
-  }, [intentText, selectedTags]);
+    return intentFromTags(selectedTags, t);
+  }, [intentText, selectedTags, t]);
 
   const canExpand = Boolean(resolveIntentText()) && Boolean(patientId) && expansionAllowed;
 
@@ -171,15 +157,15 @@ export function DoctorIntentPanel({
   const onExpand = useCallback(async () => {
     const resolvedIntent = resolveIntentText();
     if (!patientId) {
-      setError("Hasta kimliği eksik — Gelen Talepler’den tekrar açın.");
+      setError(cx(t, "doctor.coordination.err.missingPatientId", "Missing patient id."));
       return;
     }
     if (!resolvedIntent) {
-      setError("Dahili klinik not yazın veya en az bir niyet etiketi seçin.");
+      setError(cx(t, "doctor.coordination.err.needIntent", "Write an internal note or select intent tags."));
       return;
     }
     if (!expansionAllowed) {
-      setError("Bu başvuruda YZ genişletme kapalı (yalnızca insan modu).");
+      setError(cx(t, "doctor.coordination.err.expansionOffHuman", "AI expansion is off (human-only mode)."));
       return;
     }
     setBusy(true);
@@ -197,23 +183,23 @@ export function DoctorIntentPanel({
       if (!res.ok) {
         const code = res.error || "";
         if (code === "direct_send_required") {
-          setError("Devral modunda YZ genişletme kapalı. «Direkt gönder» kullanın veya «YZ ile taslak» moduna geçin.");
+          setError(cx(t, "doctor.coordination.err.directSendRequired", "Use Direct send or switch to AI draft mode."));
         } else if (code === "expansion_not_allowed") {
-          setError("YZ genişletme kapalı (HUMAN_ONLY / eskalasyon).");
+          setError(cx(t, "doctor.coordination.err.expansionNotAllowed", "AI expansion off."));
         } else {
-          setError(res.message || code || "Genişletme başarısız");
+          setError(res.message || code || cx(t, "doctor.coordination.err.expandFailed", "Expansion failed"));
         }
         return;
       }
       if (res.draft?.status === "sent") {
-        setError("Bu taslak zaten gönderilmiş. Yeni mesaj için «Yeni taslak» kullanın.");
+        setError(cx(t, "doctor.coordination.err.draftAlreadySent", "Draft already sent."));
         return;
       }
       if (res.guidance?.id) setGuidanceId(res.guidance.id);
       setDraftId(res.draft?.id ?? null);
       if (res.draft?.guidanceId) setGuidanceId(res.draft.guidanceId);
       if (!res.draft?.id) {
-        setError("Taslak kaydı oluşturulamadı — tekrar deneyin.");
+        setError(cx(t, "doctor.coordination.err.draftNotCreated", "Could not create draft."));
         return;
       }
       setPatientDraft(res.patientDraft || "");
@@ -225,22 +211,22 @@ export function DoctorIntentPanel({
     } catch (e) {
       const err = e as Error & { status?: number; code?: string };
       if (err.status === 403 || err.code === "expansion_not_allowed") {
-        setError("YZ genişletme kapalı (HUMAN_ONLY / eskalasyon).");
+        setError(cx(t, "doctor.coordination.err.expansionNotAllowed", "AI expansion off."));
       } else {
-        setError(err.message || "Genişletme hatası");
+        setError(err.message || cx(t, "doctor.coordination.err.expandError", "Expansion error"));
       }
     } finally {
       setBusy(false);
     }
-  }, [patientId, resolveIntentText, selectedTags, guidanceId, expansionAllowed, sent]);
+  }, [patientId, resolveIntentText, selectedTags, guidanceId, expansionAllowed, sent, t]);
 
   const onRewrite = async (action: RewriteAction) => {
     if (sent) {
-      setError("Bu taslak gönderildi. Yeni mesaj için «Yeni taslak» kullanın.");
+      setError(cx(t, "doctor.coordination.err.alreadySent", "Message already sent."));
       return;
     }
     if (!draftId || !patientDraft.trim()) {
-      setError("Önce hasta taslağı oluşturun.");
+      setError(cx(t, "doctor.coordination.err.needDraftFirst", "Create a patient draft first."));
       return;
     }
     setBusy(true);
@@ -254,14 +240,14 @@ export function DoctorIntentPanel({
         explicitAiAssist: true,
       });
       if (!res.ok) {
-        setError(res.message || res.error || "Yeniden yazma başarısız");
+        setError(res.message || res.error || cx(t, "doctor.coordination.err.rewriteFailed", "Rewrite failed"));
         return;
       }
       setPatientDraft(res.patientDraft || patientDraft);
       if (res.draft?.id) setDraftId(res.draft.id);
       setWarnings(res.safetyReport?.warnings || warnings);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Yeniden yazma hatası");
+      setError(e instanceof Error ? e.message : cx(t, "doctor.coordination.err.rewriteError", "Rewrite error"));
     } finally {
       setBusy(false);
     }
@@ -269,16 +255,16 @@ export function DoctorIntentPanel({
 
   const onSendDirect = async () => {
     if (!patientId) {
-      setError("Hasta kimliği eksik.");
+      setError(cx(t, "doctor.coordination.err.missingPatientShort", "Missing patient id."));
       return;
     }
     const text = patientDraft.trim();
     if (!text) {
-      setError("Gönderilecek mesajı yazın.");
+      setError(cx(t, "doctor.coordination.err.needMessageText", "Enter a message to send."));
       return;
     }
     if (!canSendToPatient) {
-      setError("Önce Devral ile konuşmayı devralın.");
+      setError(cx(t, "doctor.coordination.err.takeOverFirst", "Take over the conversation first."));
       return;
     }
     setBusy(true);
@@ -287,11 +273,11 @@ export function DoctorIntentPanel({
       const res = await sendDirectPatientMessage({ patientId, message: text });
       if (!res.ok) {
         if (res.error === "ai_owns_conversation" || res.error === "devral_required") {
-          setError("AI konuşmayı yönetiyor. Önce Devral.");
+          setError(cx(t, "doctor.coordination.err.aiOwnsTakeOver", "AI owns the conversation. Take over first."));
         } else if (res.error === "profile_not_found") {
-          setError("Koordinasyon profili yok — sayfayı yenileyin veya tekrar Devral.");
+          setError(cx(t, "doctor.coordination.err.profileNotFound", "No coordination profile."));
         } else {
-          setError(res.message || res.error || "Gönderilemedi");
+          setError(res.message || res.error || cx(t, "doctor.coordination.err.sendFailed", "Could not send"));
         }
         return;
       }
@@ -301,13 +287,11 @@ export function DoctorIntentPanel({
     } catch (e) {
       const err = e as Error & { status?: number; code?: string };
       if (err.status === 404) {
-        setError(
-          "Birebir gönder API bulunamadı — backend güncellemesi gerekli (Railway deploy).",
-        );
+        setError(cx(t, "doctor.coordination.err.apiNotFound", "Direct send API not found."));
       } else if (err.status === 403 || err.code === "ai_owns_conversation") {
-        setError("Önce Devral ile konuşmayı devralın.");
+        setError(cx(t, "doctor.coordination.err.takeOverFirst", "Take over the conversation first."));
       } else {
-        setError(err.message || "Gönderim hatası");
+        setError(err.message || cx(t, "doctor.coordination.err.sendError", "Send error"));
       }
     } finally {
       setBusy(false);
@@ -316,11 +300,11 @@ export function DoctorIntentPanel({
 
   const onSendAiAssisted = async () => {
     if (sent) {
-      setError("Bu mesaj zaten gönderildi. Yeni mesaj için «Yeni taslak» kullanın.");
+      setError(cx(t, "doctor.coordination.err.alreadySent", "Message already sent."));
       return;
     }
     if (!guidanceId || !draftId || !patientDraft.trim()) {
-      setError("Göndermek için önce YZ taslak oluşturun ve onaylayın.");
+      setError(cx(t, "doctor.coordination.err.needAiDraft", "Create and approve an AI draft first."));
       return;
     }
     setBusy(true);
@@ -335,22 +319,22 @@ export function DoctorIntentPanel({
       if (!res.ok) {
         if (res.error === "draft_already_sent") {
           setSent(true);
-          setError("Bu mesaj zaten hastaya iletildi.");
+          setError(cx(t, "doctor.coordination.err.alreadyDeliveredShort", "Already sent to patient."));
           return;
         }
-        setError(res.message || res.error || "Gönderilemedi");
+        setError(res.message || res.error || cx(t, "doctor.coordination.err.sendFailed", "Could not send"));
         return;
       }
       setSent(true);
       setError(
         res.alreadySent
-          ? "Bu mesaj zaten hastaya iletilmişti."
+          ? cx(t, "doctor.coordination.err.alreadyDelivered", "Already delivered to patient.")
           : null,
       );
       onMessageSent?.();
       clearComposeScreen();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gönderim hatası");
+      setError(e instanceof Error ? e.message : cx(t, "doctor.coordination.err.sendError", "Send error"));
     } finally {
       setBusy(false);
     }
@@ -360,22 +344,24 @@ export function DoctorIntentPanel({
     <View style={[styles.wrap, compact && styles.wrapCompact]}>
       <View style={styles.titleRow}>
         <Text style={[styles.title, compact && styles.titleCompact, styles.titleInRow]}>
-          {sendMode === "direct" ? "Hastaya mesaj (direkt)" : "Klinik niyet → hasta mesajı"}
+          {sendMode === "direct"
+            ? cx(t, "doctor.coordination.intent.directTitle", "Message to patient (direct)")
+            : cx(t, "doctor.coordination.intent.aiTitle", "Clinical intent → patient message")}
         </Text>
         <Pressable
           style={[styles.btnClear, (!hasComposeContent || busy) && styles.btnDisabled]}
           onPress={clearComposeScreen}
           disabled={!hasComposeContent || busy}
-          accessibilityLabel="Yazı alanını temizle"
+          accessibilityLabel={cx(t, "doctor.coordination.intent.clearA11y", "Clear compose fields")}
         >
-          <Text style={styles.btnClearText}>Temizle</Text>
+          <Text style={styles.btnClearText}>{cx(t, "doctor.coordination.intent.clear", "Clear")}</Text>
         </Pressable>
       </View>
       {!compact ? (
         <Text style={styles.sub}>
           {sendMode === "direct"
-            ? "Direkt gönder: yazdığınız metin birebir hastaya gider. YZ genişletme veya yeniden yazma yok."
-            : "YZ destekli: dahili nottan taslak üretilir; göndermeden önce düzenleyip onaylarsınız."}
+            ? cx(t, "doctor.coordination.intent.directSub", "Direct send: verbatim to patient.")
+            : cx(t, "doctor.coordination.intent.aiSub", "AI-assisted draft from internal note.")}
         </Text>
       ) : null}
 
@@ -387,7 +373,7 @@ export function DoctorIntentPanel({
             disabled={busy}
           >
             <Text style={[styles.modeBtnText, sendMode === "direct" && styles.modeBtnTextOn]}>
-              Direkt gönder
+              {cx(t, "doctor.coordination.intent.directSend", "Direct send")}
             </Text>
           </Pressable>
           <Pressable
@@ -396,7 +382,7 @@ export function DoctorIntentPanel({
             disabled={busy}
           >
             <Text style={[styles.modeBtnText, sendMode === "ai_assist" && styles.modeBtnTextOn]}>
-              YZ ile taslak
+              {cx(t, "doctor.coordination.intent.aiDraft", "AI draft")}
             </Text>
           </Pressable>
         </View>
@@ -404,12 +390,16 @@ export function DoctorIntentPanel({
 
       {sendMode === "ai_assist" ? (
         <>
-      <Text style={styles.label}>Dahili klinik not</Text>
+      <Text style={styles.label}>{cx(t, "doctor.coordination.intent.internalNote", "Internal clinical note")}</Text>
       <View ref={intentFieldRef} collapsable={false}>
         <TextInput
           style={[styles.inputMultiline, compact && styles.inputMultilineCompact]}
           multiline
-          placeholder="Örn: 2 implant gerekebilir. Önce CBCT. Korkutma. 2 ziyaret sürecini kısaca anlat."
+          placeholder={cx(
+            t,
+            "doctor.coordination.intent.internalPlaceholder",
+            "e.g. May need 2 implants. CBCT first.",
+          )}
           value={intentText}
           onChangeText={setIntentTextLive}
           onFocus={() => onInputFocus?.(intentFieldRef)}
@@ -419,9 +409,20 @@ export function DoctorIntentPanel({
         />
       </View>
 
-      <Text style={styles.label}>Niyet etiketleri</Text>
+      <Text style={styles.label}>{cx(t, "doctor.coordination.intent.intentTags", "Intent tags")}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tagRow}>
-        {(intentTags.length ? intentTags : (Object.keys(TAG_LABELS) as IntentTag[])).map(
+        {(intentTags.length ? intentTags : (Object.keys({
+          reassure_patient: 1,
+          explain_process: 1,
+          request_xray: 1,
+          request_cbct: 1,
+          explain_timeline: 1,
+          discuss_pricing: 1,
+          reduce_anxiety: 1,
+          encourage_consultation: 1,
+          collect_patient_info: 1,
+          schedule_visit: 1,
+        }) as IntentTag[])).map(
           (tag) => {
             const on = selectedTags.includes(tag);
             return (
@@ -431,7 +432,7 @@ export function DoctorIntentPanel({
                 onPress={() => toggleTag(tag)}
               >
                 <Text style={[styles.tagText, on && styles.tagTextOn]}>
-                  {TAG_LABELS[tag] || tag}
+                  {intentTagLabel(t, tag)}
                 </Text>
               </Pressable>
             );
@@ -442,9 +443,9 @@ export function DoctorIntentPanel({
       {!canExpand && !busy && !sent ? (
         <Text style={styles.hint}>
           {!resolveIntentText()
-            ? "Taslak için önce «Dahili klinik not» yazın veya niyet etiketi seçin."
+            ? cx(t, "doctor.coordination.intent.hintNeedIntent", "Write internal note or select tags.")
             : !expansionAllowed
-              ? "YZ taslak üretimi şu an kapalı."
+              ? cx(t, "doctor.coordination.intent.hintDraftOff", "AI draft generation is off.")
               : null}
         </Text>
       ) : null}
@@ -457,7 +458,9 @@ export function DoctorIntentPanel({
         {busy ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.btnPrimaryText}>Hasta taslağı oluştur</Text>
+          <Text style={styles.btnPrimaryText}>
+            {cx(t, "doctor.coordination.intent.createDraft", "Create patient draft")}
+          </Text>
         )}
       </Pressable>
         </>
@@ -465,17 +468,24 @@ export function DoctorIntentPanel({
 
       {warnings.length > 0 && sendMode === "ai_assist" ? (
         <View style={styles.warnBox}>
-          <Text style={styles.warnTitle}>Güvenlik uyarıları</Text>
+          <Text style={styles.warnTitle}>
+            {cx(t, "doctor.coordination.intent.safetyWarnings", "Safety warnings")}
+          </Text>
           <Text style={styles.warnBody}>{warnings.join(" · ")}</Text>
         </View>
       ) : null}
 
       {confidence != null && sendMode === "ai_assist" ? (
-        <Text style={styles.meta}>Güven skoru: {Math.round(confidence * 100)}%</Text>
+        <Text style={styles.meta}>
+          {t("doctor.coordination.intent.confidence", { pct: Math.round(confidence * 100) }) ||
+            `Confidence: ${Math.round(confidence * 100)}%`}
+        </Text>
       ) : null}
 
       <Text style={styles.label}>
-        {sendMode === "direct" ? "Hastaya gidecek metin" : "Hasta mesajı (önizleme / düzenle)"}
+        {sendMode === "direct"
+          ? cx(t, "doctor.coordination.intent.patientTextDirect", "Text going to patient")
+          : cx(t, "doctor.coordination.intent.patientTextPreview", "Patient message (preview / edit)")}
       </Text>
       <View ref={patientDraftFieldRef} collapsable={false}>
         <TextInput
@@ -486,8 +496,8 @@ export function DoctorIntentPanel({
           onFocus={() => onInputFocus?.(patientDraftFieldRef)}
           placeholder={
             sendMode === "direct"
-              ? "Hastaya birebir gidecek metni yazın…"
-              : "YZ taslağı burada görünür…"
+              ? cx(t, "doctor.coordination.intent.placeholderDirect", "Write the exact message for the patient…")
+              : cx(t, "doctor.coordination.intent.placeholderDraft", "AI draft appears here…")
           }
           editable={!busy}
           blurOnSubmit={false}
@@ -497,14 +507,14 @@ export function DoctorIntentPanel({
 
       {sendMode === "ai_assist" ? (
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.rewriteRow}>
-        {REWRITE_ACTIONS.map((a) => (
+        {REWRITE_ACTION_IDS.map((a) => (
           <Pressable
-            key={a.id}
+            key={a}
             style={styles.chipBtn}
-            onPress={() => onRewrite(a.id)}
+            onPress={() => onRewrite(a)}
             disabled={busy || !patientDraft}
           >
-            <Text style={styles.chipBtnText}>{a.label}</Text>
+            <Text style={styles.chipBtnText}>{rewriteActionLabel(t, a)}</Text>
           </Pressable>
         ))}
       </ScrollView>
@@ -512,8 +522,11 @@ export function DoctorIntentPanel({
 
       {!canSendToPatient ? (
         <Text style={styles.ownerBlock}>
-          AI konuşmayı yönetiyor. Önce Devral; ardından dahili not → hasta taslağı → Hastaya gönder
-          (koordinasyon sohbetine gider).
+          {cx(
+            t,
+            "doctor.coordination.intent.ownerBlock",
+            "AI owns the conversation. Take over first, then compose and send.",
+          )}
         </Text>
       ) : null}
 
@@ -533,10 +546,10 @@ export function DoctorIntentPanel({
       >
         <Text style={styles.btnSendText}>
           {sent
-            ? "Gönderildi ✓"
+            ? cx(t, "doctor.coordination.intent.sent", "Sent ✓")
             : sendMode === "direct"
-              ? "Birebir gönder"
-              : "Onayla ve gönder"}
+              ? cx(t, "doctor.coordination.intent.sendDirect", "Send verbatim")
+              : cx(t, "doctor.coordination.intent.sendApproved", "Approve and send")}
         </Text>
       </Pressable>
 

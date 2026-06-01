@@ -28,7 +28,7 @@ export default function DoctorCoordinationScreen() {
     patientName?.trim() ||
     (t("doctor.coordination.title") !== "doctor.coordination.title"
       ? t("doctor.coordination.title")
-      : "Koordinasyon merkezi");
+      : "Coordination center");
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -46,7 +46,9 @@ export default function DoctorCoordinationScreen() {
       {!token ? (
         <View style={styles.missing}>
           <ActivityIndicator size="large" color="#2563eb" />
-          <Text style={[styles.missingText, { marginTop: 12 }]}>Oturum doğrulanıyor…</Text>
+          <Text style={[styles.missingText, { marginTop: 12 }]}>
+            {t("doctor.coordination.verifyingSession") || "Verifying session…"}
+          </Text>
         </View>
       ) : patientId ? (
         <View style={styles.workspace}>
@@ -57,7 +59,7 @@ export default function DoctorCoordinationScreen() {
           <Text style={styles.missingText}>
             {t("doctor.coordination.missingPatient") !== "doctor.coordination.missingPatient"
               ? t("doctor.coordination.missingPatient")
-              : "Hasta kimliği bulunamadı."}
+              : "Patient id not found."}
           </Text>
         </View>
       )}

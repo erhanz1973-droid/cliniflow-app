@@ -520,7 +520,7 @@ const RequestCard = memo(function RequestCard({
   const coordinationLabel =
     t('doctor.requests.openCoordination') !== 'doctor.requests.openCoordination'
       ? t('doctor.requests.openCoordination')
-      : 'AI koordinasyon süpervizyonu';
+      : 'AI coordination supervision';
 
   const openCoordination = () => onOpenCoordination(req);
 

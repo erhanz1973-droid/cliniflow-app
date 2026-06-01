@@ -1,5 +1,8 @@
 import { StyleSheet, Text, View } from "react-native";
 
+import { cx } from "@/lib/coordinationUiLabels";
+import { useLanguage } from "@/lib/language-context";
+
 import type { ConversationTurn } from "@/lib/coordinationWorkspaceTypes";
 
 type FeedStats = {
@@ -40,7 +43,6 @@ type Props = {
   latestAiReply?: string | null;
   nextStep?: string | null;
   blocker?: string | null;
-  /** Mobile: tek satır özet — sabit büyük kahraman bloğu yok. */
   compact?: boolean;
 };
 
@@ -53,26 +55,38 @@ export function CoordinationMissionBar({
   blocker,
   compact,
 }: Props) {
+  const { t } = useLanguage();
+  const patientLabel = patientName || cx(t, "doctor.coordination.patientFallback", "Patient");
+
   if (compact) {
     return (
       <View style={styles.compactWrap}>
         <View style={styles.compactTop}>
           <Text style={styles.compactName} numberOfLines={1}>
-            {patientName || "Hasta"}
+            {patientLabel}
           </Text>
           <Text style={styles.compactStats}>
-            {stats.patient + stats.ai + stats.human} mesaj · H{stats.patient} · AI{stats.ai}
+            {t("doctor.coordination.compactStats", {
+              total: stats.patient + stats.ai + stats.human,
+              patient: stats.patient,
+              ai: stats.ai,
+            }) ||
+              `${stats.patient + stats.ai + stats.human} msgs · P${stats.patient} · AI${stats.ai}`}
           </Text>
         </View>
         <View style={styles.compactPreviewRow}>
           <View style={styles.compactPreview}>
-            <Text style={styles.compactPreviewLabel}>Son hasta</Text>
+            <Text style={styles.compactPreviewLabel}>
+              {cx(t, "doctor.coordination.lastPatient", "Last patient")}
+            </Text>
             <Text style={styles.compactPreviewText} numberOfLines={2}>
               {latestPatientMessage?.trim() || "—"}
             </Text>
           </View>
           <View style={[styles.compactPreview, styles.compactPreviewAi]}>
-            <Text style={styles.compactPreviewLabel}>Son AI</Text>
+            <Text style={styles.compactPreviewLabel}>
+              {cx(t, "doctor.coordination.lastAi", "Last AI")}
+            </Text>
             <Text style={styles.compactPreviewText} numberOfLines={2}>
               {latestAiReply?.trim() || "—"}
             </Text>
@@ -95,45 +109,54 @@ export function CoordinationMissionBar({
   return (
     <View style={styles.wrap}>
       <View style={styles.hero}>
-        <Text style={styles.heroEyebrow}>Koordinasyon merkezi</Text>
-        <Text style={styles.heroTitle}>{patientName || "Hasta"}</Text>
+        <Text style={styles.heroEyebrow}>
+          {cx(t, "doctor.coordination.missionCenter", "Coordination center")}
+        </Text>
+        <Text style={styles.heroTitle}>{patientLabel}</Text>
         <Text style={styles.heroSub}>
-          Canlı süpervizyon · {stats.total} olay akışta
+          {t("doctor.coordination.missionLive", { count: stats.total }) ||
+            `Live supervision · ${stats.total} events in feed`}
         </Text>
       </View>
 
       <View style={styles.statRow}>
-        <StatCell label="Hasta" value={String(stats.patient)} tone="patient" />
-        <StatCell label="AI" value={String(stats.ai)} tone="ai" />
-        <StatCell label="Ekip" value={String(stats.human)} tone="human" />
-        <StatCell label="Sistem" value={String(stats.system + stats.drafts)} tone="system" />
+        <StatCell label={cx(t, "doctor.coordination.statPatient", "Patient")} value={String(stats.patient)} tone="patient" />
+        <StatCell label={cx(t, "doctor.coordination.statAi", "AI")} value={String(stats.ai)} tone="ai" />
+        <StatCell label={cx(t, "doctor.coordination.statTeam", "Team")} value={String(stats.human)} tone="human" />
+        <StatCell
+          label={cx(t, "doctor.coordination.statSystem", "System")}
+          value={String(stats.system + stats.drafts)}
+          tone="system"
+        />
       </View>
 
       {blocker ? (
         <View style={styles.bannerDanger}>
-          <Text style={styles.bannerTitle}>⚠️ Engel</Text>
+          <Text style={styles.bannerTitle}>{cx(t, "doctor.coordination.blocker", "⚠️ Blocker")}</Text>
           <Text style={styles.bannerBody}>{blocker}</Text>
         </View>
       ) : null}
 
       {nextStep ? (
         <View style={styles.bannerNext}>
-          <Text style={styles.bannerTitle}>→ Sıradaki adım</Text>
+          <Text style={styles.bannerTitle}>{cx(t, "doctor.coordination.nextStep", "→ Next step")}</Text>
           <Text style={styles.bannerBody}>{nextStep}</Text>
         </View>
       ) : null}
 
       <View style={styles.previewRow}>
         <View style={styles.previewCard}>
-          <Text style={styles.previewLabel}>Son hasta</Text>
+          <Text style={styles.previewLabel}>
+            {cx(t, "doctor.coordination.lastPatient", "Last patient")}
+          </Text>
           <Text style={styles.previewText} numberOfLines={3}>
-            {latestPatientMessage?.trim() || "Henüz mesaj yok"}
+            {latestPatientMessage?.trim() || cx(t, "doctor.coordination.noMessageYet", "No messages yet")}
           </Text>
         </View>
         <View style={[styles.previewCard, styles.previewCardAi]}>
-          <Text style={styles.previewLabel}>Son AI</Text>
+          <Text style={styles.previewLabel}>{cx(t, "doctor.coordination.lastAi", "Last AI")}</Text>
           <Text style={styles.previewText} numberOfLines={3}>
-            {latestAiReply?.trim() || "Henüz yanıt yok"}
+            {latestAiReply?.trim() || cx(t, "doctor.coordination.noReplyYet", "No reply yet")}
           </Text>
         </View>
       </View>

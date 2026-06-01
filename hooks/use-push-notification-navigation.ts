@@ -13,6 +13,7 @@ import {
 import { emitOfferUnreadEvent } from "../lib/offerUnreadEvents";
 import { bumpDoctorRequestUnreadByOfferId } from "../lib/doctorRequestsUnread";
 import { invalidateDoctorUnreadCacheOnly } from "../lib/doctorMessaging";
+import { resetDoctorHomeBadgeAck, refreshDoctorHomeBadgeLiveCounts } from "../lib/doctorHomeBadges";
 import { invalidatePatientInboxUnreadCache } from "../lib/patientInboxUnread";
 
 const isExpoGo = Constants.appOwnership === "expo";
@@ -163,6 +164,13 @@ export function usePushNotificationNavigation(): void {
         const offerId = String(data?.offerId || data?.offer_id || "").trim();
         if (isDoctor && offerId && (type === "offer_message" || type === "new_offer")) {
           bumpDoctorRequestUnreadByOfferId(offerId, 1);
+        }
+        if (
+          isDoctor &&
+          (type === "new_message" || type === "chat_message" || type === "offer_message" || type === "new_offer")
+        ) {
+          resetDoctorHomeBadgeAck(["inbox", "patients"]);
+          void refreshDoctorHomeBadgeLiveCounts(token);
         }
         emitOfferUnreadEvent({
           type: "offer_realtime_update",

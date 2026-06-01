@@ -1,13 +1,9 @@
 import { StyleSheet, Text, View } from "react-native";
 
 import { LeadInsightsSummary } from "@/components/LeadInsightsSummary";
+import { contextClassLabel, cx } from "@/lib/coordinationUiLabels";
 import type { AiState, CurrentStrategy, LeadHeat, WorkspaceProfile } from "@/lib/coordinationWorkspaceTypes";
-
-const CONTEXT_LABELS: Record<string, string> = {
-  local_patient: "Yerel hasta",
-  domestic_traveler: "Yurt içi seyahat",
-  international_patient: "Uluslararası",
-};
+import { useLanguage } from "@/lib/language-context";
 
 type Props = {
   profile?: WorkspaceProfile | null;
@@ -17,6 +13,7 @@ type Props = {
 };
 
 export function PatientContextPanel({ profile, aiState, leadHeat, strategy }: Props) {
+  const { t } = useLanguage();
   const heatColor = leadHeat?.isHot
     ? "#dc2626"
     : (leadHeat?.score ?? 0) >= 60
@@ -27,7 +24,9 @@ export function PatientContextPanel({ profile, aiState, leadHeat, strategy }: Pr
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.patientName}>{profile?.patientName || "Hasta"}</Text>
+      <Text style={styles.patientName}>
+        {profile?.patientName || cx(t, "doctor.coordination.patientFallback", "Patient")}
+      </Text>
       {profile?.leadSummarySections?.length || profile?.leadSummaryLines?.length ? (
         <LeadInsightsSummary
           sections={profile.leadSummarySections}
@@ -40,7 +39,9 @@ export function PatientContextPanel({ profile, aiState, leadHeat, strategy }: Pr
 
       {profile?.conversationSummary?.trim() ? (
         <View style={styles.summaryBox}>
-          <Text style={styles.summaryTitle}>Konuşma özeti</Text>
+          <Text style={styles.summaryTitle}>
+            {cx(t, "doctor.coordination.conversationSummary", "Conversation summary")}
+          </Text>
           <Text style={styles.summaryText} numberOfLines={4}>
             {profile.conversationSummary}
           </Text>
@@ -48,19 +49,22 @@ export function PatientContextPanel({ profile, aiState, leadHeat, strategy }: Pr
       ) : null}
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Lead sıcaklığı</Text>
+        <Text style={styles.sectionTitle}>{cx(t, "doctor.coordination.leadHeat", "Lead heat")}</Text>
         <Text style={[styles.heat, { color: heatColor }]}>
           {leadHeat?.label || "—"}
           {leadHeat?.score != null ? ` · ${leadHeat.score}` : ""}
         </Text>
         {leadHeat?.messageCount != null ? (
-          <Text style={styles.sub}>{leadHeat.messageCount} mesaj</Text>
+          <Text style={styles.sub}>
+            {t("doctor.coordination.messageCount", { count: leadHeat.messageCount }) ||
+              `${leadHeat.messageCount} messages`}
+          </Text>
         ) : null}
       </View>
 
       {readiness != null ? (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Hazırlık</Text>
+          <Text style={styles.sectionTitle}>{cx(t, "doctor.coordination.readiness", "Readiness")}</Text>
           <View style={styles.barTrack}>
             <View style={[styles.barFill, { width: `${Math.min(100, Math.max(0, readiness))}%` }]} />
           </View>
@@ -69,61 +73,69 @@ export function PatientContextPanel({ profile, aiState, leadHeat, strategy }: Pr
       ) : null}
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>AI modu</Text>
+        <Text style={styles.sectionTitle}>{cx(t, "doctor.coordination.aiMode", "AI mode")}</Text>
         <Text style={styles.value}>
           {aiState?.responderModeLabel || aiState?.coordinationMode || "—"}
         </Text>
         {aiState?.primaryResponderLabel ? (
-          <Text style={styles.sub}>Sorumlu: {aiState.primaryResponderLabel}</Text>
+          <Text style={styles.sub}>
+            {t("doctor.coordination.primaryResponder", { name: aiState.primaryResponderLabel }) ||
+              `Primary: ${aiState.primaryResponderLabel}`}
+          </Text>
         ) : null}
         {aiState?.handlingStateLabel ? (
           <Text style={styles.sub}>{aiState.handlingStateLabel}</Text>
         ) : null}
         <View style={styles.chips}>
-          {aiState?.aiPaused ? <Badge label="AI duraklatıldı" tone="warn" /> : null}
-          {aiState?.aiEscalationRequired ? <Badge label="Escalation" tone="danger" /> : null}
+          {aiState?.aiPaused ? (
+            <Badge label={cx(t, "doctor.coordination.aiPaused", "AI paused")} tone="warn" />
+          ) : null}
+          {aiState?.aiEscalationRequired ? (
+            <Badge label={cx(t, "doctor.coordination.escalation", "Escalation")} tone="danger" />
+          ) : null}
           {aiState?.autoReplyAllowed === false ? (
-            <Badge label="Oto-yanıt kapalı" tone="muted" />
+            <Badge label={cx(t, "doctor.coordination.autoReplyOff", "Auto-reply off")} tone="muted" />
           ) : null}
           {aiState?.draftGenerationAllowed === false ? (
-            <Badge label="Taslak kapalı" tone="muted" />
+            <Badge label={cx(t, "doctor.coordination.draftOff", "Draft off")} tone="muted" />
           ) : null}
         </View>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Strateji</Text>
-        <Text style={styles.value}>
-          {CONTEXT_LABELS[strategy?.patientContextClass || ""] ||
-            strategy?.patientContextClass ||
-            "—"}
-        </Text>
+        <Text style={styles.sectionTitle}>{cx(t, "doctor.coordination.strategy", "Strategy")}</Text>
+        <Text style={styles.value}>{contextClassLabel(t, strategy?.patientContextClass)}</Text>
         {strategy?.journeyStageLabel ? (
-          <Text style={styles.sub}>Aşama: {strategy.journeyStageLabel}</Text>
+          <Text style={styles.sub}>
+            {t("doctor.coordination.stage", { label: strategy.journeyStageLabel }) ||
+              `Stage: ${strategy.journeyStageLabel}`}
+          </Text>
         ) : null}
         {strategy?.waitingPartyLabel ? (
           <Text style={styles.sub}>{strategy.waitingPartyLabel}</Text>
         ) : null}
         {strategy?.recentTopics?.length ? (
           <Text style={styles.sub} numberOfLines={2}>
-            Son: {strategy.recentTopics.slice(-5).join(" · ")}
+            {t("doctor.coordination.recentShort", {
+              topics: strategy.recentTopics.slice(-5).join(" · "),
+            }) || `Recent: ${strategy.recentTopics.slice(-5).join(" · ")}`}
           </Text>
         ) : null}
         <View style={styles.chips}>
           {strategy?.travelContextDetected ? (
-            <Badge label="Seyahat" tone="info" />
+            <Badge label={cx(t, "doctor.coordination.travel", "Travel")} tone="info" />
           ) : (
-            <Badge label="Yerel varsayım" tone="muted" />
+            <Badge label={cx(t, "doctor.coordination.localDefault", "Local default")} tone="muted" />
           )}
           {strategy?.pricingAlreadyDiscussed ? (
-            <Badge label="Fiyat konuşuldu" tone="warn" />
+            <Badge label={cx(t, "doctor.coordination.pricingDiscussed", "Pricing discussed")} tone="warn" />
           ) : null}
         </View>
       </View>
 
       {profile?.delegation?.statusLabel ? (
         <View style={styles.delegation}>
-          <Text style={styles.sectionTitle}>Delegasyon</Text>
+          <Text style={styles.sectionTitle}>{cx(t, "doctor.coordination.delegation", "Delegation")}</Text>
           <Text style={styles.value}>{profile.delegation.statusLabel}</Text>
         </View>
       ) : null}
@@ -136,7 +148,9 @@ export function PatientContextPanel({ profile, aiState, leadHeat, strategy }: Pr
 
       {strategy?.nextAction ? (
         <View style={styles.nextBox}>
-          <Text style={styles.nextLabel}>Önerilen aksiyon</Text>
+          <Text style={styles.nextLabel}>
+            {cx(t, "doctor.coordination.suggestedAction", "Suggested action")}
+          </Text>
           <Text style={styles.nextText}>{strategy.nextAction}</Text>
         </View>
       ) : null}

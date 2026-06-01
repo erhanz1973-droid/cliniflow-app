@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import { FlatList, StyleSheet, Text, View, type ViewStyle } from "react-native";
 
+import { feedRoleMeta, formatCoordDateTime } from "@/lib/coordinationUiLabels";
 import type { ConversationTurn } from "@/lib/coordinationWorkspaceTypes";
+import { useLanguage } from "@/lib/language-context";
 
 type BubbleStyleKey =
   | "bubblePatient"
@@ -12,89 +14,11 @@ type BubbleStyleKey =
   | "bubbleDraft"
   | "bubbleSystem";
 
-type RoleMeta = {
-  emoji: string;
-  label: string;
-  bubbleKey: BubbleStyleKey;
-  labelColor: string;
-  caption?: string;
-};
-
-const ROLE_META: Record<string, RoleMeta> = {
-  patient: {
-    emoji: "👤",
-    label: "Hasta",
-    bubbleKey: "bubblePatient",
-    labelColor: "#1e40af",
-  },
-  ai: {
-    emoji: "🤖",
-    label: "AI Koordinatör",
-    bubbleKey: "bubbleAi",
-    labelColor: "#0369a1",
-  },
-  human: {
-    emoji: "💬",
-    label: "Klinik ekibi",
-    bubbleKey: "bubbleHuman",
-    labelColor: "#047857",
-  },
-  doctor: {
-    emoji: "👨‍⚕️",
-    label: "Doktor",
-    bubbleKey: "bubbleDoctor",
-    labelColor: "#7c2d12",
-  },
-  doctor_intent: {
-    emoji: "👨‍⚕️",
-    label: "Doktor rehberliği",
-    bubbleKey: "bubbleIntent",
-    labelColor: "#6b21a8",
-    caption: "İç not — hastaya gönderilmez",
-  },
-  ai_draft: {
-    emoji: "🤖",
-    label: "AI taslağı",
-    bubbleKey: "bubbleDraft",
-    labelColor: "#4338ca",
-    caption: "Onay bekliyor",
-  },
-  system: {
-    emoji: "⚙️",
-    label: "Sistem",
-    bubbleKey: "bubbleSystem",
-    labelColor: "#6b7280",
-  },
-};
-
-function formatTime(iso?: string) {
-  if (!iso) return "";
-  try {
-    return new Date(iso).toLocaleString("tr-TR", {
-      day: "numeric",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "";
-  }
-}
-
-function metaForTurn(item: ConversationTurn): RoleMeta {
-  if (item.kind === "system" || item.role === "system") {
-    return ROLE_META.system;
-  }
-  return ROLE_META[item.role] || ROLE_META.system;
-}
-
 type Props = {
   turns: ConversationTurn[];
   patientName?: string;
   flex?: boolean;
-  /** Render static rows inside a parent ScrollView (no nested VirtualizedList). */
   embedInParentScroll?: boolean;
-  /** Fires after embedded feed lays out — parent can scroll to latest message. */
   onEmbeddedLayout?: () => void;
 };
 
@@ -105,8 +29,12 @@ function TurnRow({
   item: ConversationTurn;
   patientName?: string;
 }) {
-  const meta = metaForTurn(item);
-  const bubbleStyle = styles[meta.bubbleKey] as ViewStyle;
+  const { t, currentLanguage } = useLanguage();
+  const meta =
+    item.kind === "system" || item.role === "system"
+      ? feedRoleMeta(t, "system")
+      : feedRoleMeta(t, item.role);
+  const bubbleStyle = styles[meta.bubbleKey as BubbleStyleKey] as ViewStyle;
   const isSystem = item.kind === "system" || item.role === "system";
   const displayLabel = String(item.label || "").trim();
   const who =
@@ -118,7 +46,9 @@ function TurnRow({
     <View style={[styles.turn, isSystem && styles.turnSystem]}>
       <Text style={[styles.who, { color: meta.labelColor }]}>
         {meta.emoji} {who}
-        {item.at ? <Text style={styles.time}> · {formatTime(item.at)}</Text> : null}
+        {item.at ? (
+          <Text style={styles.time}> · {formatCoordDateTime(item.at, currentLanguage)}</Text>
+        ) : null}
       </Text>
       {meta.caption ? <Text style={styles.caption}>{meta.caption}</Text> : null}
       {item.label && item.kind !== "system" ? (
@@ -138,6 +68,7 @@ export function LiveConversationFeed({
   embedInParentScroll = false,
   onEmbeddedLayout,
 }: Props) {
+  const { t } = useLanguage();
   const listRef = useRef<FlatList<ConversationTurn>>(null);
 
   useEffect(() => {
@@ -148,9 +79,12 @@ export function LiveConversationFeed({
   if (!turns.length) {
     return (
       <View style={styles.empty}>
-        <Text style={styles.emptyTitle}>Henüz mesaj yok</Text>
+        <Text style={styles.emptyTitle}>
+          {t("doctor.coordination.feedEmptyTitle") || "No messages yet"}
+        </Text>
         <Text style={styles.emptyBody}>
-          Hasta veya AI yanıtları burada görünür. Üstteki “Son hasta” özetinde metin varsa ↻ ile yenileyin.
+          {t("doctor.coordination.feedEmptyBody") ||
+            "Patient or AI replies appear here. Refresh if needed."}
         </Text>
       </View>
     );

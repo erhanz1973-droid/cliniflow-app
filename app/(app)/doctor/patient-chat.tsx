@@ -72,6 +72,8 @@ function applySnapshot(
   setters.setEnrolledSharedCare(snapshot.enrolledSharedCare);
 }
 
+const FETCH_TIMEOUT_MS = 25_000;
+
 export default function DoctorPatientChatScreen() {
   const router = useRouter();
   const { token } = useAuthSession();
@@ -93,6 +95,7 @@ export default function DoctorPatientChatScreen() {
   const [messages, setMessages] = useState<DoctorChatMessage[]>(initialSnapshot?.messages ?? []);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(!(initialSnapshot?.messages?.length));
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [silentRefreshing, setSilentRefreshing] = useState(false);
   const hasDisplayedContentRef = useRef((initialSnapshot?.messages?.length ?? 0) > 0);
   const firstPaintMarkedRef = useRef(false);
@@ -191,17 +194,21 @@ export default function DoctorPatientChatScreen() {
       const fetchStartedAt = Date.now();
       if (!silent && !hasDisplayedContentRef.current) setLoading(true);
       if (silent) setSilentRefreshing(true);
+      if (!silent) setFetchError(null);
 
       const endFetch = focusPerfStart(
         silent ? 'doctor:patient-chat:fetch-silent' : 'doctor:patient-chat:fetch'
       );
       setAuthToken(token);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
       try {
         const res = await fetch(
           `${API_BASE}/api/doctor/patient/${encodeURIComponent(patientId)}/messages?limit=${MESSAGE_CAP}`,
           {
             headers: { Authorization: `Bearer ${token}` },
             cache: 'no-store',
+            signal: controller.signal,
           },
         );
         if (generation !== fetchGenerationRef.current) return;
@@ -212,6 +219,28 @@ export default function DoctorPatientChatScreen() {
         const meta = parseLeadAssignment(json);
         setLeadThreadId(meta.leadThreadId);
         setEnrolledSharedCare(meta.enrolledSharedCare);
+
+        const payload = decodeJwtPayloadForDebug(token || '');
+        const doctorId = String(
+          payload?.doctorId || payload?.doctor_id || payload?.id || payload?.sub || '',
+        ).trim();
+        const accessThreadId = String(json.accessThreadId || '').trim();
+        console.log(
+          '[THREAD_CONSISTENCY_CHECK]',
+          JSON.stringify({
+            patient_id: String(patientId || '').slice(0, 8),
+            doctor_id: doctorId ? doctorId.slice(0, 8) : null,
+            thread_id: meta.leadThreadId ? meta.leadThreadId.slice(0, 8) : null,
+            fetch_thread_id: accessThreadId ? accessThreadId.slice(0, 8) : null,
+            source: 'doctor_fetch_messages',
+            mismatch:
+              accessThreadId &&
+              meta.leadThreadId &&
+              accessThreadId !== meta.leadThreadId
+                ? 'access_vs_lead_thread'
+                : null,
+          }),
+        );
 
         console.log(
           '[DOCTOR_CHAT_SCREEN_OPEN]',
@@ -282,11 +311,28 @@ export default function DoctorPatientChatScreen() {
             const tail = slice[slice.length - 1];
             prevNewestMessageIdRef.current = String(tail?.id || '').trim();
           }
+        } else if (!silent) {
+          setFetchError(
+            res.ok
+              ? 'Mesajlar yüklenemedi.'
+              : `Sunucu hatası (${res.status}).`,
+          );
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
+        const isTimeout =
+          err instanceof Error &&
+          (err.name === 'AbortError' || /aborted|timeout/i.test(msg));
         console.error('[DR CHAT fetch]', msg);
+        if (!silent) {
+          setFetchError(
+            isTimeout
+              ? 'Bağlantı zaman aşımına uğradı. Tekrar deneyin.'
+              : 'Ağ hatası. Bağlantınızı kontrol edip tekrar deneyin.',
+          );
+        }
       } finally {
+        clearTimeout(timeoutId);
         if (generation === fetchGenerationRef.current) {
           setLoading(false);
           setSilentRefreshing(false);
@@ -583,9 +629,12 @@ export default function DoctorPatientChatScreen() {
           return next;
         });
       },
-      onConnect: () => {
-        socketJoinedRef.current = true;
-        logDoctorChatSocket('joined', { message_id: null });
+      onConnect: (info) => {
+        socketJoinedRef.current = info.joined === true;
+        logDoctorChatSocket('joined', {
+          message_id: null,
+          join_success: info.joined,
+        });
       },
       onDisconnect: () => {
         socketJoinedRef.current = false;
@@ -890,7 +939,7 @@ export default function DoctorPatientChatScreen() {
     return `fb-${item.createdAt}-${item.from}-${index}`;
   }, []);
 
-  const showListSkeleton = loading && messages.length === 0;
+  const showListSkeleton = loading && messages.length === 0 && !fetchError;
 
   return (
     <SafeAreaView
@@ -988,6 +1037,17 @@ export default function DoctorPatientChatScreen() {
             <ChatSkeletonBubble align="left" />
             <ChatSkeletonBubble align="right" />
             <ChatSkeletonBubble align="left" />
+          </View>
+        ) : fetchError && messages.length === 0 ? (
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyIcon}>⚠️</Text>
+            <Text style={styles.emptyText}>{fetchError}</Text>
+            <TouchableOpacity
+              style={styles.retryBtn}
+              onPress={() => void fetchMessages()}
+            >
+              <Text style={styles.retryBtnText}>Tekrar dene</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <FlatList
@@ -1221,6 +1281,14 @@ const styles = StyleSheet.create({
   emptyBox: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 80, gap: 10 },
   emptyIcon: { fontSize: 48 },
   emptyText: { fontSize: 15, color: '#9CA3AF' },
+  retryBtn: {
+    marginTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: '#2563EB',
+    borderRadius: 8,
+  },
+  retryBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',

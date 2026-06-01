@@ -27,6 +27,8 @@ import {
   operationalEventsFromFeed,
 } from "@/lib/coordinationFeedUtils";
 import { useCoordinationWorkspace } from "@/hooks/useCoordinationWorkspace";
+import { cx } from "@/lib/coordinationUiLabels";
+import { useLanguage } from "@/lib/language-context";
 import type { AiState } from "@/lib/coordinationWorkspaceTypes";
 
 type Props = {
@@ -34,6 +36,7 @@ type Props = {
 };
 
 export function DoctorCoordinationWorkspace({ patientId }: Props) {
+  const { t } = useLanguage();
   const intentRef = useRef<ScrollView>(null);
   const mainScrollRef = useRef<ScrollView>(null);
   const feedBottomRef = useRef<View>(null);
@@ -233,7 +236,7 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator size="large" color="#2563eb" />
-        <Text style={styles.loadingText}>Koordinasyon merkezi yükleniyor…</Text>
+        <Text style={styles.loadingText}>{cx(t, "doctor.coordination.loading", "Loading coordination center…")}</Text>
       </View>
     );
   }
@@ -243,10 +246,13 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
   if (!data?.profile) {
     return (
       <View style={styles.emptyCard}>
-        <Text style={styles.emptyTitle}>Koordinasyon profili yok</Text>
+        <Text style={styles.emptyTitle}>{cx(t, "doctor.coordination.emptyProfileTitle", "No coordination profile")}</Text>
         <Text style={styles.emptyBody}>
-          Bu hasta henüz koordinasyon hattında değil. İlk mesaj veya başvuru sonrası canlı akış burada
-          görünür.
+          {cx(
+            t,
+            "doctor.coordination.emptyProfileBody",
+            "This patient is not on the coordination line yet. Live feed appears after the first message or inquiry.",
+          )}
         </Text>
       </View>
     );
@@ -256,9 +262,13 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
     <>
       {!isWide ? null : (
         <>
-          <Text style={styles.intentTitle}>Klinik rehberlik</Text>
+          <Text style={styles.intentTitle}>{cx(t, "doctor.coordination.clinicalGuidance", "Clinical guidance")}</Text>
           <Text style={styles.intentSub}>
-            Devral sonrası varsayılan: direkt gönder (birebir). İsteğe bağlı: YZ ile taslak.
+            {cx(
+              t,
+              "doctor.coordination.clinicalGuidanceSub",
+              "After takeover, default is direct send. Optional: AI-assisted draft.",
+            )}
           </Text>
         </>
       )}
@@ -294,9 +304,9 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
     <View style={[styles.feedCard, !isWide && styles.feedCardMobile]}>
       <View style={styles.feedHeader}>
         <View>
-          <Text style={styles.feedTitle}>Canlı konuşma akışı</Text>
+          <Text style={styles.feedTitle}>{cx(t, "doctor.coordination.liveFeedTitle", "Live conversation feed")}</Text>
           <Text style={styles.feedSub}>
-            Hasta · AI · ekip · doktor · taslak · sistem
+            {cx(t, "doctor.coordination.liveFeedSub", "Patient · AI · team · doctor · draft · system")}
           </Text>
         </View>
         <View style={styles.feedBadge}>
@@ -356,7 +366,9 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
         onPress={() => setShowCoordinationDetails((v) => !v)}
       >
         <Text style={styles.detailsToggleText}>
-          {showCoordinationDetails ? "▲ Hasta bağlamını gizle" : "▼ Hasta bağlamı"}
+          {showCoordinationDetails
+            ? cx(t, "doctor.coordination.hideContext", "▲ Hide patient context")
+            : cx(t, "doctor.coordination.showContext", "▼ Patient context")}
         </Text>
       </Pressable>
       {showCoordinationDetails ? leftColumn : null}
@@ -381,7 +393,7 @@ export function DoctorCoordinationWorkspace({ patientId }: Props) {
     <>
       <View style={styles.toolbar}>
         <Pressable onPress={refresh} style={styles.refreshBtn}>
-          <Text style={styles.refreshBtnText}>↻ Yenile</Text>
+          <Text style={styles.refreshBtnText}>{cx(t, "doctor.coordination.refresh", "↻ Refresh")}</Text>
         </Pressable>
         {refreshing ? <ActivityIndicator size="small" color="#2563eb" /> : null}
       </View>

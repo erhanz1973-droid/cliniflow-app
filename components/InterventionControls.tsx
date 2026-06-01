@@ -9,7 +9,9 @@ import {
 } from "react-native";
 
 import { apiFetchJson } from "@/lib/api";
+import { conversationOwnerLabel, cx } from "@/lib/coordinationUiLabels";
 import type { AiState } from "@/lib/coordinationWorkspaceTypes";
+import { useLanguage } from "@/lib/language-context";
 
 type PatchAiResponse = {
   ok?: boolean;
@@ -29,15 +31,15 @@ type PatchAiResponse = {
   };
 };
 
-function patchToAiState(json: PatchAiResponse): Partial<AiState> {
+function patchToAiState(
+  json: PatchAiResponse,
+  t: (key: string) => string,
+): Partial<AiState> {
   const d = json.delegation;
   const owner = d?.conversationOwner === "doctor" ? "doctor" : "ai";
   return {
     conversationOwner: owner,
-    conversationOwnerLabel:
-      owner === "doctor"
-        ? "Doktor konuşmayı yönetiyor"
-        : "AI konuşmayı yönetiyor",
+    conversationOwnerLabel: conversationOwnerLabel(t, owner === "doctor"),
     aiPaused: json.aiPaused,
     aiEscalationRequired: json.aiEscalationRequired ?? d?.aiEscalationRequired,
     responderMode: json.responderMode,
@@ -66,6 +68,7 @@ export function InterventionControls({
   onGuideAi,
   compact,
 }: Props) {
+  const { t } = useLanguage();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -86,16 +89,16 @@ export function InterventionControls({
             timeoutMs: 30_000,
           },
         );
-        if (!json.ok) throw new Error(json.message || json.error || "Kaydedilemedi");
-        onAiPatch?.(patchToAiState(json));
+        if (!json.ok) throw new Error(json.message || json.error || cx(t, "doctor.coordination.saveFailed", "Could not save"));
+        onAiPatch?.(patchToAiState(json, t));
         void onRefresh();
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Kaydedilemedi");
+        setError(e instanceof Error ? e.message : cx(t, "doctor.coordination.saveFailed", "Could not save"));
       } finally {
         setSaving(false);
       }
     },
-    [patientId, onRefresh, onAiPatch],
+    [patientId, onRefresh, onAiPatch, t],
   );
 
   const takeOver = useCallback(async () => {
@@ -107,31 +110,29 @@ export function InterventionControls({
     void patch({ action: "resumeAi", clearEscalation: true });
   }, [patch]);
 
-  const ownerLabel =
-    aiState?.conversationOwnerLabel ||
-    (doctorOwns ? "Doktor konuşmayı yönetiyor" : "AI konuşmayı yönetiyor");
+  const ownerLabel = conversationOwnerLabel(t, doctorOwns, aiState?.conversationOwnerLabel);
 
   return (
     <View style={[styles.wrap, compact && styles.wrapCompact]}>
       <View style={[styles.ownerBanner, doctorOwns ? styles.ownerDoctor : styles.ownerAi]}>
-        <Text style={styles.ownerTitle}>Konuşma sahibi</Text>
+        <Text style={styles.ownerTitle}>{cx(t, "doctor.coordination.conversationOwner", "Conversation owner")}</Text>
         <Text style={styles.ownerText}>{ownerLabel}</Text>
         <Text style={styles.ownerHint}>
           {doctorOwns
-            ? "Hastaya giden mesajlar varsayılan olarak birebir (Direkt gönder). YZ taslak isteğe bağlıdır."
-            : "AI hastayla konuşur. Doktor izler; dahili not ve rehberlik Intent Panel'den."}
+            ? cx(t, "doctor.coordination.hintDoctor", "Messages to the patient are sent verbatim by default.")
+            : cx(t, "doctor.coordination.hintAi", "AI talks with the patient. Doctor supervises via the intent panel.")}
         </Text>
       </View>
 
       <View style={styles.row}>
         <ActionBtn
-          label="Devral"
+          label={cx(t, "doctor.coordination.takeOver", "Take over")}
           onPress={() => void takeOver()}
           disabled={saving || doctorOwns}
           variant="primary"
         />
         <ActionBtn
-          label="AI devam etsin"
+          label={cx(t, "doctor.coordination.resumeAi", "Let AI continue")}
           onPress={resumeAi}
           disabled={saving || aiOwns}
           variant="secondary"
