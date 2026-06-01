@@ -80,11 +80,17 @@ export async function translateDoctorMessage(
   messageId: string,
   targetLanguage?: string,
 ): Promise<TranslateMessageResponse> {
+  const lang = targetLanguage
+    ? String(targetLanguage).trim().toLowerCase().slice(0, 2)
+    : "";
   return apiFetchJson<TranslateMessageResponse>(
     `/api/doctor/messages/${encodeURIComponent(messageId)}/translate`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(lang ? { "x-ui-language": lang } : {}),
+      },
       body: JSON.stringify(targetLanguage ? { targetLanguage } : {}),
       timeoutMs: 35_000,
     },

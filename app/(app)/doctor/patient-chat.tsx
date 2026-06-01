@@ -57,7 +57,7 @@ import {
   translateDoctorMessage,
   type MessageTranslation,
 } from '../../../lib/doctorChatTranslationApi';
-import { getDoctorPreferredLanguage } from '../../../lib/doctorPreferredLanguage';
+import { getDoctorPreferredLanguage, normalizeDoctorPreferredLanguage } from '../../../lib/doctorPreferredLanguage';
 
 function applySnapshot(
   snapshot: { messages: DoctorChatMessage[]; leadThreadId: string | null; enrolledSharedCare: boolean },
@@ -77,7 +77,7 @@ const FETCH_TIMEOUT_MS = 25_000;
 export default function DoctorPatientChatScreen() {
   const router = useRouter();
   const { token } = useAuthSession();
-  const { t } = useLanguage();
+  const { t, currentLanguage } = useLanguage();
   const insets = useSafeAreaInsets();
   const { patientId, patientName, sourceOfferId } = useLocalSearchParams<{
     patientId?: string;
@@ -357,9 +357,14 @@ export default function DoctorPatientChatScreen() {
     }
   }, [initialSnapshot]);
 
+  const translationLang = useMemo(
+    () => normalizeDoctorPreferredLanguage(currentLanguage),
+    [currentLanguage],
+  );
+
   useEffect(() => {
-    void getDoctorPreferredLanguage().then(setDoctorLang);
-  }, []);
+    setDoctorLang(translationLang);
+  }, [translationLang]);
 
   useEffect(() => {
     if (!doctorLang || !messages.length) return;
@@ -830,7 +835,7 @@ export default function DoctorPatientChatScreen() {
       setTranslatingIds((prev) => new Set(prev).add(messageId));
       try {
         setAuthToken(token);
-        const lang = doctorLang || (await getDoctorPreferredLanguage());
+        const lang = translationLang || doctorLang || (await getDoctorPreferredLanguage());
         const res = await translateDoctorMessage(messageId, lang);
         const tr: MessageTranslation = {
           sourceLanguage: String(res.sourceLanguage || res.translation?.sourceLanguage || 'auto'),
@@ -839,7 +844,10 @@ export default function DoctorPatientChatScreen() {
           translatedAt: res.translation?.translatedAt,
         };
         if (!tr.translatedText) {
-          Alert.alert('Çeviri', 'Çeviri boş döndü. Lütfen tekrar deneyin.');
+          Alert.alert(
+            t('doctor.chat.translateTitle'),
+            t('doctor.chat.translateEmpty'),
+          );
           return null;
         }
         setTranslationById((prev) => ({ ...prev, [messageId]: tr }));
@@ -851,16 +859,16 @@ export default function DoctorPatientChatScreen() {
             : '';
         const msg =
           code === 'message_not_found'
-            ? 'Bu mesaj çeviri için bulunamadı.'
+            ? t('doctor.chat.translateNotFound')
             : code === 'forbidden' || code === 'assigned_doctor_only'
-              ? 'Bu hasta için çeviri yetkiniz yok.'
+              ? t('doctor.chat.translateForbidden')
               : code === 'translate_provider_failed'
-                ? 'Çeviri servisi yanıt vermedi. Biraz sonra tekrar deneyin.'
-                : 'Mesaj çevrilemedi. Lütfen tekrar deneyin.';
+                ? t('doctor.chat.translateProviderFailed')
+                : t('doctor.chat.translateFailed');
         if (__DEV__) {
           console.warn('[DR CHAT translate]', code || err);
         }
-        Alert.alert('Çeviri', msg);
+        Alert.alert(t('doctor.chat.translateTitle'), msg);
         return null;
       } finally {
         setTranslatingIds((prev) => {
@@ -870,7 +878,7 @@ export default function DoctorPatientChatScreen() {
         });
       }
     },
-    [doctorLang, token, translationById],
+    [translationLang, doctorLang, token, translationById, t],
   );
 
   const openPatientMessageMenu = useCallback(
@@ -884,13 +892,13 @@ export default function DoctorPatientChatScreen() {
 
       Alert.alert('', undefined, [
         {
-          text: '📋 Kopyala',
+          text: t('doctor.chat.copy'),
           onPress: () => {
             void Clipboard.setStringAsync(body);
           },
         },
         {
-          text: hasVisible ? '🌐 Çeviriyi gizle' : '🌐 Çeviriyi göster',
+          text: hasVisible ? t('doctor.chat.translateHide') : t('doctor.chat.translateShow'),
           onPress: () => {
             void (async () => {
               if (hasVisible) {
@@ -908,7 +916,7 @@ export default function DoctorPatientChatScreen() {
         { text: 'İptal', style: 'cancel' },
       ]);
     },
-    [ensureTranslation, toggleTranslationVisibility, translationById, visibleTranslationIds],
+    [ensureTranslation, toggleTranslationVisibility, translationById, visibleTranslationIds, t],
   );
 
   const renderDoctorMessageItem = useCallback(
