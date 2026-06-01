@@ -16,7 +16,7 @@ export default function Index() {
         if (!alive) return;
         if (pendingInvite?.code) {
           router.replace({
-            pathname: "/clinic-invite/[code]",
+            pathname: "/invite/[code]",
             params: { code: pendingInvite.code },
           });
           return;

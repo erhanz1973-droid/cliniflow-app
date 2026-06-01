@@ -20,8 +20,8 @@ export function ClinicInviteBootstrap() {
       const code = parseClinicInviteFromUrl(url);
       if (!code || cancelled) return;
       await savePendingClinicInvite({ code, viaInvitation: true });
-      router.push({
-        pathname: "/clinic-invite/[code]",
+      router.replace({
+        pathname: "/invite/[code]",
         params: { code },
       });
     };
