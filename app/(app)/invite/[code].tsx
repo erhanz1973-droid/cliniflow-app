@@ -28,7 +28,11 @@ export default function ClinicInviteUrlAliasScreen() {
       if (cancelled) return;
       router.replace({
         pathname: "/register-patient",
-        params: { prefillClinicCode: code, fromClinicInvite: "1" },
+        params: {
+          prefillClinicCode: code,
+          clinicCode: code,
+          fromClinicInvite: "1",
+        },
       });
     })();
     return () => {

@@ -22,7 +22,11 @@ export function ClinicInviteBootstrap() {
       await savePendingClinicInvite({ code, viaInvitation: true });
       router.replace({
         pathname: "/register-patient",
-        params: { prefillClinicCode: code, fromClinicInvite: "1" },
+        params: {
+          prefillClinicCode: code,
+          clinicCode: code,
+          fromClinicInvite: "1",
+        },
       });
     };
 

@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
+import { useURL } from "expo-linking";
 import { usePatientRegistration } from "../../lib/patient/register";
 import { classifyApiError, API_BASE } from "../../lib/api";
 import {
@@ -33,8 +34,10 @@ import { getSupabaseAuthClient, isSupabaseAuthConfigured } from "../../lib/supab
 import { emitAuthTelemetryV1 } from "../../lib/authTelemetry";
 import {
   clearPendingClinicInvite,
-  getPendingClinicInvite,
+  clinicCodeFromRouteParams,
   normalizeClinicInviteCode,
+  parseClinicInviteFromUrl,
+  resolveClinicInviteCodeForSignup,
 } from "../../lib/clinicInviteStorage";
 
 const WARMUP_TIMEOUT_MS = 30_000;
@@ -51,8 +54,10 @@ export default function RegisterPatientScreen() {
     oauthComplete?: string;
     provider?: string;
     prefillClinicCode?: string;
+    clinicCode?: string;
     fromClinicInvite?: string;
   }>();
+  const incomingUrl = useURL();
   const fromClinicInviteFlow = useMemo(
     () =>
       String(params.fromClinicInvite || "") === "1" ||
@@ -63,10 +68,10 @@ export default function RegisterPatientScreen() {
     () => String(params.oauthComplete || "") === "1",
     [params.oauthComplete],
   );
-  const prefillClinicParam = useMemo(() => {
-    const p = params.prefillClinicCode;
-    return String(Array.isArray(p) ? p[0] : p || "").trim();
-  }, [params.prefillClinicCode]);
+  const prefillClinicParam = useMemo(
+    () => clinicCodeFromRouteParams(params),
+    [params.prefillClinicCode, params.clinicCode],
+  );
 
   const routeOauthProvider = useMemo((): "google" | "apple" | null => {
     const p = params.provider;
@@ -86,15 +91,15 @@ export default function RegisterPatientScreen() {
   /** Prevents double-submit before React re-renders (e.g. double tap, strict mode). */
   const registerInFlightRef = useRef(false);
 
-  const [formData, setFormData] = useState({
-    clinicCode: "",
+  const [formData, setFormData] = useState(() => ({
+    clinicCode: clinicCodeFromRouteParams(params),
     phone: "",
     patientName: "",
     email: "",
     password: "",
     confirmPassword: "",
     referralCode: "",
-  });
+  }));
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [pendingOtpResume, setPendingOtpResume] = useState(false);
@@ -103,23 +108,28 @@ export default function RegisterPatientScreen() {
   const [inviteLocked, setInviteLocked] = useState(fromClinicInviteFlow);
   const oauthConfigured = isSupabaseAuthConfigured();
 
+  const applyInvitePrefill = useCallback(async () => {
+    const urlCode = parseClinicInviteFromUrl(incomingUrl);
+    const resolved = await resolveClinicInviteCodeForSignup(
+      prefillClinicParam || urlCode || undefined,
+    );
+    const code = normalizeClinicInviteCode(resolved.code || urlCode || prefillClinicParam);
+    if (!code) return;
+    setFormData((prev) => (prev.clinicCode === code ? prev : { ...prev, clinicCode: code }));
+    if (fromClinicInviteFlow || resolved.viaInvitation || urlCode) {
+      setInviteLocked(true);
+    }
+  }, [fromClinicInviteFlow, incomingUrl, prefillClinicParam]);
+
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const pending = await getPendingClinicInvite();
-      if (cancelled) return;
-      const paramCode = normalizeClinicInviteCode(prefillClinicParam);
-      const code = paramCode || pending?.code || "";
-      if (!code) return;
-      setFormData((prev) => ({ ...prev, clinicCode: code }));
-      if (fromClinicInviteFlow || pending?.viaInvitation) {
-        setInviteLocked(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [fromClinicInviteFlow, prefillClinicParam]);
+    void applyInvitePrefill();
+  }, [applyInvitePrefill]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void applyInvitePrefill();
+    }, [applyInvitePrefill]),
+  );
 
   useEffect(() => {
     if (!fromOauthComplete) return;

@@ -19,6 +19,7 @@ export default function Index() {
             pathname: "/register-patient",
             params: {
               prefillClinicCode: pendingInvite.code,
+              clinicCode: pendingInvite.code,
               fromClinicInvite: "1",
             },
           });
