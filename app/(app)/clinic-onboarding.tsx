@@ -46,8 +46,6 @@ import {
 /** Set `true` when GET /api/clinics/nearby is verified in production. */
 const isNearbyEnabled = false;
 
-const NEARBY_COMING_SOON_LABEL = "Yakındaki klinikler (yakında aktif olacak)";
-
 type ListMode = "nearby" | "all";
 
 type ClinicRow = {
@@ -162,6 +160,20 @@ export default function ClinicOnboardingScreen() {
       no_match_search: t("clinic_list.no_match_search"),
       header_nearby_intro: t("clinic_list.header_nearby_intro"),
       header_all_intro: t("clinic_list.header_all_intro"),
+      countryLabel: t("health.country"),
+      countrySelect: t("clinicOnboard.countrySelect"),
+      countrySelectA11y: t("clinicOnboard.countrySelectA11y"),
+      countryRequired: t("clinicOnboard.countryRequired"),
+      cityOptionalLabel: t("clinicOnboard.cityOptionalLabel"),
+      searchAction: t("clinicOnboard.searchAction"),
+      referralOptionalLabel: t("register.referralCode"),
+      nearbyComingSoon: t("clinicOnboard.nearbyComingSoon"),
+      discoveryHint: t("clinicOnboard.discoveryHint"),
+      loadingClinics: t("clinicOnboard.loadingClinics"),
+      retry: t("common.retry"),
+      emptyDiscoveryNone: t("clinicOnboard.emptyDiscoveryNone"),
+      emptyDiscoveryNoneHint: t("clinicOnboard.emptyDiscoveryNoneHint"),
+      emptyDiscoverySearch: t("clinicOnboard.emptyDiscoverySearch"),
     }),
     [t, currentLanguage],
   );
@@ -221,9 +233,9 @@ export default function ClinicOnboardingScreen() {
         };
         if (!data.ok) {
           if (data.error === "clinic_not_found") {
-            throw new Error("Klinik bulunamadı.");
+            throw new Error(t("profile.joinModal.errorNotFound"));
           }
-          throw new Error(data.error || "Katılım başarısız.");
+          throw new Error(data.error || t("clinicOnboard.joinFailed"));
         }
         await signIn({
           ...user,
@@ -243,71 +255,78 @@ export default function ClinicOnboardingScreen() {
         void refreshActiveClinicFromApi(data.token || user.token);
         const refOk = data.referral?.linked === true || data.referral?.duplicate === true;
         const refBad = data.referral?.attempted && data.referral?.error;
-        const sub =
-          refOk
-            ? "Referans kaydı oluşturuldu veya zaten vardı."
-            : refBad
-              ? "Kliniğe katıldınız; referans kodu uygulanamadı (geçersiz veya başka klinik)."
-              : "Kliniğe başarıyla katıldınız.";
-        Alert.alert("✅ " + (data.clinic?.name || "Klinik"), sub, [
-          { text: "Tamam", onPress: () => router.back() },
-        ]);
+        const sub = refOk
+          ? t("clinicOnboard.joinSuccessReferralRecorded")
+          : refBad
+            ? t("profile.joinModal.successNoReferral")
+            : t("profile.joinModal.success");
+        Alert.alert(
+          "✅ " + (data.clinic?.name || t("clinicOnboard.clinicFallbackName")),
+          sub,
+          [{ text: t("common.ok"), onPress: () => router.back() }],
+        );
       } catch (e: unknown) {
-        Alert.alert("Hata", e instanceof Error ? e.message : "İşlem başarısız.");
+        Alert.alert(
+          t("common.error"),
+          e instanceof Error ? e.message : t("clinicOnboard.joinFailed"),
+        );
       } finally {
         setJoiningClinicId(null);
       }
     },
-    [user, signIn, router, joinReferralInput]
+    [user, signIn, router, joinReferralInput, t]
   );
 
   const handleJoinClinicPress = useCallback(
     (item: ClinicRow) => {
       if (user?.type !== "patient") {
-        Alert.alert("Bilgi", "Klinik seçimi yalnızca hasta hesapları için geçerlidir.");
+        Alert.alert(t("common.info"), t("clinicOnboard.patientOnly"));
         return;
       }
       if (!item.clinicCode) {
         Alert.alert(
-          "Klinik kodu yok",
-          "Bu kayıtta klinik kodu listelenmiyor. Profil > Klinik kodu ile katıl bölümünden kodu girebilirsiniz.",
+          t("clinicOnboard.noClinicCodeTitle"),
+          t("clinicOnboard.noClinicCodeBody"),
           [
-            { text: "Tamam", style: "cancel" },
+            { text: t("common.ok"), style: "cancel" },
             {
-              text: "Profile git",
+              text: t("clinicOnboard.openProfile"),
               onPress: () => router.push("/(patient)/profile" as any),
             },
-          ]
+          ],
         );
         return;
       }
       if (user.clinicId) {
         Alert.alert(
-          "Zaten bir kliniğe bağlısınız",
-          "Klinik değiştirmek için önce Profil üzerinden mevcut klinikten ayrılın.",
+          t("clinicOnboard.alreadyLinkedTitle"),
+          t("clinicOnboard.alreadyLinkedBody"),
           [
-            { text: "Tamam", style: "cancel" },
+            { text: t("common.ok"), style: "cancel" },
             {
-              text: "Profil",
+              text: t("clinicOnboard.openProfile"),
               onPress: () => router.push("/(patient)/profile" as any),
             },
-          ]
+          ],
         );
         return;
       }
       Alert.alert(
-        "Kliniğe katıl",
-        `${item.name}\nKod: ${item.clinicCode}\n\nBu kliniğe katılmak istiyor musunuz?`,
+        t("treatReq.joinClinic.title"),
+        t("clinicOnboard.joinConfirmBody", {
+          name: item.name,
+          code: item.clinicCode,
+        }),
         [
-          { text: "Vazgeç", style: "cancel" },
+          { text: t("common.cancel"), style: "cancel" },
           {
-            text: "Katıl",
+            text: t("profile.joinWithCode.submit"),
             onPress: () => void joinClinic(item.clinicCode!, item.id),
           },
-        ]
+        ],
       );
     },
-    [user, joinClinic, router]
+    [user, joinClinic, router, t]
   );
 
   const handleRequestQuotePress = useCallback(
@@ -380,7 +399,7 @@ export default function ClinicOnboardingScreen() {
               : null;
         return {
           id: String(row.id),
-          name: String(row.name || "").trim() || "Klinik",
+          name: String(row.name || "").trim() || t("clinicOnboard.clinicFallbackName"),
           city: row.city ?? null,
           country: iso,
           clinicCode: codeRaw,
@@ -391,17 +410,17 @@ export default function ClinicOnboardingScreen() {
       setClinics(list);
       setStatusMessage(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Liste yüklenemedi");
+      setError(e instanceof Error ? e.message : t("clinicOnboard.listLoadFailed"));
       setClinics([]);
       setStatusMessage(null);
     } finally {
       setLoading(false);
     }
-  }, [discoveryCountry, discoveryCity]);
+  }, [discoveryCountry, discoveryCity, t]);
 
   const loadNearbyList = useCallback(async () => {
     if (!token) {
-      setError("Oturum bulunamadı. Lütfen yeniden giriş yapın.");
+      setError(t("clinicOnboard.sessionMissing"));
       setLoading(false);
       return;
     }
@@ -414,7 +433,7 @@ export default function ClinicOnboardingScreen() {
       let msg: string | null = null;
       const coords = await getDeviceCoords();
       if (!coords) {
-        setError("Konum izni gerekli veya konum alınamadı.");
+        setError(t("clinicOnboard.locationRequired"));
         setClinics([]);
         setLoading(false);
         return;
@@ -445,7 +464,7 @@ export default function ClinicOnboardingScreen() {
       setClinics(list);
       setHasPerformedDiscoverySearch(true);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Liste yüklenemedi");
+      setError(e instanceof Error ? e.message : t("clinicOnboard.listLoadFailed"));
       setClinics([]);
       setStatusMessage(null);
     } finally {
@@ -514,12 +533,12 @@ export default function ClinicOnboardingScreen() {
   const discoveryFilters = (
     <>
       <View style={styles.field}>
-        <Text style={styles.label}>Ülke</Text>
+        <Text style={styles.label}>{headerCopy.countryLabel}</Text>
         <TouchableOpacity
           style={styles.countryCompactButton}
           onPress={() => setCountryModalVisible(true)}
           accessibilityRole="button"
-          accessibilityLabel="Ülke seç"
+          accessibilityLabel={headerCopy.countrySelectA11y}
         >
           <Text
             style={[
@@ -527,18 +546,18 @@ export default function ClinicOnboardingScreen() {
               !discoveryCountry && styles.countryCompactButtonPlaceholder,
             ]}
           >
-            {discoveryCountry ? formatCountryDisplay(discoveryCountry) : "Ülke seçin"}
+            {discoveryCountry ? formatCountryDisplay(discoveryCountry) : headerCopy.countrySelect}
           </Text>
           <Text style={styles.countryCompactChevron}>▾</Text>
         </TouchableOpacity>
         {!discoveryCountry ? (
           <Text style={[styles.err, { marginTop: 6, textAlign: "left", fontSize: 12 }]}>
-            Lütfen ülke seçin
+            {headerCopy.countryRequired}
           </Text>
         ) : null}
       </View>
       <View style={styles.field}>
-        <Text style={styles.label}>Şehir (isteğe bağlı)</Text>
+        <Text style={styles.label}>{headerCopy.cityOptionalLabel}</Text>
         <TextInput
           value={discoveryCity}
           onChangeText={setDiscoveryCity}
@@ -559,7 +578,7 @@ export default function ClinicOnboardingScreen() {
         accessibilityRole="button"
         accessibilityState={{ disabled: !discoveryCountry }}
       >
-        <Text style={styles.retryText}>Ara</Text>
+        <Text style={styles.retryText}>{headerCopy.searchAction}</Text>
       </TouchableOpacity>
     </>
   );
@@ -579,7 +598,7 @@ export default function ClinicOnboardingScreen() {
           />
         </View>
         <View style={styles.field}>
-          <Text style={styles.label}>Referans kodu (isteğe bağlı)</Text>
+          <Text style={styles.label}>{headerCopy.referralOptionalLabel}</Text>
           <TextInput
             value={joinReferralInput}
             onChangeText={setJoinReferralInput}
@@ -650,13 +669,13 @@ export default function ClinicOnboardingScreen() {
               ]}
               onPress={() =>
                 !isNearbyEnabled
-                  ? Alert.alert("Bu özellik yakında aktif olacak")
+                  ? Alert.alert(headerCopy.nearbyComingSoon)
                   : setListMode("nearby")
               }
               activeOpacity={isNearbyEnabled ? 0.8 : 1}
               accessibilityRole="button"
               accessibilityState={{ disabled: !isNearbyEnabled }}
-              accessibilityHint={!isNearbyEnabled ? NEARBY_COMING_SOON_LABEL : undefined}
+              accessibilityHint={!isNearbyEnabled ? headerCopy.nearbyComingSoon : undefined}
             >
               <Text
                 numberOfLines={2}
@@ -666,7 +685,7 @@ export default function ClinicOnboardingScreen() {
                   !isNearbyEnabled && styles.modeChipTextDisabled,
                 ]}
               >
-                {!isNearbyEnabled ? NEARBY_COMING_SOON_LABEL : `${headerCopy.nearby} (10 km)`}
+                {!isNearbyEnabled ? headerCopy.nearbyComingSoon : `${headerCopy.nearby} (10 km)`}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -691,18 +710,18 @@ export default function ClinicOnboardingScreen() {
             {loading && clinics.length === 0 ? (
               <View style={styles.centerInline}>
                 <ActivityIndicator size="large" color="#2563eb" />
-                <Text style={styles.muted}>{statusMessage || "Klinikler yükleniyor…"}</Text>
+                <Text style={styles.muted}>{statusMessage || headerCopy.loadingClinics}</Text>
               </View>
             ) : error ? (
               <View style={styles.centerInline}>
                 <Text style={styles.err}>{error}</Text>
                 <TouchableOpacity style={styles.retry} onPress={() => void fetchDiscoveryClinics()}>
-                  <Text style={styles.retryText}>Yeniden dene</Text>
+                  <Text style={styles.retryText}>{headerCopy.retry}</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <View style={styles.centerInline}>
-                <Text style={styles.muted}>Ülke seçip aramaya basın.</Text>
+                <Text style={styles.muted}>{headerCopy.discoveryHint}</Text>
               </View>
             )}
           </ScrollView>
@@ -715,7 +734,7 @@ export default function ClinicOnboardingScreen() {
         >
           <Pressable style={styles.countryModalBackdrop} onPress={() => setCountryModalVisible(false)}>
             <Pressable style={styles.countryModalCard}>
-              <Text style={styles.countryModalTitle}>Ülke seçin</Text>
+              <Text style={styles.countryModalTitle}>{headerCopy.countrySelect}</Text>
               {discoveryCountryCodes.map((code) => {
                 const selected =
                   normalizeCountryCode(discoveryCountry) === normalizeCountryCode(code);
@@ -742,13 +761,13 @@ export default function ClinicOnboardingScreen() {
           loading && clinics.length === 0 ? (
             <View style={styles.center}>
               <ActivityIndicator size="large" color="#2563eb" />
-              <Text style={styles.muted}>{statusMessage || "Klinikler yükleniyor…"}</Text>
+              <Text style={styles.muted}>{statusMessage || headerCopy.loadingClinics}</Text>
             </View>
           ) : error ? (
             <View style={styles.center}>
               <Text style={styles.err}>{error}</Text>
               <TouchableOpacity style={styles.retry} onPress={() => void loadNearbyList()}>
-                <Text style={styles.retryText}>Yeniden dene</Text>
+                <Text style={styles.retryText}>{headerCopy.retry}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -848,24 +867,24 @@ export default function ClinicOnboardingScreen() {
                 {loading ? (
                   <View style={styles.centerInline}>
                     <ActivityIndicator size="large" color="#2563eb" />
-                    <Text style={styles.muted}>{statusMessage || "Klinikler yükleniyor…"}</Text>
+                    <Text style={styles.muted}>{statusMessage || headerCopy.loadingClinics}</Text>
                   </View>
                 ) : error ? (
                   <View style={styles.centerInline}>
                     <Text style={styles.err}>{error}</Text>
                     <TouchableOpacity style={styles.retry} onPress={() => void fetchDiscoveryClinics()}>
-                      <Text style={styles.retryText}>Yeniden dene</Text>
+                      <Text style={styles.retryText}>{headerCopy.retry}</Text>
                     </TouchableOpacity>
                   </View>
                 ) : clinics.length === 0 ? (
                   <View style={styles.centerInline}>
                     <Text style={styles.emptyTitle}>
-                      {statusMessage || "Henüz kayıtlı klinik yok"}
+                      {statusMessage || headerCopy.emptyDiscoveryNone}
                     </Text>
                     <Text style={styles.muted}>
                       {statusMessage
-                        ? "Aktif klinikler eklendikçe burada görünecek; klinik kodu ile de katılabilirsiniz."
-                        : "Bu arama için sonuç yok. Şehri değiştirin veya aramayı temizleyin."}
+                        ? headerCopy.emptyDiscoveryNoneHint
+                        : headerCopy.emptyDiscoverySearch}
                     </Text>
                   </View>
                 ) : null}
