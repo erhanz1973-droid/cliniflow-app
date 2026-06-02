@@ -465,6 +465,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "doctor.coordination.feedEmptyTitle": "Henüz mesaj yok",
     "doctor.coordination.feedEmptyBody":
       "Hasta veya AI yanıtları burada görünür. Üstteki “Son hasta” özetinde metin varsa ↻ ile yenileyin.",
+    "doctor.security.externalLinkTitle": "Harici bağlantı",
+    "doctor.security.externalLinkWarning":
+      "Hasta harici bağlantı gönderdi. Virüs veya dolandırıcılık riski olabilir — bağlantıyı açmayın.",
     "doctor.coordination.missionCenter": "Koordinasyon merkezi",
     "doctor.coordination.missionLive": "Canlı süpervizyon · {count} olay akışta",
     "doctor.coordination.statPatient": "Hasta",
@@ -2544,6 +2547,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "doctor.coordination.feedEmptyTitle": "No messages yet",
     "doctor.coordination.feedEmptyBody":
       "Patient or AI replies appear here. If text shows in the “Last patient” summary above, tap ↻ to refresh.",
+    "doctor.security.externalLinkTitle": "External link",
+    "doctor.security.externalLinkWarning":
+      "The patient sent an external link. It may contain malware or phishing — do not open it.",
     "doctor.coordination.missionCenter": "Coordination center",
     "doctor.coordination.missionLive": "Live supervision · {count} events in feed",
     "doctor.coordination.statPatient": "Patient",

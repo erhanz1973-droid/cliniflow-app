@@ -29,6 +29,8 @@ import { markDoctorPatientMessagesRead } from '../../../lib/markChatRead';
 import { setGlobalDoctorChatPatientIdOpen } from '../../../lib/doctorChatForeground';
 import { subscribePrimaryChatRealtime, waitOnceSocketConnected } from '../../../lib/chatRealtime';
 import { markPatientChatNav } from '../../../lib/patientChatNavPerf';
+import { messageContainsExternalLink } from '../../../lib/externalLinkSafety';
+import { ExternalLinkWarning } from '../../../components/ExternalLinkWarning';
 import { logCanonicalSendAttempt } from '../../../lib/canonicalChatDiagnostics';
 import {
   type DoctorChatMessage,
@@ -950,6 +952,16 @@ export default function DoctorPatientChatScreen() {
 
   const showListSkeleton = loading && messages.length === 0 && !fetchError;
 
+  const patientSentExternalLink = useMemo(
+    () =>
+      messages.some(
+        (m) =>
+          String(m.from).toUpperCase() === 'PATIENT' &&
+          messageContainsExternalLink(String(m.text || '')),
+      ),
+    [messages],
+  );
+
   return (
     <SafeAreaView
       style={styles.root}
@@ -1033,6 +1045,12 @@ export default function DoctorPatientChatScreen() {
               ? t('doctor.chat.unifiedThreadBody')
               : 'Talep dönemindeki ve klinik mesajlar burada birlikte görünür.'}
           </Text>
+        </View>
+      ) : null}
+
+      {patientSentExternalLink ? (
+        <View style={styles.linkWarnWrap}>
+          <ExternalLinkWarning />
         </View>
       ) : null}
 
@@ -1214,6 +1232,11 @@ const styles = StyleSheet.create({
     color: '#1E40AF',
     marginBottom: 4,
   },
+  linkWarnWrap: {
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 4,
+  },
   enrolledBannerBody: { fontSize: 12, color: '#1E3A8A', lineHeight: 17 },
   archivedOfferLink: {
     fontSize: 12,
@@ -1364,6 +1387,8 @@ const MessageItem = React.memo(
         !isAi &&
         (message.from === 'CLINIC' || message.from === 'DOCTOR' || message.from === 'admin'));
     const canTranslate = isPatient && !isDoctorSide && String(message.text || '').trim().length > 0;
+    const showLinkWarn =
+      isPatient && messageContainsExternalLink(String(message.text || ''));
     const ts =
       typeof message.createdAt === 'number' && Number.isFinite(message.createdAt)
         ? message.createdAt
@@ -1418,6 +1443,7 @@ const MessageItem = React.memo(
             </View>
           ) : null}
         </Pressable>
+        {showLinkWarn ? <ExternalLinkWarning compact /> : null}
         <Text style={[styles.bubbleTime, isDoctorSide && styles.bubbleTimeDoctor]}>{timeStr}</Text>
       </View>
     );

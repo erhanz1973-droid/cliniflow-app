@@ -3,7 +3,9 @@ import { FlatList, StyleSheet, Text, View, type ViewStyle } from "react-native";
 
 import { feedRoleMeta, formatCoordDateTime } from "@/lib/coordinationUiLabels";
 import type { ConversationTurn } from "@/lib/coordinationWorkspaceTypes";
+import { messageContainsExternalLink } from "@/lib/externalLinkSafety";
 import { useLanguage } from "@/lib/language-context";
+import { ExternalLinkWarning } from "@/components/ExternalLinkWarning";
 
 type BubbleStyleKey =
   | "bubblePatient"
@@ -36,6 +38,8 @@ function TurnRow({
       : feedRoleMeta(t, item.role);
   const bubbleStyle = styles[meta.bubbleKey as BubbleStyleKey] as ViewStyle;
   const isSystem = item.kind === "system" || item.role === "system";
+  const showLinkWarn =
+    item.role === "patient" && messageContainsExternalLink(item.text);
   const displayLabel = String(item.label || "").trim();
   const who =
     item.role === "patient" && patientName
@@ -57,6 +61,7 @@ function TurnRow({
       <View style={[styles.bubble, bubbleStyle, isSystem && styles.bubbleSystemOnly]}>
         <Text style={[styles.body, isSystem && styles.bodySystem]}>{item.text}</Text>
       </View>
+      {showLinkWarn ? <ExternalLinkWarning compact /> : null}
     </View>
   );
 }
