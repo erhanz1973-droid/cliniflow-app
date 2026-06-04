@@ -476,43 +476,51 @@ export default function DoctorPatientChatScreen() {
   const handleResumeAi = useCallback(async () => {
     if (!token || !patientKey || aiSnoozeBusy) return;
     setAiSnoozeBusy(true);
+    const saveFailed = t('doctor.patientChat.saveFailed') || 'Could not save';
+    const alertTitle = t('doctor.patientChat.resumeAlertTitle') || 'Resume AI';
+    const actionFailed = t('doctor.patientChat.actionFailed') || 'Action failed.';
+    const networkError = t('doctor.patientChat.networkError') || 'Network error';
     try {
-      const result = await resumeDoctorAiForPatient(token, patientKey);
+      const result = await resumeDoctorAiForPatient(token, patientKey, { saveFailed });
       if (!result.ok) {
-        Alert.alert('AI devam', result.message || 'İşlem başarısız.');
+        Alert.alert(alertTitle, result.message || actionFailed);
         return;
       }
       if (result.state) setAiCoord(result.state);
       else await refreshAiCoordination();
     } catch (e) {
-      Alert.alert('AI devam', e instanceof Error ? e.message : 'Ağ hatası');
+      Alert.alert(alertTitle, e instanceof Error ? e.message : networkError);
     } finally {
       setAiSnoozeBusy(false);
     }
-  }, [token, patientKey, aiSnoozeBusy, refreshAiCoordination]);
+  }, [token, patientKey, aiSnoozeBusy, refreshAiCoordination, t]);
 
   const handleSnoozeAi = useCallback(async () => {
     if (!token || !patientKey || aiSnoozeBusy) return;
     setAiSnoozeBusy(true);
+    const saveFailed = t('doctor.patientChat.saveFailed') || 'Could not save';
+    const alertTitle = t('doctor.patientChat.snoozeAlertTitle') || 'Mute AI';
+    const actionFailed = t('doctor.patientChat.actionFailed') || 'Action failed.';
+    const networkError = t('doctor.patientChat.networkError') || 'Network error';
     try {
-      const result = await snoozeDoctorAiForPatient(token, patientKey, 5);
+      const result = await snoozeDoctorAiForPatient(token, patientKey, 5, { saveFailed });
       if (!result.ok) {
-        Alert.alert('AI susturma', result.message || 'İşlem başarısız.');
+        Alert.alert(alertTitle, result.message || actionFailed);
         return;
       }
       if (result.state) setAiCoord(result.state);
       else await refreshAiCoordination();
     } catch (e) {
-      Alert.alert('AI susturma', e instanceof Error ? e.message : 'Ağ hatası');
+      Alert.alert(alertTitle, e instanceof Error ? e.message : networkError);
     } finally {
       setAiSnoozeBusy(false);
     }
-  }, [token, patientKey, aiSnoozeBusy, refreshAiCoordination]);
+  }, [token, patientKey, aiSnoozeBusy, refreshAiCoordination, t]);
 
   const snoozeRemaining = useMemo(() => {
     void snoozeTick;
-    return snoozeRemainingLabel(aiCoord?.aiSnoozedUntil ?? null);
-  }, [aiCoord?.aiSnoozedUntil, snoozeTick]);
+    return snoozeRemainingLabel(aiCoord?.aiSnoozedUntil ?? null, t);
+  }, [aiCoord?.aiSnoozedUntil, snoozeTick, t]);
 
   const resolvedThreadId = useMemo(() => {
     const la = leadThreadId != null ? String(leadThreadId).trim() : '';
@@ -999,7 +1007,8 @@ export default function DoctorPatientChatScreen() {
           <View style={styles.aiSnoozeActiveRow}>
             <View style={styles.aiSnoozeActivePill} accessibilityRole="text">
               <Text style={styles.aiSnoozeActiveText}>
-                AI susturuldu{snoozeRemaining ? ` · ${snoozeRemaining} kaldı` : ''}
+                {t('doctor.patientChat.snoozeActive')}
+                {snoozeRemaining ? ` · ${snoozeRemaining}` : ''}
               </Text>
             </View>
             <TouchableOpacity
@@ -1007,12 +1016,12 @@ export default function DoctorPatientChatScreen() {
               onPress={handleResumeAi}
               disabled={aiSnoozeBusy || !token || !patientKey}
               accessibilityRole="button"
-              accessibilityLabel="AI devam etsin"
+              accessibilityLabel={t('doctor.patientChat.resumeAi')}
             >
               {aiSnoozeBusy ? (
                 <ActivityIndicator size="small" color="#166534" />
               ) : (
-                <Text style={styles.aiResumeBtnText}>AI devam</Text>
+                <Text style={styles.aiResumeBtnText}>{t('doctor.patientChat.resumeAi')}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -1022,12 +1031,12 @@ export default function DoctorPatientChatScreen() {
             onPress={handleSnoozeAi}
             disabled={aiSnoozeBusy || !token || !patientKey}
             accessibilityRole="button"
-            accessibilityLabel="AI yi 5 dakika sustur"
+            accessibilityLabel={t('doctor.patientChat.snoozeA11y')}
           >
             {aiSnoozeBusy ? (
               <ActivityIndicator size="small" color="#1E40AF" />
             ) : (
-              <Text style={styles.aiSnoozeBtnText}>AI · 5 dk sustur</Text>
+              <Text style={styles.aiSnoozeBtnText}>{t('doctor.patientChat.snoozeButton')}</Text>
             )}
           </TouchableOpacity>
         )}

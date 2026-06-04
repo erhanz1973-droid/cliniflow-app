@@ -43,12 +43,19 @@ export function parseDoctorAiCoordination(json: Record<string, unknown>): Doctor
   };
 }
 
-export function snoozeRemainingLabel(untilIso: string | null): string | null {
+export function snoozeRemainingLabel(
+  untilIso: string | null,
+  format?: (key: string, params?: Record<string, string>) => string,
+): string | null {
   if (!untilIso) return null;
   const ms = Date.parse(untilIso) - Date.now();
   if (!Number.isFinite(ms) || ms <= 0) return null;
   const min = Math.max(1, Math.ceil(ms / 60_000));
-  return `${min} dk`;
+  if (format) {
+    const out = format("doctor.patientChat.snoozeRemaining", { minutes: String(min) });
+    if (out !== "doctor.patientChat.snoozeRemaining") return out;
+  }
+  return `${min} min`;
 }
 
 export async function fetchDoctorAiCoordination(
@@ -67,6 +74,7 @@ export async function fetchDoctorAiCoordination(
 export async function resumeDoctorAiForPatient(
   token: string,
   patientId: string,
+  labels?: { saveFailed?: string },
 ): Promise<{ ok: boolean; state?: DoctorAiCoordinationState; message?: string }> {
   const res = await fetch(
     `${API_BASE}/api/doctor/patients/${encodeURIComponent(patientId)}/ai-coordination`,
@@ -89,7 +97,7 @@ export async function resumeDoctorAiForPatient(
           ? json.message
           : typeof json.error === "string"
             ? json.error
-            : "Kaydedilemedi",
+            : labels?.saveFailed || "Could not save",
     };
   }
   const delegation =
@@ -111,6 +119,7 @@ export async function snoozeDoctorAiForPatient(
   token: string,
   patientId: string,
   minutes = 5,
+  labels?: { saveFailed?: string },
 ): Promise<{ ok: boolean; state?: DoctorAiCoordinationState; message?: string }> {
   const res = await fetch(
     `${API_BASE}/api/doctor/patients/${encodeURIComponent(patientId)}/ai-coordination`,
@@ -133,7 +142,7 @@ export async function snoozeDoctorAiForPatient(
           ? json.message
           : typeof json.error === "string"
             ? json.error
-            : "Kaydedilemedi",
+            : labels?.saveFailed || "Could not save",
     };
   }
   const delegation =
