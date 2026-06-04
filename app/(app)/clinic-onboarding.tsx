@@ -19,6 +19,7 @@ import {
   ScrollView,
   Platform,
   Keyboard,
+  Linking,
   type KeyboardEvent,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -42,6 +43,10 @@ import {
   loadFindClinicDiscoveryPrefs,
   saveFindClinicDiscoveryPrefs,
 } from "../../lib/findClinicDiscoveryPrefs";
+import { fetchDiscoveryClinics } from "../../lib/clinicDiscoveryApi";
+import type { DiscoveryClinicCard, DiscoveryFilterState } from "../../lib/clinicDiscoveryTypes";
+import { ClinicDiscoveryCard } from "../../components/discovery/ClinicDiscoveryCard";
+import { DiscoveryFilterBar } from "../../components/discovery/DiscoveryFilterBar";
 
 /** Set `true` when GET /api/clinics/nearby is verified in production. */
 const isNearbyEnabled = false;
@@ -121,6 +126,8 @@ export default function ClinicOnboardingScreen() {
   const [joinReferralInput, setJoinReferralInput] = useState("");
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [discoveryPrefsHydrated, setDiscoveryPrefsHydrated] = useState(false);
+  const [marketplaceFilters, setMarketplaceFilters] =
+    useState<DiscoveryFilterState>(DEFAULT_DISCOVERY_FILTERS);
   const didAutoDiscoverySearchRef = React.useRef(false);
   const listRef = React.useRef<FlatList<ClinicRow>>(null);
 
@@ -354,7 +361,7 @@ export default function ClinicOnboardingScreen() {
     [user, router, t]
   );
 
-  const fetchDiscoveryClinics = useCallback(async () => {
+  const fetchDiscoveryClinicsList = useCallback(async () => {
     const iso = normalizeCountryCode(discoveryCountry);
     const city = discoveryCity.trim();
     if (!iso) {
@@ -366,48 +373,14 @@ export default function ClinicOnboardingScreen() {
     setStatusMessage(null);
     setLoading(true);
     try {
-      const url = `${API_BASE}/api/discovery/clinics?country=${encodeURIComponent(iso)}&city=${encodeURIComponent(city)}`;
-      const res = await fetch(url);
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-        message?: string;
-        clinics?: { id: string; name?: string; city?: string | null; rating?: number | null }[];
-      };
-      if (!res.ok || data.ok === false) {
-        const errMsg =
-          (typeof data.message === "string" && data.message) ||
-          data.error ||
-          `HTTP ${res.status}`;
-        throw new Error(errMsg);
-      }
-      const raw = Array.isArray(data.clinics) ? data.clinics : [];
-      const list: ClinicRow[] = raw.map((c) => {
-        const row = c as {
-          id?: string;
-          name?: string;
-          city?: string | null;
-          clinic_code?: string | null;
-          clinicCode?: string | null;
-          rating?: number | null;
-        };
-        const codeRaw =
-          row.clinic_code != null && String(row.clinic_code).trim()
-            ? String(row.clinic_code).trim()
-            : row.clinicCode != null && String(row.clinicCode).trim()
-              ? String(row.clinicCode).trim()
-              : null;
-        return {
-          id: String(row.id),
-          name: String(row.name || "").trim() || t("clinicOnboard.clinicFallbackName"),
-          city: row.city ?? null,
-          country: iso,
-          clinicCode: codeRaw,
-          rating: row.rating ?? null,
-        };
-      });
+      const list = await fetchDiscoveryClinics(iso, city, marketplaceFilters);
+      const mapped: ClinicRow[] = list.map((c) => ({
+        ...c,
+        name: c.name || t("clinicOnboard.clinicFallbackName"),
+        country: c.country || iso,
+      }));
       setHasPerformedDiscoverySearch(true);
-      setClinics(list);
+      setClinics(mapped);
       setStatusMessage(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t("clinicOnboard.listLoadFailed"));
@@ -416,7 +389,68 @@ export default function ClinicOnboardingScreen() {
     } finally {
       setLoading(false);
     }
-  }, [discoveryCountry, discoveryCity, t]);
+  }, [discoveryCountry, discoveryCity, marketplaceFilters, t]);
+
+  const openClinicMap = useCallback(
+    (item: ClinicRow) => {
+      if (item.googleMapsUrl) {
+        void Linking.openURL(item.googleMapsUrl);
+        return;
+      }
+      if (item.latitude != null && item.longitude != null) {
+        void Linking.openURL(
+          `https://www.google.com/maps/search/?api=1&query=${item.latitude},${item.longitude}`,
+        );
+      }
+    },
+    [],
+  );
+
+  const openClinicChat = useCallback(
+    async (item: ClinicRow) => {
+      if (user?.type !== "patient") {
+        Alert.alert(t("common.info"), t("clinic_list.quote_need_patient"));
+        return;
+      }
+      await saveSelectedChatClinic({
+        id: item.id,
+        clinic_code: item.clinicCode || undefined,
+        name: item.name,
+      });
+      router.push({
+        pathname: "/(patient)/messages",
+        params: { clinicId: item.id, clinic_id: item.id },
+      } as never);
+    },
+    [user, router, t],
+  );
+
+  const renderDiscoveryCard = useCallback(
+    (item: ClinicRow) => (
+      <ClinicDiscoveryCard
+        clinic={item}
+        t={t}
+        joining={joiningClinicId === item.id}
+        onViewProfile={() =>
+          router.push({ pathname: "/discovery-clinic/[id]", params: { id: item.id } } as never)
+        }
+        onSendPhotos={() => void openClinicChat(item)}
+        onChat={() => void openClinicChat(item)}
+        onTreatmentPlan={() => handleRequestQuotePress(item)}
+        onMap={() => openClinicMap(item)}
+        onJoin={item.clinicCode ? () => handleJoinClinicPress(item) : undefined}
+      />
+    ),
+    [
+      t,
+      joiningClinicId,
+      router,
+      openClinicChat,
+      handleRequestQuotePress,
+      handleJoinClinicPress,
+      openClinicMap,
+    ],
+  );
 
   const loadNearbyList = useCallback(async () => {
     if (!token) {
@@ -504,8 +538,13 @@ export default function ClinicOnboardingScreen() {
     if (!discoveryPrefsHydrated || didAutoDiscoverySearchRef.current) return;
     if (!normalizeCountryCode(discoveryCountry)) return;
     didAutoDiscoverySearchRef.current = true;
-    void fetchDiscoveryClinics();
-  }, [discoveryPrefsHydrated, discoveryCountry, fetchDiscoveryClinics]);
+    void fetchDiscoveryClinicsList();
+  }, [discoveryPrefsHydrated, discoveryCountry, fetchDiscoveryClinicsList]);
+
+  useEffect(() => {
+    if (!hasPerformedDiscoverySearch || !normalizeCountryCode(discoveryCountry)) return;
+    void fetchDiscoveryClinicsList();
+  }, [marketplaceFilters, hasPerformedDiscoverySearch, discoveryCountry, fetchDiscoveryClinicsList]);
 
   useEffect(() => {
     let cancelled = false;
@@ -530,7 +569,7 @@ export default function ClinicOnboardingScreen() {
     };
   }, []);
 
-  const discoveryFilters = (
+  const discoveryLocationForm = (
     <>
       <View style={styles.field}>
         <Text style={styles.label}>{headerCopy.countryLabel}</Text>
@@ -567,14 +606,14 @@ export default function ClinicOnboardingScreen() {
           clearButtonMode="while-editing"
           returnKeyType="search"
           onSubmitEditing={() => {
-            if (discoveryCountry) void fetchDiscoveryClinics();
+            if (discoveryCountry) void fetchDiscoveryClinicsList();
           }}
         />
       </View>
       <TouchableOpacity
         style={[styles.retry, { marginHorizontal: 16, alignSelf: "flex-start", marginBottom: 8 }]}
         disabled={!discoveryCountry}
-        onPress={() => void fetchDiscoveryClinics()}
+        onPress={() => void fetchDiscoveryClinicsList()}
         accessibilityRole="button"
         accessibilityState={{ disabled: !discoveryCountry }}
       >
@@ -614,7 +653,14 @@ export default function ClinicOnboardingScreen() {
 
   const listHeader = (
     <>
-      {discoveryFilters}
+      {discoveryLocationForm}
+      {hasPerformedDiscoverySearch ? (
+        <DiscoveryFilterBar
+          filters={marketplaceFilters}
+          onChange={setMarketplaceFilters}
+          t={t}
+        />
+      ) : null}
       {listSearchFields}
       <Text style={styles.hint}>
         {listMode === "nearby" && isNearbyEnabled
@@ -706,7 +752,7 @@ export default function ClinicOnboardingScreen() {
             keyboardDismissMode="on-drag"
             contentContainerStyle={[styles.preSearchScrollContent, { paddingBottom: keyboardListPadding }]}
           >
-            {discoveryFilters}
+            {discoveryLocationForm}
             {loading && clinics.length === 0 ? (
               <View style={styles.centerInline}>
                 <ActivityIndicator size="large" color="#2563eb" />
@@ -715,7 +761,7 @@ export default function ClinicOnboardingScreen() {
             ) : error ? (
               <View style={styles.centerInline}>
                 <Text style={styles.err}>{error}</Text>
-                <TouchableOpacity style={styles.retry} onPress={() => void fetchDiscoveryClinics()}>
+                <TouchableOpacity style={styles.retry} onPress={() => void fetchDiscoveryClinicsList()}>
                   <Text style={styles.retryText}>{headerCopy.retry}</Text>
                 </TouchableOpacity>
               </View>
@@ -799,47 +845,7 @@ export default function ClinicOnboardingScreen() {
                   <Text style={styles.hint}>{headerCopy.header_nearby_intro}</Text>
                 </>
               }
-              renderItem={({ item }) => (
-                <View style={styles.card}>
-                  <View style={styles.cardRow}>
-                    <View style={styles.cardText}>
-                      <Text style={styles.name}>{item.name}</Text>
-                      <Text style={styles.sub}>
-                        {[
-                          item.city ? formatClinicCityLabel(item.city, t) : null,
-                          item.country ? formatCountryDisplay(item.country) : null,
-                        ]
-                          .filter((p): p is string => Boolean(p && String(p).trim() && p !== "—"))
-                          .join(", ") || "—"}
-                        {item.clinicCode ? ` · ${item.clinicCode}` : ""}
-                        {item.distance_km != null ? ` · 📍 ${item.distance_km} km` : ""}
-                      </Text>
-                      {item.rating != null ? (
-                        <Text style={styles.rating}>★ {item.rating.toFixed(1)}</Text>
-                      ) : null}
-                    </View>
-                  </View>
-                  <View style={styles.actionsRow}>
-                    <TouchableOpacity
-                      style={styles.actionLink}
-                      onPress={() => handleRequestQuotePress(item)}
-                    >
-                      <Text style={styles.actionLinkText}>{headerCopy.get_offer}</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.actionSep}>·</Text>
-                    <TouchableOpacity
-                      style={styles.actionLink}
-                      onPress={() => handleJoinClinicPress(item)}
-                      disabled={joiningClinicId === item.id}
-                    >
-                      <Text style={styles.actionLinkText}>{headerCopy.sign_up}</Text>
-                    </TouchableOpacity>
-                    {joiningClinicId === item.id ? (
-                      <ActivityIndicator size="small" color="#2563eb" style={styles.cardSpinner} />
-                    ) : null}
-                  </View>
-                </View>
-              )}
+              renderItem={({ item }) => renderDiscoveryCard(item)}
               ListEmptyComponent={
                 <Text style={styles.emptyFilter}>{headerCopy.no_match_search}</Text>
               }
@@ -857,7 +863,7 @@ export default function ClinicOnboardingScreen() {
             refreshControl={
               <RefreshControl
                 refreshing={loading}
-                onRefresh={() => void fetchDiscoveryClinics()}
+                onRefresh={() => void fetchDiscoveryClinicsList()}
               />
             }
             contentContainerStyle={[styles.listPad, { paddingBottom: keyboardListPadding }]}
@@ -872,7 +878,7 @@ export default function ClinicOnboardingScreen() {
                 ) : error ? (
                   <View style={styles.centerInline}>
                     <Text style={styles.err}>{error}</Text>
-                    <TouchableOpacity style={styles.retry} onPress={() => void fetchDiscoveryClinics()}>
+                    <TouchableOpacity style={styles.retry} onPress={() => void fetchDiscoveryClinicsList()}>
                       <Text style={styles.retryText}>{headerCopy.retry}</Text>
                     </TouchableOpacity>
                   </View>
@@ -890,59 +896,7 @@ export default function ClinicOnboardingScreen() {
                 ) : null}
               </>
             }
-            renderItem={({ item }) => (
-                <View style={styles.card}>
-                  <View style={styles.cardRow}>
-                    <View style={styles.cardText}>
-                      <Text style={styles.name}>{item.name}</Text>
-                      <Text style={styles.sub}>
-                        {[
-                          item.city ? formatClinicCityLabel(item.city, t) : null,
-                          item.country ? formatCountryDisplay(item.country) : null,
-                        ]
-                          .filter((p): p is string => Boolean(p && String(p).trim() && p !== "—"))
-                          .join(", ") || "—"}
-                        {item.clinicCode ? ` · ${item.clinicCode}` : ""}
-                        {item.distance_km != null ? ` · 📍 ${item.distance_km} km` : ""}
-                      </Text>
-                      {item.rating != null && (
-                        <Text style={styles.rating}>★ {item.rating.toFixed(1)}</Text>
-                      )}
-                    </View>
-                  </View>
-                  <View style={styles.actionsRow}>
-                    <TouchableOpacity
-                      style={styles.actionLink}
-                      onPress={() => handleRequestQuotePress(item)}
-                      accessibilityRole="button"
-                      accessibilityLabel={
-                        item.links?.find((l) => l.id === "request_quote")?.label || headerCopy.get_offer
-                      }
-                    >
-                      <Text style={styles.actionLinkText}>
-                        {item.links?.find((l) => l.id === "request_quote")?.label || headerCopy.get_offer}
-                      </Text>
-                    </TouchableOpacity>
-                    <Text style={styles.actionSep}>·</Text>
-                    <TouchableOpacity
-                      style={styles.actionLink}
-                      onPress={() => handleJoinClinicPress(item)}
-                      disabled={joiningClinicId === item.id}
-                      accessibilityRole="button"
-                      accessibilityLabel={
-                        item.links?.find((l) => l.id === "join_clinic")?.label || headerCopy.sign_up
-                      }
-                    >
-                      <Text style={styles.actionLinkText}>
-                        {item.links?.find((l) => l.id === "join_clinic")?.label || headerCopy.sign_up}
-                      </Text>
-                    </TouchableOpacity>
-                    {joiningClinicId === item.id ? (
-                      <ActivityIndicator size="small" color="#2563eb" style={styles.cardSpinner} />
-                    ) : null}
-                  </View>
-                </View>
-              )}
+            renderItem={({ item }) => renderDiscoveryCard(item)}
             ListEmptyComponent={
               searchQuery.trim() && clinics.length > 0 ? (
                 <Text style={styles.emptyFilter}>{headerCopy.no_match_search}</Text>
