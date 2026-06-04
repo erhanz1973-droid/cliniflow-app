@@ -769,6 +769,7 @@ export const translations: Record<Language, Record<string, string>> = {
     
     // Chat
     "chat.title": "Sohbet",
+    "chat.copyMessage": "Mesajı kopyala",
     "chat.careTeamRecordsDoctor": "Kayıtlardaki sorumlu hekim: {name}",
     "chat.send": "Gönder",
     "chat.typeMessage": "Mesaj yazın...",
@@ -2895,6 +2896,7 @@ export const translations: Record<Language, Record<string, string>> = {
     
     // Chat
     "chat.title": "Chat",
+    "chat.copyMessage": "Copy message",
     "chat.careTeamRecordsDoctor": "Care team (records): {name}",
     "chat.send": "Send",
     "chat.typeMessage": "Type a message...",
@@ -4614,6 +4616,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "home.title": "მთავარი",
     "appointments.title": "შეხვედრები",
     "chat.title": "შეტყობინებები",
+    "chat.copyMessage": "შეტყობინების კოპირება",
     "chat.careTeamRecordsDoctor": "Care team (records): {name}",
     "nav.profile": "პროფილი",
     "nav.settings": "პარამეტრები",
@@ -5274,6 +5277,7 @@ export const translations: Record<Language, Record<string, string>> = {
     
     // Messages
     "chat.title": "შეტყობინებები",
+    "chat.copyMessage": "შეტყობინების კოპირება",
     "chat.careTeamRecordsDoctor": "Care team (records): {name}",
     "chat.send": "გაგზავნა",
     "chat.typeMessage": "შეიყვანეთ შეტყობინება...",

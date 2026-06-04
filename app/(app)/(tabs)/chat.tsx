@@ -27,7 +27,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as IntentLauncher from "expo-intent-launcher";
-import { useAuth, isAuthSessionStale } from "../../../lib/auth";
+import { showChatMessageCopyMenu } from "../../../lib/chatMessageCopy";
 import { API_BASE } from "../../../lib/api";
 import { playInAppNewMessageSoundDebouncedForThread } from "../../../lib/playInAppMessageSound";
 import { getMessageSoundPreference } from "../../../lib/messageSoundPreference";
@@ -1567,9 +1567,11 @@ export default function ChatScreen() {
         ]}
       >
         {message.type === "text" && message.text ? (
-          <Text style={isPatient ? styles.bubbleTextPatient : styles.bubbleTextAdmin}>
-            {message.text}
-          </Text>
+          <Pressable onPress={() => showChatMessageCopyMenu(message.text!, t)}>
+            <Text style={isPatient ? styles.bubbleTextPatient : styles.bubbleTextAdmin}>
+              {message.text}
+            </Text>
+          </Pressable>
         ) : null}
 
         {(message.type === "image" || message.attachment?.fileType === "image" || message.attachment?.mimeType?.startsWith("image/")) && message.attachment ? (

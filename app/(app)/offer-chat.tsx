@@ -1,7 +1,7 @@
 // app/offer-chat.tsx — Offer-based messaging between patient and doctor
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, TextInput, TouchableOpacity,
+  View, Text, FlatList, TextInput, TouchableOpacity, Pressable,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView,
   Platform, Alert, Image, Modal, ScrollView, Linking, BackHandler,
 } from 'react-native';
@@ -44,6 +44,7 @@ import {
 import { clearDoctorRequestUnreadByOfferId } from '../../lib/doctorRequestsUnread';
 import { openDoctorPatientChat } from '../../lib/navigateCanonicalChat';
 import { goToChat } from '../../lib/chatFlow';
+import { showChatMessageCopyMenu } from '../../lib/chatMessageCopy';
 import { logCanonicalSendAttempt } from '../../lib/canonicalChatDiagnostics';
 import { fetchOfferMessagingMeta } from '../../lib/offerMessagingMeta';
 import { useSupabaseOfferMessages } from  '../../hooks/useSupabaseOfferMessages';
@@ -237,10 +238,13 @@ const OfferChatMessageItem = React.memo(function OfferChatMessageItem({
     );
     return (
       <View style={styles.systemMsgRow}>
-        <View style={styles.systemMsgBubble}>
+        <Pressable
+          onPress={() => showChatMessageCopyMenu(systemText, t)}
+          style={styles.systemMsgBubble}
+        >
           <Text style={styles.systemMsgText}>{systemText || ' '}</Text>
           <Text style={styles.systemMsgTime}>{fmtTime(item.created_at)}</Text>
-        </View>
+        </Pressable>
       </View>
     );
   }
@@ -321,14 +325,18 @@ const OfferChatMessageItem = React.memo(function OfferChatMessageItem({
 
         {showBubbleText ? (
           isDoctorViewingPatient && patientSenderLabel ? (
-            <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
-              <Text style={styles.senderBesideMessage}>{patientSenderLabel}</Text>
+            <Pressable onPress={() => showChatMessageCopyMenu(bubbleText, t)}>
               <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
-                {` · ${bubbleText}`}
+                <Text style={styles.senderBesideMessage}>{patientSenderLabel}</Text>
+                <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
+                  {` · ${bubbleText}`}
+                </Text>
               </Text>
-            </Text>
+            </Pressable>
           ) : (
-            <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>{bubbleText}</Text>
+            <Pressable onPress={() => showChatMessageCopyMenu(bubbleText, t)}>
+              <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>{bubbleText}</Text>
+            </Pressable>
           )
         ) : null}
 

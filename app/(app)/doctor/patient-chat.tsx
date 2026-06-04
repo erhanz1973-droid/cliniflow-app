@@ -16,7 +16,6 @@ import {
   InteractionManager,
   type ListRenderItemInfo,
 } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useDeferredFocusRefresh } from '../../../hooks/use-deferred-focus-refresh';
@@ -59,7 +58,9 @@ import {
   translateDoctorMessage,
   type MessageTranslation,
 } from '../../../lib/doctorChatTranslationApi';
-import { getDoctorPreferredLanguage, normalizeDoctorPreferredLanguage } from '../../../lib/doctorPreferredLanguage';
+import {
+  showChatMessageCopyMenu,
+} from '../../../lib/chatMessageCopy';
 
 function applySnapshot(
   snapshot: { messages: DoctorChatMessage[]; leadThreadId: string | null; enrolledSharedCare: boolean },
@@ -892,40 +893,38 @@ export default function DoctorPatientChatScreen() {
     [translationLang, doctorLang, token, translationById, t],
   );
 
-  const openPatientMessageMenu = useCallback(
+  const openMessageMenu = useCallback(
     (message: DoctorChatMessage) => {
       const messageId = String(message.id || '').trim();
       const body = String(message.text || '').trim();
       if (!messageId || !body) return;
 
+      const isPatient = message.from === 'PATIENT';
       const hasVisible = visibleTranslationIds.has(messageId);
       const hasTranslation = Boolean(translationById[messageId]?.translatedText);
 
-      Alert.alert('', undefined, [
-        {
-          text: t('doctor.chat.copy'),
-          onPress: () => {
-            void Clipboard.setStringAsync(body);
-          },
-        },
-        {
-          text: hasVisible ? t('doctor.chat.translateHide') : t('doctor.chat.translateShow'),
-          onPress: () => {
-            void (async () => {
-              if (hasVisible) {
-                toggleTranslationVisibility(messageId, false);
-                return;
-              }
-              if (!hasTranslation) {
-                const tr = await ensureTranslation(message);
-                if (!tr) return;
-              }
-              toggleTranslationVisibility(messageId, true);
-            })();
-          },
-        },
-        { text: 'İptal', style: 'cancel' },
-      ]);
+      const extraButtons = isPatient
+        ? [
+            {
+              text: hasVisible ? t('doctor.chat.translateHide') : t('doctor.chat.translateShow'),
+              onPress: () => {
+                void (async () => {
+                  if (hasVisible) {
+                    toggleTranslationVisibility(messageId, false);
+                    return;
+                  }
+                  if (!hasTranslation) {
+                    const tr = await ensureTranslation(message);
+                    if (!tr) return;
+                  }
+                  toggleTranslationVisibility(messageId, true);
+                })();
+              },
+            },
+          ]
+        : [];
+
+      showChatMessageCopyMenu(body, t, extraButtons);
     },
     [ensureTranslation, toggleTranslationVisibility, translationById, visibleTranslationIds, t],
   );
@@ -940,12 +939,12 @@ export default function DoctorPatientChatScreen() {
         }
         translationVisible={visibleTranslationIds.has(item.id)}
         translating={translatingIds.has(item.id)}
-        onOpenMenu={openPatientMessageMenu}
+        onOpenMenu={openMessageMenu}
       />
     ),
     [
       doctorLang,
-      openPatientMessageMenu,
+      openMessageMenu,
       translationById,
       translatingIds,
       visibleTranslationIds,
@@ -1380,6 +1379,7 @@ const MessageItem = React.memo(
     translating = false,
     onOpenMenu,
   }: MessageItemProps) {
+    const { t } = useLanguage();
     const isPatient = message.from === 'PATIENT';
     const isDoctorMsg =
       message.inboundKind === 'doctor' ||
@@ -1395,7 +1395,7 @@ const MessageItem = React.memo(
       (!isPatient &&
         !isAi &&
         (message.from === 'CLINIC' || message.from === 'DOCTOR' || message.from === 'admin'));
-    const canTranslate = isPatient && !isDoctorSide && String(message.text || '').trim().length > 0;
+    const hasText = String(message.text || '').trim().length > 0;
     const showLinkWarn =
       isPatient && messageContainsExternalLink(String(message.text || ''));
     const ts =
@@ -1408,7 +1408,7 @@ const MessageItem = React.memo(
     });
     return (
       <View style={[styles.bubble, isDoctorSide ? styles.bubbleDoctor : styles.bubblePatient]}>
-        {canTranslate ? (
+        {hasText ? (
           <View style={styles.bubbleHeader}>
             {!isDoctorSide && (isPatient || message.senderName) ? (
               <Text style={[styles.bubbleSender, { flex: 1 }]}>
@@ -1421,7 +1421,7 @@ const MessageItem = React.memo(
               onPress={() => onOpenMenu?.(message)}
               hitSlop={8}
               style={styles.menuBtn}
-              accessibilityLabel="Mesaj menüsü"
+              accessibilityLabel={t('chat.copyMessage')}
             >
               <Text style={styles.menuBtnText}>⋯</Text>
             </Pressable>
@@ -1432,7 +1432,8 @@ const MessageItem = React.memo(
           </Text>
         ) : null}
         <Pressable
-          onLongPress={canTranslate ? () => onOpenMenu?.(message) : undefined}
+          onPress={hasText ? () => onOpenMenu?.(message) : undefined}
+          onLongPress={hasText ? () => onOpenMenu?.(message) : undefined}
           delayLongPress={280}
         >
           <Text style={[styles.bubbleText, isDoctorSide && styles.bubbleTextDoctor]}>
