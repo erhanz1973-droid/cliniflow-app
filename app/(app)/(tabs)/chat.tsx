@@ -28,6 +28,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as IntentLauncher from "expo-intent-launcher";
 import { showChatMessageCopyMenu } from "../../../lib/chatMessageCopy";
+import { useAuth, isAuthSessionStale } from "../../../lib/auth";
 import { API_BASE } from "../../../lib/api";
 import { playInAppNewMessageSoundDebouncedForThread } from "../../../lib/playInAppMessageSound";
 import { getMessageSoundPreference } from "../../../lib/messageSoundPreference";
