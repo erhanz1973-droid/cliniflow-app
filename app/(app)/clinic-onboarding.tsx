@@ -44,7 +44,11 @@ import {
   saveFindClinicDiscoveryPrefs,
 } from "../../lib/findClinicDiscoveryPrefs";
 import { fetchDiscoveryClinics } from "../../lib/clinicDiscoveryApi";
-import type { DiscoveryClinicCard, DiscoveryFilterState } from "../../lib/clinicDiscoveryTypes";
+import {
+  DEFAULT_DISCOVERY_FILTERS,
+  type DiscoveryClinicCard,
+  type DiscoveryFilterState,
+} from "../../lib/clinicDiscoveryTypes";
 import { ClinicDiscoveryCard } from "../../components/discovery/ClinicDiscoveryCard";
 import { DiscoveryFilterBar } from "../../components/discovery/DiscoveryFilterBar";
 

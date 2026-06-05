@@ -79,6 +79,14 @@ export type DiscoveryFilterState = {
   language: string;
 };
 
+export const DEFAULT_DISCOVERY_FILTERS: DiscoveryFilterState = {
+  minGoogleRating: null,
+  minGoogleReviews: null,
+  verifiedOnly: false,
+  specialty: "",
+  language: "",
+};
+
 export const DISCOVERY_SPECIALTY_OPTIONS = [
   "Implants",
   "Veneers",
