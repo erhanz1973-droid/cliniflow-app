@@ -18,7 +18,14 @@ function isTruthyFlag(raw: unknown): boolean {
   return raw === true || raw === "true" || raw === 1 || raw === "1";
 }
 
-/** Canonical patient ↔ clinic messages screen. */
+/** Enrolled shared-care patient — canonical screen is patient messages. */
+function isPatientEnrolledPush(data: Record<string, unknown>): boolean {
+  if (isTruthyFlag(data.enrolled)) return true;
+  const routeHint = firstStringField(data, ["route", "bootstrapRoute"]).toLowerCase();
+  return routeHint === "patient_chat";
+}
+
+/** Canonical patient ↔ clinic messages screen (enrolled members only). */
 export function buildPatientMainChatPath(data?: Record<string, unknown> | null): string {
   const clinicId = data ? firstStringField(data, ["clinicId", "clinic_id"]) : "";
   const clinicCode = data ? firstStringField(data, ["clinicCode", "clinic_code"]) : "";
@@ -32,13 +39,14 @@ export function buildPatientMainChatPath(data?: Record<string, unknown> | null):
   return qs ? `/(patient)/messages?${qs}` : "/(patient)/messages";
 }
 
-function isPatientClinicThreadPush(data: Record<string, unknown>): boolean {
-  if (isTruthyFlag(data.enrolled)) return true;
-  const routeHint = firstStringField(data, ["route", "bootstrapRoute"]).toLowerCase();
-  if (routeHint === "patient_chat") return true;
-  if (firstStringField(data, ["clinicId", "clinic_id"])) return true;
-  const type = firstStringField(data, ["type"]).toLowerCase();
-  return type === "new_message" || type === "chat_message";
+function resolvePatientOfferChatPath(data: Record<string, unknown>): string | null {
+  const input = pushDataToResolveInput(data, "patient");
+  if (!input.otherPartyName) {
+    input.otherPartyName =
+      firstStringField(data, ["senderName", "sender_name", "title"]) || "Clinic";
+  }
+  const target = resolveCanonicalChatTarget(input);
+  return pathFromCanonicalTarget(target);
 }
 
 function normalizeLegacyPatientMessageUrl(url: string, data: Record<string, unknown>): string | null {
@@ -47,15 +55,30 @@ function normalizeLegacyPatientMessageUrl(url: string, data: Record<string, unkn
   let path = raw.startsWith("/") ? raw : `/${raw}`;
   if (path.length > 2048) return null;
   const lower = path.toLowerCase();
+
+  if (lower.includes("offer-chat")) {
+    if (isPatientEnrolledPush(data)) return buildPatientMainChatPath(data);
+    const offerPath = resolvePatientOfferChatPath(data);
+    return offerPath || path;
+  }
+
   if (
     lower.includes("/(patient)/messages") ||
     lower === "/messages" ||
     lower.startsWith("/messages?")
   ) {
+    if (!isPatientEnrolledPush(data)) {
+      const offerPath = resolvePatientOfferChatPath(data);
+      if (offerPath) return offerPath;
+    }
     const qs = path.includes("?") ? path.slice(path.indexOf("?")) : "";
     return buildPatientMainChatPath(data) + (qs && !data.clinicId ? qs : "");
   }
+
   if (lower.includes("/(tabs)/chat") || lower === "/chat" || lower.startsWith("/chat?")) {
+    if (isPatientEnrolledPush(data)) return buildPatientMainChatPath(data);
+    const offerPath = resolvePatientOfferChatPath(data);
+    if (offerPath) return offerPath;
     const qs = path.includes("?") ? path.slice(path.indexOf("?")) : "";
     const base = buildPatientMainChatPath(data);
     if (!qs) return base;
@@ -68,22 +91,28 @@ function normalizeLegacyPatientMessageUrl(url: string, data: Record<string, unkn
     const out = merged.toString();
     return out ? `${base.split("?")[0]}?${out}` : base;
   }
-  if (lower.includes("offer-chat")) {
-    return isPatientClinicThreadPush(data) ? buildPatientMainChatPath(data) : null;
-  }
+
   return path;
 }
 
 function resolvePatientPushPath(data: Record<string, unknown>): string | null {
   const type = firstStringField(data, ["type"]).toLowerCase();
+  const offerId = firstStringField(data, [
+    "offerId",
+    "offer_id",
+    "coordinationOfferId",
+    "coordination_offer_id",
+  ]);
+  const clinicId = firstStringField(data, ["clinicId", "clinic_id"]);
+  const requestId = firstStringField(data, ["requestId", "request_id"]);
 
-  if (type === "new_offer" && !isPatientClinicThreadPush(data)) {
-    const input = pushDataToResolveInput(data, "patient");
-    if (!input.otherPartyName) {
-      input.otherPartyName = firstStringField(data, ["title"]) || "Clinic";
-    }
-    const target = resolveCanonicalChatTarget(input);
-    return pathFromCanonicalTarget(target);
+  if (offerId) {
+    const offerPath = resolvePatientOfferChatPath(data);
+    if (offerPath) return offerPath;
+  }
+
+  if (type === "new_offer") {
+    return resolvePatientOfferChatPath(data);
   }
 
   if (
@@ -92,14 +121,32 @@ function resolvePatientPushPath(data: Record<string, unknown>): string | null {
     type === "offer_message" ||
     type === "patient_inbound"
   ) {
-    if (type === "offer_message" && !isPatientClinicThreadPush(data)) {
-      const offerId = firstStringField(data, ["offerId", "offer_id"]);
-      if (offerId) {
-        const input = pushDataToResolveInput(data, "patient");
-        const target = resolveCanonicalChatTarget(input);
-        return pathFromCanonicalTarget(target);
-      }
+    if (offerId) return resolvePatientOfferChatPath(data);
+    if (requestId) {
+      const target = resolveCanonicalChatTarget({
+        viewerRole: "patient",
+        requestId,
+        otherPartyName:
+          firstStringField(data, ["senderName", "sender_name", "title"]) || "Clinic",
+      });
+      const path = pathFromCanonicalTarget(target);
+      if (path && !path.includes("/my-requests")) return path;
     }
+    if (clinicId) {
+      const offerPath = resolvePatientOfferChatPath({
+        ...data,
+        clinicId,
+        clinic_id: clinicId,
+      });
+      if (offerPath) return offerPath;
+    }
+    if (isPatientEnrolledPush(data)) {
+      return buildPatientMainChatPath(data);
+    }
+    return null;
+  }
+
+  if (isPatientEnrolledPush(data)) {
     return buildPatientMainChatPath(data);
   }
 
@@ -161,7 +208,7 @@ export function getPathFromNotificationData(
       });
       return pathFromCanonicalTarget(target);
     }
-    return buildPatientMainChatPath(data);
+    return resolvePatientPushPath(data);
   }
 
   const url = firstStringField(data, ["url"]);
@@ -177,9 +224,13 @@ export function getPathFromNotificationData(
   return null;
 }
 
-/** True when notification tap should replace stack (patient main chat). */
+/** True when notification tap should replace stack (patient chat screens). */
 export function shouldReplaceStackForNotificationPath(path: string | null, viewerType?: string | null): boolean {
   if (String(viewerType || "").toLowerCase() !== "patient") return false;
   if (!path) return false;
-  return path.includes("/messages") || path.includes("/chat");
+  return (
+    path.includes("/messages") ||
+    path.includes("/chat") ||
+    path.includes("/offer-chat")
+  );
 }

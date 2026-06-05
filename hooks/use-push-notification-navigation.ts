@@ -15,6 +15,10 @@ import { bumpDoctorRequestUnreadByOfferId } from "../lib/doctorRequestsUnread";
 import { invalidateDoctorUnreadCacheOnly } from "../lib/doctorMessaging";
 import { resetDoctorHomeBadgeAck, refreshDoctorHomeBadgeLiveCounts } from "../lib/doctorHomeBadges";
 import { invalidatePatientInboxUnreadCache } from "../lib/patientInboxUnread";
+import {
+  openClinicCoordinationChat,
+  openRequestCoordinationChat,
+} from "../lib/patientCoordinationChat";
 
 const isExpoGo = Constants.appOwnership === "expo";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -101,6 +105,68 @@ export function usePushNotificationNavigation(): void {
             { source: `push:${delivery}` },
           );
           return;
+        }
+      }
+
+      if (isPatient) {
+        const offerId = String(
+          data.offerId || data.offer_id || data.coordinationOfferId || data.coordination_offer_id || "",
+        ).trim();
+        const clinicId = String(data.clinicId || data.clinic_id || "").trim();
+        const requestId = String(data.requestId || data.request_id || "").trim();
+        const clinicName =
+          String(data.senderName || data.sender_name || data.title || "").trim() || "Clinic";
+        const enrolled = data.enrolled === true || data.enrolled === "true";
+
+        if (offerId) {
+          const input = pushDataToResolveInput(data, "patient");
+          navigateCanonicalChat(
+            router,
+            {
+              viewerRole: "patient",
+              offerId,
+              patientId: input.patientId,
+              treatmentType: input.treatmentType,
+              otherPartyName: input.otherPartyName || clinicName,
+              leadThreadIsLead: input.leadThreadIsLead,
+              enrolled: input.enrolled ?? enrolled,
+              threadKind: "offer",
+            },
+            { source: `push:${delivery}`, useReplace: true },
+          );
+          if (__DEV__) console.log("[push:nav]", { delivery, type, kind: "offer_chat", offerId });
+          return;
+        }
+
+        if (clinicId) {
+          void openClinicCoordinationChat(router, {
+            token,
+            clinicId,
+            clinicName,
+          }).catch((e) => {
+            if (__DEV__) console.warn("[push:nav] clinic coordination failed", e);
+          });
+          return;
+        }
+
+        if (requestId) {
+          void openRequestCoordinationChat(router, {
+            token,
+            requestId,
+            clinicName,
+          }).catch((e) => {
+            if (__DEV__) console.warn("[push:nav] request coordination failed", e);
+          });
+          return;
+        }
+
+        if (enrolled) {
+          const path = getPathFromNotificationData(data, { type: "patient" });
+          if (path) {
+            if (__DEV__) console.log("[push:nav]", { delivery, type, kind: "enrolled_patient_chat", path });
+            router.replace(path as never);
+            return;
+          }
         }
       }
 
