@@ -19,6 +19,7 @@ import type { DiscoveryClinicProfile } from "../../../lib/clinicDiscoveryTypes";
 import { formatCountryDisplay } from "../../../lib/countryDisplay";
 import { formatClinicCityLabel } from "../../../lib/clinicCityDisplay";
 import { saveSelectedChatClinic } from "../../../lib/selectedChatClinic";
+import { openClinicCoordinationChat } from "../../../lib/patientCoordinationChat";
 
 export default function DiscoveryClinicProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -68,23 +69,36 @@ export default function DiscoveryClinicProfileScreen() {
       Alert.alert(t("common.info"), t("clinic_list.quote_need_patient"));
       return;
     }
-    await saveSelectedChatClinic({
-      id: clinic.id,
-      clinic_code: clinic.clinicCode || undefined,
-      name: clinic.name,
-    });
-    router.push({
-      pathname: "/(patient)/messages",
-      params: { clinicId: clinic.id, clinic_id: clinic.id },
-    } as never);
+    const token = String(user?.token || "").trim();
+    if (!token) {
+      Alert.alert(t("common.info"), t("clinic_list.quote_need_patient"));
+      return;
+    }
+    try {
+      await saveSelectedChatClinic({
+        id: clinic.id,
+        clinic_code: clinic.clinicCode || undefined,
+        name: clinic.name,
+      });
+      await openClinicCoordinationChat(router, {
+        token,
+        clinicId: clinic.id,
+        clinicName: clinic.name,
+        clinicCode: clinic.clinicCode || undefined,
+      });
+    } catch (e) {
+      const code = e instanceof Error ? e.message : "";
+      if (__DEV__) console.warn("[discovery-chat] open failed", code, e);
+      if (code === "clinic_doctor_not_assigned") {
+        Alert.alert(t("common.info"), t("treatment.doctorNotAssigned"));
+        return;
+      }
+      Alert.alert(t("common.error"), t("common.pleaseRetry"));
+    }
   };
 
   const goPhotos = () => {
-    if (!clinic) return;
-    router.push({
-      pathname: "/(patient)/messages",
-      params: { clinicId: clinic.id, clinic_id: clinic.id, attach: "1" },
-    } as never);
+    void goChat();
   };
 
   const goTreatmentPlan = () => {

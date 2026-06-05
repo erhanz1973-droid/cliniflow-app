@@ -44,6 +44,7 @@ import {
   saveFindClinicDiscoveryPrefs,
 } from "../../lib/findClinicDiscoveryPrefs";
 import { fetchDiscoveryClinics } from "../../lib/clinicDiscoveryApi";
+import { openClinicCoordinationChat } from "../../lib/patientCoordinationChat";
 import {
   DEFAULT_DISCOVERY_FILTERS,
   type DiscoveryClinicCard,
@@ -416,17 +417,33 @@ export default function ClinicOnboardingScreen() {
         Alert.alert(t("common.info"), t("clinic_list.quote_need_patient"));
         return;
       }
-      await saveSelectedChatClinic({
-        id: item.id,
-        clinic_code: item.clinicCode || undefined,
-        name: item.name,
-      });
-      router.push({
-        pathname: "/(patient)/messages",
-        params: { clinicId: item.id, clinic_id: item.id },
-      } as never);
+      if (!token) {
+        Alert.alert(t("common.info"), t("clinic_list.quote_need_patient"));
+        return;
+      }
+      try {
+        await saveSelectedChatClinic({
+          id: item.id,
+          clinic_code: item.clinicCode || undefined,
+          name: item.name,
+        });
+        await openClinicCoordinationChat(router, {
+          token,
+          clinicId: item.id,
+          clinicName: item.name,
+          clinicCode: item.clinicCode || undefined,
+        });
+      } catch (e) {
+        const code = e instanceof Error ? e.message : "";
+        if (__DEV__) console.warn("[discovery-chat] open failed", code, e);
+        if (code === "clinic_doctor_not_assigned") {
+          Alert.alert(t("common.info"), t("treatment.doctorNotAssigned"));
+          return;
+        }
+        Alert.alert(t("common.error"), t("common.pleaseRetry"));
+      }
     },
-    [user, router, t],
+    [user, token, router, t],
   );
 
   const renderDiscoveryCard = useCallback(
