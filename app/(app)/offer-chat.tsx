@@ -20,6 +20,7 @@ import { useLanguage } from '../../lib/language-context';
 import { API_BASE } from '../../lib/api';
 import { exitOfferChat, offerChatLastStorageKey } from '../../lib/goToOfferChat';
 import { normalizeRouteParam } from '../../lib/doctorPatientId';
+import { careTeamLabel, doctorLabel, isClinicAiActor } from '../../lib/chatSenderLabels';
 import { invalidateDoctorMessagingCache } from '../../lib/doctorMessaging';
 import { emitOfferUnreadEvent } from '../../lib/offerUnreadEvents';
 import {
@@ -141,22 +142,26 @@ function offerMessageRowToUI(
   if (__DEV__) console.log('[offerMessageRowToUI] FINAL TEXT:', JSON.stringify(text));
 
   const actorKind = String(row.actor_kind ?? row.message_source ?? '').toLowerCase();
+  const messageSource = String(row.message_source ?? row.actor_kind ?? '').toLowerCase();
   const roleRaw = String(row.sender_role || 'patient').toLowerCase();
+  const senderNameRaw = String(row.sender_name ?? '').trim();
   let sender_role: MessageSenderRole = 'patient';
   if (roleRaw === 'system') {
     sender_role = 'system';
   } else if (roleRaw === 'patient') {
     sender_role = 'patient';
   } else if (
-    actorKind === 'clinic_ai' ||
-    roleRaw === 'assistant' ||
-    roleRaw === 'ai' ||
-    roleRaw === 'clinic'
+    isClinicAiActor({
+      actorKind,
+      messageSource,
+      senderRole: roleRaw,
+      senderName: senderNameRaw,
+    })
   ) {
     sender_role = 'assistant';
-  } else if (roleRaw === 'doctor' && actorKind !== 'clinic_ai') {
+  } else if (roleRaw === 'doctor') {
     sender_role = 'doctor';
-  } else if (roleRaw === 'doctor' && actorKind === 'clinic_ai') {
+  } else if (roleRaw === 'assistant' || roleRaw === 'ai' || roleRaw === 'clinic') {
     sender_role = 'assistant';
   } else {
     sender_role = 'assistant';
@@ -259,14 +264,9 @@ const OfferChatMessageItem = React.memo(function OfferChatMessageItem({
     ? String(item.sender_name || '').trim() || t('offerChat.senderFallback')
     : '';
   const doctorSenderLabel = isPatientViewingDoctor
-    ? String(item.sender_name || '').trim() || t('offerChat.doctorFallback') || 'Doktor'
+    ? String(item.sender_name || '').trim() || doctorLabel(t)
     : '';
-  const careTeamSenderLabel = isPatientViewingCareTeam
-    ? String(item.sender_name || '').trim() ||
-      (t('offerChat.careTeamFallback') !== 'offerChat.careTeamFallback'
-        ? t('offerChat.careTeamFallback')
-        : 'Bakım Ekibi')
-    : '';
+  const careTeamSenderLabel = isPatientViewingCareTeam ? careTeamLabel(t) : '';
   const otherSenderLabel = patientSenderLabel || doctorSenderLabel || careTeamSenderLabel;
 
   const mediaUrl = resolveAttachmentMediaUrl(item.attachment_url, API_BASE);

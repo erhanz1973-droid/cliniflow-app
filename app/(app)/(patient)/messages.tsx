@@ -55,6 +55,7 @@ import {
 } from "../../../hooks/chatSessionGlobal";
 import { useSupabaseMessages } from "../../../hooks/useSupabaseMessages";
 import { appendMappedChatMessage, mergeSbMessages, mergeIncomingRows } from "../../../hooks/chatMessageUtils";
+import { careTeamLabel, doctorLabel, isClinicAiActor } from "../../../lib/chatSenderLabels";
 import {
   subscribePrimaryChatRealtime,
   waitOnceSocketConnected,
@@ -243,11 +244,21 @@ function leadAssignmentDoctorDisplayName(la: LeadAssignmentInfo | null): string 
 }
 
 function inboundBubbleLabel(msg: Message, t: (k: string) => string): string {
-  const sn = String(msg.senderName || "").trim();
-  if (sn) return sn;
-  if (msg.inboundKind === "doctor") return t("messages.senderDoctor");
   if (msg.inboundKind === "admin") return t("messages.senderAdmin");
-  return t("messages.clinic");
+  if (
+    isClinicAiActor({
+      senderRole: msg.inboundKind,
+      senderName: msg.senderName,
+    }) ||
+    msg.inboundKind === "clinic"
+  ) {
+    return careTeamLabel(t);
+  }
+  if (msg.inboundKind === "doctor") {
+    const sn = String(msg.senderName || "").trim();
+    return sn || doctorLabel(t);
+  }
+  return careTeamLabel(t);
 }
 
 /** Socket.IO `new_message` — legacy row shape aligned with GET /messages */
