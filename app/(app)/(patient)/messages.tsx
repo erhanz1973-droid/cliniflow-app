@@ -53,7 +53,6 @@ import { playInAppNewMessageSoundDebouncedForThread } from "../../../lib/playInA
 import { isHumanInboundChatMessage } from "../../../lib/chatMessageClassification";
 import { getMessageSoundPreference } from "../../../lib/messageSoundPreference";
 import {
-  maybeAbortRailwayMessagesFetch,
   setGlobalChatOpen,
   setGlobalOfferChatOpen,
 } from "../../../hooks/chatSessionGlobal";
@@ -265,8 +264,8 @@ function socketLegacyToPatientMessage(raw: Record<string, unknown>): Message | n
   const tidRaw = raw.thread_id ?? raw.threadId;
   const thread_id =
     tidRaw != null && String(tidRaw).trim() !== "" ? String(tidRaw).trim() : undefined;
-  // Normalize: message_text (DB/Supabase canonical) → text (Socket.IO/Railway legacy)
-  const text = String(raw.message_text ?? raw.text ?? "");
+  // Normalize: message_text / message (DB) → text (Socket.IO/Railway legacy)
+  const text = String(raw.message_text ?? raw.text ?? raw.message ?? "");
   if (__DEV__) console.log('[socketLegacyToPatientMessage] FINAL TEXT:', JSON.stringify(text));
   return {
     id,
@@ -586,10 +585,6 @@ export default function MessagesScreen() {
       console.log('[messages] Supabase timeout — Railway devralıyor');
     }
 
-    if (maybeAbortRailwayMessagesFetch()) {
-      if (!silent) setLoading(false);
-      return;
-    }
     try {
       const q =
         chatClinicId && String(chatClinicId).trim()

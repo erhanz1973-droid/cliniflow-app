@@ -104,7 +104,17 @@ export function mergeSbMessages<T extends MinimalMsg>(
 
   for (const msg of sbMessages) {
     if (!msg?.id) continue;
-    if (merged.some(m => m.id === msg.id)) continue; // zaten var — dokunma
+    const idx = merged.findIndex((m) => m.id === msg.id);
+    if (idx >= 0) {
+      const existing = merged[idx] as T & { text?: string };
+      const existingText = String(existing.text || "").trim();
+      const incomingText = String((msg as { text?: string }).text || "").trim();
+      if (!existingText && incomingText) {
+        merged[idx] = { ...existing, ...msg, text: incomingText };
+        added++;
+      }
+      continue;
+    }
     merged.push(msg);
     added++;
   }

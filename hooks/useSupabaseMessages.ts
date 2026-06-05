@@ -115,7 +115,7 @@ function rowToMessage(row: MessagesRow): SupabasePatientMessage {
   const senderType = String(row.from_role ?? row.sender_type ?? '').toLowerCase();
   const text = extractRowBodyText(row);
   // patient_messages uses message_id as logical key; messages uses id
-  const id = String(row.message_id || row.id || '');
+  const id = String(row.id || row.message_id || '');
   const attachment = parseRowAttachment(row);
   const explicitType = String(row.type || '').trim().toLowerCase();
   const type =
