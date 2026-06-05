@@ -31,6 +31,7 @@ import { saveSelectedChatClinic } from "../../lib/selectedChatClinic";
 import { useLanguage } from "../../lib/language-context";
 import { formatClinicCityLabel } from "../../lib/clinicCityDisplay";
 import { resolveCityCode } from "../../lib/cityCodes";
+import { cityMatchesQuery } from "../../lib/citySearchNormalize";
 import {
   formatCountryDisplay,
   getCountryMeta,
@@ -200,7 +201,6 @@ export default function ClinicOnboardingScreen() {
     if (!q) return clinics;
     return clinics.filter((c) => {
       const name = (c.name || "").toLowerCase();
-      const city = (c.city || "").toLowerCase();
       const countryRaw = String(c.country ?? "").trim();
       const countryLower = countryRaw.toLowerCase();
       const meta = getCountryMeta(countryRaw || null);
@@ -212,9 +212,10 @@ export default function ClinicOnboardingScreen() {
       const code = (c.clinicCode || "").toLowerCase();
       const cityCanonMatch =
         Boolean(qCanon) && resolveCityCode(c.city) === qCanon;
+      const cityMatch = cityMatchesQuery(qRaw, c.city);
       return (
         name.includes(q) ||
-        city.includes(q) ||
+        cityMatch ||
         countryLower.includes(q) ||
         countryDisplay.includes(q) ||
         labelLower.includes(q) ||

@@ -1,11 +1,14 @@
 /** Mirror of backend lib/cityCodes.cjs — keep aliases in sync. */
 
+import { canonicalCityCompact, citySearchCompactKey } from "./citySearchNormalize";
+
 const KNOWN_CODES = new Set(["tbilisi"]);
 
 const EXACT_UNICODE_ALIASES = new Map([
   ["тбилиси", "tbilisi"],
   ["Тбилиси", "tbilisi"],
   ["თბილისი", "tbilisi"],
+  ["თბილის", "tbilisi"],
 ]);
 
 const LOWERCASE_ALIASES: Record<string, string> = {
@@ -26,6 +29,8 @@ export function resolveCityCode(raw: unknown): string | null {
   if (KNOWN_CODES.has(lower)) return lower;
   const fromAlias = LOWERCASE_ALIASES[lower];
   if (fromAlias) return fromAlias;
+  const fromTransliteration = canonicalCityCompact(citySearchCompactKey(s0));
+  if (fromTransliteration && KNOWN_CODES.has(fromTransliteration)) return fromTransliteration;
   return null;
 }
 
