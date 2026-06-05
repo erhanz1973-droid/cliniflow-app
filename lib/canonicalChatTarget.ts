@@ -258,12 +258,12 @@ export function resolveCanonicalChatTarget(input: ResolveCanonicalChatInput): Ca
     };
   }
 
-  // Enrolled clinic members: main Messages tab (CEM Clinic UI) — not legacy offer-chat / (patient)/messages.
+  // Enrolled clinic members: canonical patient ↔ clinic messages screen.
   if (enrolled) {
     return {
       channel: "patient",
       kind: "patient_chat_tab",
-      path: "/(tabs)/chat",
+      path: "/(patient)/messages",
     };
   }
 

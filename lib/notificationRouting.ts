@@ -18,7 +18,7 @@ function isTruthyFlag(raw: unknown): boolean {
   return raw === true || raw === "true" || raw === 1 || raw === "1";
 }
 
-/** Canonical patient clinic chat — not legacy `(patient)/messages` or `offer-chat`. */
+/** Canonical patient ↔ clinic messages screen. */
 export function buildPatientMainChatPath(data?: Record<string, unknown> | null): string {
   const clinicId = data ? firstStringField(data, ["clinicId", "clinic_id"]) : "";
   const clinicCode = data ? firstStringField(data, ["clinicCode", "clinic_code"]) : "";
@@ -29,7 +29,7 @@ export function buildPatientMainChatPath(data?: Record<string, unknown> | null):
   }
   if (clinicCode) q.set("clinicCode", clinicCode);
   const qs = q.toString();
-  return qs ? `/(tabs)/chat?${qs}` : "/(tabs)/chat";
+  return qs ? `/(patient)/messages?${qs}` : "/(patient)/messages";
 }
 
 function isPatientClinicThreadPush(data: Record<string, unknown>): boolean {
@@ -56,10 +56,17 @@ function normalizeLegacyPatientMessageUrl(url: string, data: Record<string, unkn
     return buildPatientMainChatPath(data) + (qs && !data.clinicId ? qs : "");
   }
   if (lower.includes("/(tabs)/chat") || lower === "/chat" || lower.startsWith("/chat?")) {
-    if (lower === "/chat" || lower.startsWith("/chat?")) {
-      path = `/(tabs)/chat${path.slice("/chat".length)}`;
+    const qs = path.includes("?") ? path.slice(path.indexOf("?")) : "";
+    const base = buildPatientMainChatPath(data);
+    if (!qs) return base;
+    const merged = new URLSearchParams(qs.startsWith("?") ? qs.slice(1) : qs);
+    const clinicId = firstStringField(data, ["clinicId", "clinic_id"]);
+    if (clinicId && !merged.has("clinicId")) {
+      merged.set("clinicId", clinicId);
+      merged.set("clinic_id", clinicId);
     }
-    return path;
+    const out = merged.toString();
+    return out ? `${base.split("?")[0]}?${out}` : base;
   }
   if (lower.includes("offer-chat")) {
     return isPatientClinicThreadPush(data) ? buildPatientMainChatPath(data) : null;
@@ -174,5 +181,5 @@ export function getPathFromNotificationData(
 export function shouldReplaceStackForNotificationPath(path: string | null, viewerType?: string | null): boolean {
   if (String(viewerType || "").toLowerCase() !== "patient") return false;
   if (!path) return false;
-  return path.includes("/chat");
+  return path.includes("/messages") || path.includes("/chat");
 }

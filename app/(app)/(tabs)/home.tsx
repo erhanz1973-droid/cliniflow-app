@@ -1127,10 +1127,10 @@ export default function Home() {
 
       const cid = String((user as { clinicId?: string })?.clinicId || "").trim();
       router.push({
-        pathname: "/chat" as const,
+        pathname: "/(patient)/messages" as const,
         params: {
           patientId: pid,
-          ...(cid ? { clinicId: cid } : {}),
+          ...(cid ? { clinicId: cid, clinic_id: cid } : {}),
         },
       } as any);
     })();

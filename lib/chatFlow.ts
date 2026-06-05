@@ -22,7 +22,7 @@ export function goToChat(router: Pick<Router, "push">, params: GoToChatParams) {
   }
   const code = params.clinicCode?.trim();
   router.push({
-    pathname: "/(tabs)/chat",
+    pathname: "/(patient)/messages",
     params: {
       clinicId,
       ...(code ? { clinicCode: code } : {}),
