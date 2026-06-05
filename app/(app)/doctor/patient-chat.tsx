@@ -61,6 +61,10 @@ import {
 import {
   showChatMessageCopyMenu,
 } from '../../../lib/chatMessageCopy';
+import {
+  getDoctorPreferredLanguage,
+  normalizeDoctorPreferredLanguage,
+} from '../../../lib/doctorPreferredLanguage';
 
 function applySnapshot(
   snapshot: { messages: DoctorChatMessage[]; leadThreadId: string | null; enrolledSharedCare: boolean },

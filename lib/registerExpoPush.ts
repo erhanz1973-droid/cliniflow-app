@@ -4,6 +4,7 @@ import Constants from "expo-constants";
 import { API_BASE } from "./api";
 import { getMessageSoundPreference } from "./messageSoundPreference";
 import { CHAT_PUSH_CHANNEL_ID, CHAT_PUSH_SOUND_FILE } from "./chatPushSound";
+import { shouldSuppressForegroundPushPresentation } from "./chatForegroundNotifyPolicy";
 
 // Safe lazy import — expo-notifications crashes on Android Expo Go (SDK 53+).
 // In Expo Go: Notifications stays null, all push functions are no-ops.
@@ -23,25 +24,64 @@ if (!isExpoGo) {
 
 let presentationHandlerInstalled = false;
 
+const CHAT_PUSH_TYPES = new Set([
+  "chat_message",
+  "new_message",
+  "offer_message",
+  "patient_inbound",
+  "new_offer",
+]);
+
+function isChatPushNotification(data: unknown): boolean {
+  if (!data || typeof data !== "object") return false;
+  const type = String((data as Record<string, unknown>).type || "").toLowerCase();
+  return CHAT_PUSH_TYPES.has(type);
+}
+
 /** Lazy — avoids blocking root layout import at cold start. */
 export function ensureExpoPushPresentationSetup(): void {
   if (!Notifications || presentationHandlerInstalled) return;
   presentationHandlerInstalled = true;
   try {
     Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldShowBanner: true,
-        shouldShowList: true,
-        shouldPlaySound: true,
-        shouldSetBadge: true,
-      }),
+      handleNotification: async (notification: { request?: { content?: { data?: unknown } } }) => {
+        const data = notification?.request?.content?.data;
+        const chatPush = isChatPushNotification(data);
+
+        if (chatPush && shouldSuppressForegroundPushPresentation()) {
+          return {
+            shouldShowAlert: false,
+            shouldShowBanner: false,
+            shouldShowList: false,
+            shouldPlaySound: false,
+            shouldSetBadge: true,
+          };
+        }
+
+        if (chatPush) {
+          return {
+            shouldShowAlert: false,
+            shouldShowBanner: false,
+            shouldShowList: false,
+            shouldPlaySound: false,
+            shouldSetBadge: true,
+          };
+        }
+
+        return {
+          shouldShowAlert: true,
+          shouldShowBanner: true,
+          shouldShowList: true,
+          shouldPlaySound: true,
+          shouldSetBadge: true,
+        };
+      },
     });
     if (__DEV__) {
       console.log("[push][PUSH_PRESENTATION] setNotificationHandler installed", {
         expoGo: isExpoGo,
-        shouldPlaySound: true,
-        shouldSetBadge: true,
+        chatPushSound: "in_app_only",
+        suppressWhenMessagingOpen: true,
       });
     }
   } catch {

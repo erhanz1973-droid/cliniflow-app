@@ -43,7 +43,10 @@ import {
   loadFindClinicDiscoveryPrefs,
   saveFindClinicDiscoveryPrefs,
 } from "../../lib/findClinicDiscoveryPrefs";
-import { fetchDiscoveryClinics } from "../../lib/clinicDiscoveryApi";
+import {
+  enrichDiscoveryClinicsWithProfiles,
+  fetchDiscoveryClinics,
+} from "../../lib/clinicDiscoveryApi";
 import { openClinicCoordinationChat } from "../../lib/patientCoordinationChat";
 import {
   DEFAULT_DISCOVERY_FILTERS,
@@ -378,7 +381,9 @@ export default function ClinicOnboardingScreen() {
     setStatusMessage(null);
     setLoading(true);
     try {
-      const list = await fetchDiscoveryClinics(iso, city, marketplaceFilters);
+      const list = await enrichDiscoveryClinicsWithProfiles(
+        await fetchDiscoveryClinics(iso, city, marketplaceFilters),
+      );
       const mapped: ClinicRow[] = list.map((c) => ({
         ...c,
         name: c.name || t("clinicOnboard.clinicFallbackName"),
@@ -386,6 +391,18 @@ export default function ClinicOnboardingScreen() {
       }));
       setHasPerformedDiscoverySearch(true);
       setClinics(mapped);
+      if (__DEV__) {
+        const cem = mapped.find((c) => String(c.clinicCode || "").toUpperCase() === "CEM");
+        if (cem) {
+          console.log("[discovery-list] CEM social", {
+            websiteUrl: (cem as DiscoveryClinicCard).websiteUrl,
+            facebookUrl: (cem as DiscoveryClinicCard).facebookUrl,
+            youtubeUrl: (cem as DiscoveryClinicCard).youtubeUrl,
+            googleMapsUrl: (cem as DiscoveryClinicCard).googleMapsUrl,
+            googleRating: (cem as DiscoveryClinicCard).googleRating,
+          });
+        }
+      }
       setStatusMessage(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t("clinicOnboard.listLoadFailed"));

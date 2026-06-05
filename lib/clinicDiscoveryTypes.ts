@@ -28,6 +28,13 @@ export type DiscoveryClinicCard = {
   specialties?: string[];
   isVerified?: boolean;
   googleMapsUrl?: string | null;
+  websiteUrl?: string | null;
+  facebookUrl?: string | null;
+  instagramUrl?: string | null;
+  tiktokUrl?: string | null;
+  youtubeUrl?: string | null;
+  linkedinUrl?: string | null;
+  googleReviewsUrl?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   /** Legacy internal ratings table */

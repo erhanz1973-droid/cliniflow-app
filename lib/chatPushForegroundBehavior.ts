@@ -1,13 +1,8 @@
 /**
- * Foreground chat push: custom in-app tone (notification.mp3) + vibrate + badge.
+ * Foreground chat push: silent badge + cache refresh only (no in-app sound/vibration).
  * Background/killed: OS notification sound from Expo payload / channel.
  * expo-notifications is loaded only when installForegroundChatNotificationEffects runs (_layout).
  */
-import { Vibration } from "react-native";
-import {
-  playInAppNewMessageSoundDebouncedForThread,
-  recordForegroundRemoteChatPushPlayback,
-} from "./playInAppMessageSound";
 import { emitOfferUnreadEvent } from "./offerUnreadEvents";
 import { invalidateDoctorUnreadCacheOnly } from "./doctorMessaging";
 import { bumpDoctorRequestUnreadByOfferId } from "./doctorRequestsUnread";
@@ -19,11 +14,6 @@ export type ChatNotifViewer = {
   patientId?: string;
   doctorId?: string;
 } | null;
-
-const FG_VIBRATE_MS = 200;
-const FG_VIBRATE_DEBOUNCE_MS = 3000;
-
-let lastForegroundChatVibrateAt = 0;
 
 function isOfferPushType(type: string): boolean {
   return type === "offer_message" || type === "new_offer";
@@ -92,7 +82,7 @@ async function applyBadgeFromPayload(
   }
 }
 
-/** Listener while app is foreground: debounced vibration + badge; skips self-sent composer echoes. */
+/** Listener while app is foreground: silent badge refresh; skips self-sent composer echoes. */
 export function installForegroundChatNotificationEffects(getViewer: () => ChatNotifViewer): () => void {
   let cancelled = false;
   let unsub: (() => void) | undefined;
@@ -140,21 +130,6 @@ export function installForegroundChatNotificationEffects(getViewer: () => ChatNo
         }
 
         if (isComposerSelfEcho(data, viewer)) return;
-
-        const threadKey = isOffer
-          ? `offer:${String(data?.offerId || data?.offer_id || "unknown")}`
-          : `chat:${String(data?.patientId || data?.threadId || "unknown")}`;
-        playInAppNewMessageSoundDebouncedForThread(threadKey, 2800);
-        recordForegroundRemoteChatPushPlayback();
-
-        const now = Date.now();
-        if (now - lastForegroundChatVibrateAt < FG_VIBRATE_DEBOUNCE_MS) return;
-        lastForegroundChatVibrateAt = now;
-        try {
-          Vibration.vibrate(FG_VIBRATE_MS);
-        } catch {
-          /* native vibrate unavailable */
-        }
       })();
     });
     unsub = () => sub.remove();

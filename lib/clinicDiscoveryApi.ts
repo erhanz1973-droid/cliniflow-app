@@ -35,9 +35,9 @@ export function mapDiscoveryListRow(c: Record<string, unknown>): DiscoveryClinic
     country: c.country != null ? String(c.country) : null,
     logoUrl:
       c.logoUrl != null
-        ? String(c.logoUrl)
+        ? String(c.logoUrl).trim() || null
         : c.logo_url != null
-          ? String(c.logo_url)
+          ? String(c.logo_url).trim() || null
           : null,
     shortDescription:
       c.shortDescription != null
@@ -71,6 +71,12 @@ export function mapDiscoveryListRow(c: Record<string, unknown>): DiscoveryClinic
         : c.trustpilot_review_count != null
           ? Number(c.trustpilot_review_count)
           : null,
+    internationalPatientCount:
+      c.internationalPatientCount != null
+        ? Number(c.internationalPatientCount)
+        : c.international_patient_count != null
+          ? Number(c.international_patient_count)
+          : null,
     languages: Array.isArray(c.languages) ? (c.languages as string[]) : [],
     specialties: Array.isArray(c.specialties) ? (c.specialties as string[]) : [],
     isVerified: c.isVerified === true || c.is_verified === true,
@@ -79,6 +85,29 @@ export function mapDiscoveryListRow(c: Record<string, unknown>): DiscoveryClinic
         ? String(c.googleMapsUrl)
         : c.google_maps_url != null
           ? String(c.google_maps_url)
+          : null,
+    websiteUrl:
+      c.websiteUrl != null
+        ? String(c.websiteUrl)
+        : c.website_url != null
+          ? String(c.website_url)
+          : c.website != null
+            ? String(c.website)
+            : null,
+    facebookUrl:
+      c.facebookUrl != null ? String(c.facebookUrl) : c.facebook_url != null ? String(c.facebook_url) : null,
+    instagramUrl:
+      c.instagramUrl != null ? String(c.instagramUrl) : c.instagram_url != null ? String(c.instagram_url) : null,
+    tiktokUrl: c.tiktokUrl != null ? String(c.tiktokUrl) : c.tiktok_url != null ? String(c.tiktok_url) : null,
+    youtubeUrl:
+      c.youtubeUrl != null ? String(c.youtubeUrl) : c.youtube_url != null ? String(c.youtube_url) : null,
+    linkedinUrl:
+      c.linkedinUrl != null ? String(c.linkedinUrl) : c.linkedin_url != null ? String(c.linkedin_url) : null,
+    googleReviewsUrl:
+      c.googleReviewsUrl != null
+        ? String(c.googleReviewsUrl)
+        : c.google_reviews_url != null
+          ? String(c.google_reviews_url)
           : null,
     latitude: c.latitude != null ? Number(c.latitude) : null,
     longitude: c.longitude != null ? Number(c.longitude) : null,
@@ -103,6 +132,69 @@ export async function fetchDiscoveryClinics(
     throw new Error(data.message || data.error || `HTTP ${res.status}`);
   }
   return (Array.isArray(data.clinics) ? data.clinics : []).map(mapDiscoveryListRow);
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function mergeDiscoveryCardWithProfile(
+  card: DiscoveryClinicCard,
+  profile: DiscoveryClinicProfile | null,
+): DiscoveryClinicCard {
+  if (!profile) return card;
+  return {
+    ...card,
+    shortDescription: profile.shortDescription ?? card.shortDescription,
+    googleRating: profile.googleRating ?? card.googleRating,
+    googleReviewCount: profile.googleReviewCount ?? card.googleReviewCount,
+    trustpilotRating: profile.trustpilotRating ?? card.trustpilotRating,
+    trustpilotReviewCount: profile.trustpilotReviewCount ?? card.trustpilotReviewCount,
+    websiteUrl: profile.websiteUrl ?? card.websiteUrl,
+    facebookUrl: profile.facebookUrl ?? card.facebookUrl,
+    instagramUrl: profile.instagramUrl ?? card.instagramUrl,
+    tiktokUrl: profile.tiktokUrl ?? card.tiktokUrl,
+    youtubeUrl: profile.youtubeUrl ?? card.youtubeUrl,
+    linkedinUrl: profile.linkedinUrl ?? card.linkedinUrl,
+    googleReviewsUrl: profile.googleReviewsUrl ?? card.googleReviewsUrl,
+    googleMapsUrl: profile.googleMapsUrl ?? card.googleMapsUrl,
+    logoUrl: profile.logoUrl ?? card.logoUrl,
+  };
+}
+
+/** List endpoint omits social/reputation on older backends — hydrate from profile API. */
+export async function enrichDiscoveryClinicsWithProfiles(
+  cards: DiscoveryClinicCard[],
+): Promise<DiscoveryClinicCard[]> {
+  if (!cards.length) return cards;
+  const valid = cards.filter((c) => UUID_RE.test(String(c.id || "").trim()));
+  const profiles = await Promise.all(
+    valid.map(async (card) => {
+      try {
+        return await fetchDiscoveryClinicProfile(card.id);
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const byId = new Map<string, DiscoveryClinicProfile | null>();
+  valid.forEach((card, index) => {
+    byId.set(card.id, profiles[index]);
+  });
+  return cards.map((card) => mergeDiscoveryCardWithProfile(card, byId.get(card.id) ?? null));
+}
+
+/** Single-clinic hydrate (search cards / profile screen). */
+export async function enrichDiscoveryClinicCard(
+  card: DiscoveryClinicCard,
+): Promise<DiscoveryClinicCard> {
+  const id = String(card.id || "").trim();
+  if (!UUID_RE.test(id)) return card;
+  try {
+    const profile = await fetchDiscoveryClinicProfile(id);
+    return mergeDiscoveryCardWithProfile(card, profile);
+  } catch {
+    return card;
+  }
 }
 
 export async function fetchDiscoveryClinicProfile(
@@ -142,6 +234,7 @@ export async function fetchDiscoveryClinicProfile(
     facebookUrl: c.facebookUrl != null ? String(c.facebookUrl) : c.facebook_url != null ? String(c.facebook_url) : null,
     instagramUrl: c.instagramUrl != null ? String(c.instagramUrl) : c.instagram_url != null ? String(c.instagram_url) : null,
     tiktokUrl: c.tiktokUrl != null ? String(c.tiktokUrl) : c.tiktok_url != null ? String(c.tiktok_url) : null,
+    youtubeUrl: c.youtubeUrl != null ? String(c.youtubeUrl) : c.youtube_url != null ? String(c.youtube_url) : null,
     linkedinUrl: c.linkedinUrl != null ? String(c.linkedinUrl) : c.linkedin_url != null ? String(c.linkedin_url) : null,
     whatsapp: c.whatsapp != null ? String(c.whatsapp) : null,
     googleReviewsUrl:
@@ -155,6 +248,12 @@ export async function fetchDiscoveryClinicProfile(
         ? String(c.trustpilotUrl)
         : c.trustpilot_url != null
           ? String(c.trustpilot_url)
+          : null,
+    yearsInOperation:
+      c.yearsInOperation != null
+        ? Number(c.yearsInOperation)
+        : c.years_in_operation != null
+          ? Number(c.years_in_operation)
           : null,
     services: Array.isArray(c.services) ? (c.services as string[]) : [],
     technologies: Array.isArray(c.technologies) ? (c.technologies as string[]) : [],

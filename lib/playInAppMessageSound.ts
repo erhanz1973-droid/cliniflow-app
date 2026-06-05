@@ -1,9 +1,13 @@
 import { Audio } from "expo-av";
+import { shouldSuppressChatAlertForThread } from "./chatForegroundNotifyPolicy";
 
 const NOTIFICATION_MP3 = require("../assets/audio/notification.mp3");
 
+const DEFAULT_IN_APP_VOLUME = 0.78;
+const QUIET_IN_APP_VOLUME = 0.22;
+
 /** Short local tone when the app is open and a new chat message arrives (use with debouncing). */
-export async function playInAppNewMessageSound(): Promise<void> {
+export async function playInAppNewMessageSound(opts?: { quiet?: boolean }): Promise<void> {
   try {
     await Audio.setAudioModeAsync({
       playsInSilentModeIOS: true,
@@ -11,7 +15,7 @@ export async function playInAppNewMessageSound(): Promise<void> {
     });
     const { sound } = await Audio.Sound.createAsync(NOTIFICATION_MP3, {
       shouldPlay: true,
-      volume: 0.78,
+      volume: opts?.quiet ? QUIET_IN_APP_VOLUME : DEFAULT_IN_APP_VOLUME,
       isLooping: false,
     });
     sound.setOnPlaybackStatusUpdate((st) => {
@@ -37,14 +41,16 @@ export function recordForegroundRemoteChatPushPlayback(): void {
 export function playInAppNewMessageSoundDebouncedForThread(
   threadKey: string | undefined | null,
   debounceMs = 3000,
+  opts?: { quiet?: boolean },
 ): void {
   const key = String(threadKey ?? "__default__").trim() || "__default__";
+  if (shouldSuppressChatAlertForThread(key)) return;
   const now = Date.now();
   if (now - lastForegroundRemotePushAtMs < REMOTE_PUSH_SUPPRESS_IN_APP_MS) return;
   const prev = lastToneAtByThread.get(key) ?? 0;
   if (now - prev < debounceMs) return;
   lastToneAtByThread.set(key, now);
-  void playInAppNewMessageSound();
+  void playInAppNewMessageSound({ quiet: opts?.quiet });
 }
 
 /**

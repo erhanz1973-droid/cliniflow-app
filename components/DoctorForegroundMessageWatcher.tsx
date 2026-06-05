@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { AppState, type AppStateStatus, ToastAndroid, Platform } from "react-native";
+import { AppState, type AppStateStatus } from "react-native";
 import { useAuthSession } from "../lib/auth";
 import {
   fetchDoctorThreadSummary,
@@ -12,44 +12,27 @@ import {
 } from "../lib/doctorHomeBadges";
 import { emitOfferUnreadEvent, subscribeOfferUnreadEvents } from "../lib/offerUnreadEvents";
 import { syncDoctorRequestUnreadFromServer } from "../lib/doctorRequestsUnread";
-import { playInAppNewMessageSoundDebouncedForThread } from "../lib/playInAppMessageSound";
 import {
   canonicalDoctorPatientChatKey,
   getGlobalDoctorChatPatientIdOpen,
 } from "../lib/doctorChatForeground";
-import { showDoctorForegroundBanner } from "../lib/doctorForegroundBannerController";
-import { useLanguage } from "../lib/language-context";
 
 const POLL_MS = 28_000;
-const FOREGROUND_ALERT_DEBOUNCE_MS = 120_000;
 
 type Snap = { lastId: string; unread: number };
 
-function resolveThreadDisplayName(
-  row: { patientName?: string | null; patientLegacyId?: string | null },
-  fallback: string,
-): string {
-  const raw = String(row.patientName || "").trim();
-  if (raw && raw !== "Hasta" && raw !== "Patient" && raw !== "—") return raw;
-  const leg = String(row.patientLegacyId || "").trim();
-  if (leg && !/^[0-9a-f-]{36}$/i.test(leg)) return leg;
-  return fallback;
-}
-
 /**
- * App-scoped doctor messaging awareness while foregrounded: polls thread-summary and
- * plays sound + banner when activity changes (not only when chat screen is mounted).
+ * Foreground doctor messaging awareness: silent badge refresh only (no sound/banner).
+ * Push sound plays when the app is backgrounded via the OS notification channel.
  */
 export function DoctorForegroundMessageWatcher() {
   const { token: sessionToken, isDoctor } = useAuthSession();
-  const { t } = useLanguage();
   const token = sessionToken.trim();
   const snapRef = useRef<Map<string, Snap>>(new Map());
   const primedRef = useRef(false);
   const offerUnreadTotalRef = useRef(0);
   const offerUnreadPrimedRef = useRef(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
-  const lastForegroundAlertAtRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     if (!token || !isDoctor) {
@@ -92,10 +75,6 @@ export function DoctorForegroundMessageWatcher() {
       }
 
       if (primedRef.current) {
-        const unknownPatient =
-          t("doctor.patientChat.headerSub") !== "doctor.patientChat.headerSub"
-            ? t("doctor.patientChat.headerSub")
-            : "Patient";
         for (const row of threads) {
           const pid = canonicalDoctorPatientChatKey(String(row.patientDbId || ""));
           if (!pid) continue;
@@ -109,31 +88,6 @@ export function DoctorForegroundMessageWatcher() {
 
           resetDoctorHomeBadgeAck(["inbox", "patients"]);
           void refreshDoctorHomeBadgeLiveCounts(token);
-
-          const now = Date.now();
-          const lastAlert = lastForegroundAlertAtRef.current.get(pid) ?? 0;
-          if (now - lastAlert < FOREGROUND_ALERT_DEBOUNCE_MS) continue;
-          lastForegroundAlertAtRef.current.set(pid, now);
-
-          const name = resolveThreadDisplayName(row, unknownPatient);
-          const preview = String(row.lastMessage?.text || "").trim().replace(/\s+/g, " ").slice(0, 120);
-          const title =
-            t("doctor.foregroundChat.bannerTitle") !== "doctor.foregroundChat.bannerTitle"
-              ? t("doctor.foregroundChat.bannerTitle")
-              : "New message";
-          const body =
-            preview !== ""
-              ? t("doctor.foregroundChat.bannerBodyPreview", { name, preview })
-              : unread > 0
-                ? t("doctor.foregroundChat.bannerBodyUnread", { name, count: String(unread) })
-                : name;
-
-          playInAppNewMessageSoundDebouncedForThread(`fg_poll:${pid}`, 2800);
-
-          if (Platform.OS === "android") {
-            ToastAndroid.show(body.slice(0, 300), ToastAndroid.SHORT);
-          }
-          showDoctorForegroundBanner({ title, body });
         }
       }
 
@@ -147,19 +101,6 @@ export function DoctorForegroundMessageWatcher() {
           resetDoctorHomeBadgeAck(["inbox", "requests"]);
           void refreshDoctorHomeBadgeLiveCounts(token);
           invalidateDoctorMessagingCache();
-          playInAppNewMessageSoundDebouncedForThread("fg_offer_unread", 2800);
-          const title =
-            t("doctor.foregroundChat.offerTitle") !== "doctor.foregroundChat.offerTitle"
-              ? t("doctor.foregroundChat.offerTitle")
-              : "New offer activity";
-          const body =
-            t("doctor.foregroundChat.offerBody") !== "doctor.foregroundChat.offerBody"
-              ? t("doctor.foregroundChat.offerBody")
-              : "A patient replied to a treatment offer.";
-          if (Platform.OS === "android") {
-            ToastAndroid.show(body.slice(0, 300), ToastAndroid.SHORT);
-          }
-          showDoctorForegroundBanner({ title, body });
           void syncDoctorRequestUnreadFromServer(token);
           emitOfferUnreadEvent({ type: "offer_activity", recipient: "doctor" });
         }
@@ -171,7 +112,7 @@ export function DoctorForegroundMessageWatcher() {
     } catch {
       /* ignore */
     }
-  }, [token, isDoctor, t]);
+  }, [token, isDoctor]);
 
   useEffect(() => {
     if (!token || !isDoctor) return;

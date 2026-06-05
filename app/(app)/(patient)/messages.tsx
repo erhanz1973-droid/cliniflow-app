@@ -49,9 +49,6 @@ import { goToTreatmentGuide } from "../../../lib/treatmentGuideNavigation";
 import { saveToFiles } from "../../../lib/saveToFiles";
 import { sendMessage } from "../../../lib/sendMessage";
 import { loadClinicInquiryDraftForQuote } from "../../../lib/clinicInquiryDraftStorage";
-import { playInAppNewMessageSoundDebouncedForThread } from "../../../lib/playInAppMessageSound";
-import { isHumanInboundChatMessage } from "../../../lib/chatMessageClassification";
-import { getMessageSoundPreference } from "../../../lib/messageSoundPreference";
 import {
   setGlobalChatOpen,
   setGlobalOfferChatOpen,
@@ -662,40 +659,11 @@ export default function MessagesScreen() {
         });
       });
 
-      try {
-        const soundOn = await getMessageSoundPreference();
-        const fromField = (m: Message): string =>
-          String((m as { from?: string }).from || "").toUpperCase();
-        if (!chatInboundIdsPrimedRef.current) {
-          for (const m of msgs) {
-            const mid = String((m as { id?: string }).id || "").trim();
-            if (mid) seenServerMessageIdsRef.current.add(mid);
-          }
-          chatInboundIdsPrimedRef.current = true;
-        } else if (soundOn && !sendingRef.current) {
-          let hasFreshInbound = false;
-          for (const m of msgs) {
-            const mid = String((m as { id?: string }).id || "").trim();
-            if (!mid) continue;
-            const seen = seenServerMessageIdsRef.current.has(mid);
-            if (!seen && isHumanInboundChatMessage(m)) {
-              hasFreshInbound = true;
-            }
-            seenServerMessageIdsRef.current.add(mid);
-          }
-          if (hasFreshInbound) {
-            const soundThreadKey = `${String(patientId || "").trim()}:${clinicKey || "default"}`;
-            playInAppNewMessageSoundDebouncedForThread(soundThreadKey, 3000);
-          }
-        } else {
-          for (const m of msgs) {
-            const mid = String((m as { id?: string }).id || "").trim();
-            if (mid) seenServerMessageIdsRef.current.add(mid);
-          }
-        }
-      } catch {
-        /* ignore sound faults */
+      for (const m of msgs) {
+        const mid = String((m as { id?: string }).id || "").trim();
+        if (mid) seenServerMessageIdsRef.current.add(mid);
       }
+      chatInboundIdsPrimedRef.current = true;
 
       if (!nextAid || !doctorLabel) {
         assignBannerEverShownRef.current = false;

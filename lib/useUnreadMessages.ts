@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { safeGetItem, safeSetItem } from "./asyncStorageSafe";
 import { API_BASE } from "./api";
-import { getGlobalChatOpen } from "../hooks/chatSessionGlobal";
-import { playInAppNewMessageSoundDebouncedForThread } from "./playInAppMessageSound";
 import { markPatientClinicMessagesRead } from "./markChatRead";
 
 /** Unread badge polling — keep moderate to reduce /messages/unread-count load (realtime via Socket.IO on chat screen). */
@@ -15,11 +13,6 @@ function storageKey(patientId: string) {
 export function useUnreadMessages(patientId: string | undefined, token: string | undefined) {
   const [unreadCount, setUnreadCount] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const primedRef = useRef(false);
-
-  useEffect(() => {
-    primedRef.current = false;
-  }, [patientId]);
 
   const fetchCount = useCallback(async () => {
     if (!patientId || !token) return;
@@ -35,14 +28,7 @@ export function useUnreadMessages(patientId: string | undefined, token: string |
       if (!res.ok) return;
       const json = await res.json();
       if (json?.ok) {
-        const next = Number(json.count ?? 0);
-        setUnreadCount((prev) => {
-          if (primedRef.current && next > prev && !getGlobalChatOpen()) {
-            playInAppNewMessageSoundDebouncedForThread(`patient_unread:${patientId}`, 3500);
-          }
-          primedRef.current = true;
-          return next;
-        });
+        setUnreadCount(Number(json.count ?? 0));
       }
     } catch {
       /* ignore network errors silently */

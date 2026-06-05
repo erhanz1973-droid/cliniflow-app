@@ -20,6 +20,9 @@ import { formatCountryDisplay } from "../../../lib/countryDisplay";
 import { formatClinicCityLabel } from "../../../lib/clinicCityDisplay";
 import { saveSelectedChatClinic } from "../../../lib/selectedChatClinic";
 import { openClinicCoordinationChat } from "../../../lib/patientCoordinationChat";
+import { ClinicSocialLinks } from "../../../components/discovery/ClinicSocialLinks";
+import { ClinicLogo } from "../../../components/discovery/ClinicLogo";
+import { normalizeExternalUrl } from "../../../lib/normalizeExternalUrl";
 
 export default function DiscoveryClinicProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -42,6 +45,16 @@ export default function DiscoveryClinicProfileScreen() {
     setError(null);
     try {
       const profile = await fetchDiscoveryClinicProfile(clinicId);
+      if (__DEV__) {
+        console.log("[discovery-profile] loaded", {
+          clinicId,
+          googleRating: profile.googleRating,
+          websiteUrl: profile.websiteUrl,
+          googleMapsUrl: profile.googleMapsUrl,
+          facebookUrl: profile.facebookUrl,
+          instagramUrl: profile.instagramUrl,
+        });
+      }
       setClinic(profile);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t("common.error"));
@@ -56,7 +69,7 @@ export default function DiscoveryClinicProfileScreen() {
   }, [load]);
 
   const openUrl = (url: string | null | undefined) => {
-    const u = String(url || "").trim();
+    const u = normalizeExternalUrl(url);
     if (!u) return;
     void Linking.openURL(u).catch(() =>
       Alert.alert(t("common.error"), t("discovery.linkFailed")),
@@ -159,16 +172,10 @@ export default function DiscoveryClinicProfileScreen() {
   const beforeAfter = clinic.mediaGallery?.beforeAfter || [];
   const videos = clinic.mediaGallery?.videos || [];
 
-  const linkRows: { label: string; url: string | null | undefined }[] = [
-    { label: t("discovery.website"), url: clinic.websiteUrl },
-    { label: "Facebook", url: clinic.facebookUrl },
-    { label: "Instagram", url: clinic.instagramUrl },
-    { label: "TikTok", url: clinic.tiktokUrl },
-    { label: "LinkedIn", url: clinic.linkedinUrl },
+  const contactRows: { label: string; url: string | null | undefined }[] = [
     { label: "WhatsApp", url: clinic.whatsapp },
     { label: t("discovery.phone"), url: clinic.phone ? `tel:${clinic.phone}` : null },
     { label: t("discovery.email"), url: clinic.email ? `mailto:${clinic.email}` : null },
-    { label: t("discovery.googleReviews"), url: clinic.googleReviewsUrl },
     { label: "Trustpilot", url: clinic.trustpilotUrl },
   ];
 
@@ -180,13 +187,7 @@ export default function DiscoveryClinicProfileScreen() {
         </TouchableOpacity>
 
         <View style={styles.hero}>
-          {clinic.logoUrl ? (
-            <Image source={{ uri: clinic.logoUrl }} style={styles.heroLogo} />
-          ) : (
-            <View style={styles.heroLogoPh}>
-              <Text style={styles.heroLetter}>{clinic.name.charAt(0)}</Text>
-            </View>
-          )}
+          <ClinicLogo logoUrl={clinic.logoUrl} name={clinic.name} size={72} />
           <View style={styles.heroText}>
             <Text style={styles.heroName}>{clinic.name}</Text>
             {clinic.isVerified ? (
@@ -196,30 +197,93 @@ export default function DiscoveryClinicProfileScreen() {
           </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("discovery.reputation")}</Text>
-          {clinic.googleRating != null ? (
-            <Text style={styles.ratingLine}>
-              {t("discovery.googleRating", {
-                rating: clinic.googleRating.toFixed(1),
-                count: String(clinic.googleReviewCount ?? "—"),
-              })}
-            </Text>
-          ) : null}
-          {clinic.trustpilotRating != null ? (
-            <Text style={styles.ratingLine}>
-              {t("discovery.trustpilotRating", {
-                rating: clinic.trustpilotRating.toFixed(1),
-                count: String(clinic.trustpilotReviewCount ?? "—"),
-              })}
-            </Text>
-          ) : null}
-        </View>
+        <ClinicSocialLinks
+          style={styles.socialRow}
+          sectionTitle={t("discovery.contactLinks")}
+          links={{
+            websiteUrl: clinic.websiteUrl,
+            facebookUrl: clinic.facebookUrl,
+            instagramUrl: clinic.instagramUrl,
+            tiktokUrl: clinic.tiktokUrl,
+            linkedinUrl: clinic.linkedinUrl,
+            youtubeUrl: clinic.youtubeUrl,
+            googleReviewsUrl: clinic.googleReviewsUrl,
+            googleMapsUrl: clinic.googleMapsUrl,
+          }}
+          onOpen={openUrl}
+          labels={{
+            website: t("discovery.website"),
+            facebook: "Facebook",
+            instagram: "Instagram",
+            tiktok: "TikTok",
+            linkedin: "LinkedIn",
+            youtube: "YouTube",
+            google: t("discovery.googleReviews"),
+            map: t("discovery.viewMap"),
+          }}
+        />
 
-        {(clinic.aboutText || clinic.shortDescription) ? (
+        {clinic.googleRating != null ||
+        clinic.trustpilotRating != null ||
+        clinic.yearsInOperation != null ||
+        clinic.internationalPatientCount != null ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>{t("discovery.reputation")}</Text>
+            {clinic.googleRating != null ? (
+              <Text style={styles.ratingLine}>
+                {t("discovery.googleRating", {
+                  rating: clinic.googleRating.toFixed(1),
+                  count: String(clinic.googleReviewCount ?? "—"),
+                })}
+              </Text>
+            ) : null}
+            {clinic.trustpilotRating != null ? (
+              <Text style={styles.ratingLine}>
+                {t("discovery.trustpilotRating", {
+                  rating: clinic.trustpilotRating.toFixed(1),
+                  count: String(clinic.trustpilotReviewCount ?? "—"),
+                })}
+              </Text>
+            ) : null}
+            {clinic.yearsInOperation != null ? (
+              <Text style={styles.metaLine}>
+                {t("discovery.yearsInOperation", { years: clinic.yearsInOperation })}
+              </Text>
+            ) : null}
+            {clinic.internationalPatientCount != null ? (
+              <Text style={styles.metaLine}>
+                {t("discovery.internationalPatients", {
+                  count: clinic.internationalPatientCount,
+                })}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        {clinic.shortDescription ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>{t("discovery.shortDescription")}</Text>
+            <Text style={styles.body}>{clinic.shortDescription}</Text>
+          </View>
+        ) : null}
+
+        {clinic.aboutText ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{t("discovery.about")}</Text>
-            <Text style={styles.body}>{clinic.aboutText || clinic.shortDescription}</Text>
+            <Text style={styles.body}>{clinic.aboutText}</Text>
+          </View>
+        ) : null}
+
+        {(clinic.specialties?.length || 0) > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>{t("discovery.specialties")}</Text>
+            <View style={styles.chipRow}>
+              {clinic.specialties!.map((s) => (
+                <View key={s} style={styles.chip}>
+                  <Text style={styles.chipText}>{s}</Text>
+                </View>
+              ))}
+            </View>
           </View>
         ) : null}
 
@@ -244,21 +308,24 @@ export default function DiscoveryClinicProfileScreen() {
           </View>
         ) : null}
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("discovery.contactLinks")}</Text>
-          {linkRows.map((row) =>
-            row.url ? (
-              <TouchableOpacity key={row.label} onPress={() => openUrl(row.url)}>
-                <Text style={styles.linkRow}>{row.label}</Text>
+        {contactRows.some((row) => row.url) ||
+        (clinic.latitude != null && clinic.longitude != null && !clinic.googleMapsUrl) ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>{t("discovery.contactLinks")}</Text>
+            {contactRows.map((row) =>
+              row.url ? (
+                <TouchableOpacity key={row.label} onPress={() => openUrl(row.url)}>
+                  <Text style={styles.linkRow}>{row.label}</Text>
+                </TouchableOpacity>
+              ) : null,
+            )}
+            {clinic.latitude != null && clinic.longitude != null && !clinic.googleMapsUrl ? (
+              <TouchableOpacity onPress={goMap}>
+                <Text style={styles.linkRow}>{t("discovery.viewMap")}</Text>
               </TouchableOpacity>
-            ) : null,
-          )}
-          {(clinic.googleMapsUrl || (clinic.latitude != null && clinic.longitude != null)) ? (
-            <TouchableOpacity onPress={goMap}>
-              <Text style={styles.linkRow}>{t("discovery.viewMap")}</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
+            ) : null}
+          </View>
+        ) : null}
 
         {(clinic.team?.length || 0) > 0 ? (
           <View style={styles.section}>
@@ -347,21 +414,12 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   back: { marginBottom: 12 },
   backText: { fontSize: 16, fontWeight: "700", color: "#2563EB" },
-  hero: { flexDirection: "row", gap: 14, marginBottom: 16 },
-  heroLogo: { width: 72, height: 72, borderRadius: 14 },
-  heroLogoPh: {
-    width: 72,
-    height: 72,
-    borderRadius: 14,
-    backgroundColor: "#DBEAFE",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  heroLetter: { fontSize: 28, fontWeight: "800", color: "#1D4ED8" },
+  hero: { flexDirection: "row", gap: 14, marginBottom: 8 },
   heroText: { flex: 1 },
   heroName: { fontSize: 22, fontWeight: "800", color: "#111827" },
   verified: { marginTop: 4, fontSize: 12, fontWeight: "700", color: "#047857" },
   heroMeta: { marginTop: 6, fontSize: 14, color: "#6B7280" },
+  socialRow: { marginBottom: 16 },
   section: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -372,7 +430,16 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 15, fontWeight: "800", color: "#111827", marginBottom: 8 },
   body: { fontSize: 14, color: "#374151", lineHeight: 21 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: {
+    backgroundColor: "#EFF6FF",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  chipText: { fontSize: 12, fontWeight: "600", color: "#1D4ED8" },
   ratingLine: { fontSize: 14, fontWeight: "600", color: "#B45309", marginBottom: 4 },
+  metaLine: { fontSize: 13, color: "#4B5563", marginBottom: 4 },
   linkRow: { fontSize: 14, fontWeight: "600", color: "#2563EB", marginBottom: 8 },
   link: { color: "#2563EB", fontWeight: "700", marginTop: 12 },
   err: { color: "#DC2626", textAlign: "center", marginBottom: 12 },

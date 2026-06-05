@@ -49,7 +49,6 @@ import { logCanonicalSendAttempt } from '../../lib/canonicalChatDiagnostics';
 import { fetchOfferMessagingMeta } from '../../lib/offerMessagingMeta';
 import { useSupabaseOfferMessages } from  '../../hooks/useSupabaseOfferMessages';
 import { appendMappedChatMessage, mergeSbMessages } from  '../../hooks/chatMessageUtils';
-import { playInAppNewMessageSoundDebouncedForThread } from '../../lib/playInAppMessageSound';
 // Guided intraoral photo steps
 const PHOTO_STEP_KEYS = [
   { key: 'upper', icon: '⬆️' },
@@ -591,12 +590,6 @@ export default function OfferChatScreen() {
 
       if (__DEV__ && genuinelyNew.length > 0) {
         console.log('[mergeSbMessages] STATE LENGTH BEFORE:', prev.length, '→ AFTER:', merged.length, '(added:', genuinelyNew.length, ')');
-      }
-
-      // Karşı taraftan yeni mesaj varsa ses çal (setTimeout: state updater'da side-effect'ten kaçın)
-      const hasIncoming = genuinelyNew.some(sb => sb.sender_role !== myRole);
-      if (hasIncoming && offerIdStr) {
-        setTimeout(() => playInAppNewMessageSoundDebouncedForThread(offerIdStr, 2000), 0);
       }
 
       // ISO tarihleri lexicographic olarak sıralanabilir — localeCompare 10x daha yavaş

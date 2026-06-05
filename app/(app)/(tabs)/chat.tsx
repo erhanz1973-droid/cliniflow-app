@@ -44,9 +44,9 @@ export default function LegacyTabsChatRedirect() {
     params.offerPrefillImage,
   ]);
 
-  return (
+    return (
     <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f8faff" }}>
       <ActivityIndicator size="large" color="#2563EB" />
-    </View>
+            </View>
   );
 }
