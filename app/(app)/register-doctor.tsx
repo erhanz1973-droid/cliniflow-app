@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { handleDoctorRegistration } from "../../lib/doctor/register";
 import { useAuth } from "../../lib/auth";
 import { useLanguage } from "../../lib/language-context";
+import { isValidInternationalPhone } from "../../lib/phoneFormat";
 
 export default function RegisterDoctorScreen() {
   const router = useRouter();
@@ -33,6 +34,11 @@ export default function RegisterDoctorScreen() {
   const handleRegister = async () => {
     if (!isFormValid) {
       Alert.alert(t('login.error'), t('register.fillRequired'));
+      return;
+    }
+
+    if (!isValidInternationalPhone(formData.phone.trim())) {
+      Alert.alert(t('login.error'), t('register.phoneInvalidFormat'));
       return;
     }
 
@@ -97,7 +103,12 @@ export default function RegisterDoctorScreen() {
       }
     } catch (error: any) {
       console.error("Doctor registration error:", error);
-      
+      const errMsg = String(error?.message || "");
+      if (errMsg.includes("invalid_phone")) {
+        Alert.alert(t('login.error'), t('register.phoneInvalidFormat'));
+        return;
+      }
+
       if (error.message && error.message.includes("409")) {
         Alert.alert(
           t('register.alreadyExists'),
@@ -142,8 +153,11 @@ export default function RegisterDoctorScreen() {
           value={formData.phone}
           onChangeText={(text) => setFormData({ ...formData, phone: text })}
           keyboardType="phone-pad"
+          placeholder={t('register.phonePlaceholder')}
+          autoComplete="tel"
           style={styles.input}
         />
+        <Text style={styles.hintText}>{t('register.phoneHint')}</Text>
       </View>
 
       <View style={styles.field}>
@@ -242,6 +256,12 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#374151",
     marginBottom: 6,
+  },
+  hintText: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 6,
+    lineHeight: 17,
   },
   input: {
     borderWidth: 1,

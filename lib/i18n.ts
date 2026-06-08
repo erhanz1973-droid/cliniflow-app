@@ -1325,6 +1325,10 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.doctorTitle": "Doktor Kayıt",
     "register.fullName": "Ad Soyad",
     "register.phone": "Telefon",
+    "register.phoneHint": "Ülke kodu ile birlikte yazın, örn. +90 555 123 4567",
+    "register.phonePlaceholder": "+90 555 123 4567",
+    "register.phoneInvalidFormat":
+      "Telefon numarası formatı hatalı. Lütfen başında ülke kodu olacak şekilde yazın (ör. +90 555 123 4567).",
     "register.emailOptional": "Email (opsiyonel)",
     "register.clinicCodeRequired": "Klinik Kodu (ZORUNLU)",
     "register.licenseRequired": "Lisans No (ZORUNLU)",
@@ -3470,6 +3474,10 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.doctorTitle": "Doctor Registration",
     "register.fullName": "Full Name",
     "register.phone": "Phone",
+    "register.phoneHint": "Include country code, e.g. +90 555 123 4567",
+    "register.phonePlaceholder": "+90 555 123 4567",
+    "register.phoneInvalidFormat":
+      "Invalid phone number format. Please enter it with the country code at the beginning (e.g. +90 555 123 4567).",
     "register.emailOptional": "Email (optional)",
     "register.clinicCodeRequired": "Clinic Code (REQUIRED)",
     "register.licenseRequired": "License No (REQUIRED)",
@@ -5198,6 +5206,10 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.doctorTitle": "ექიმის რეგისტრაცია",
     "register.fullName": "სახელი გვარი",
     "register.phone": "ტელეფონი",
+    "register.phoneHint": "ქვეყნის კოდით, მაგ. +995 555 123 456",
+    "register.phonePlaceholder": "+995 555 123 456",
+    "register.phoneInvalidFormat":
+      "ტელეფონის ფორმატი არასწორია. შეიყვანეთ ქვეყნის კოდით დასაწყისში (მაგ. +995 555 123 456).",
     "register.emailOptional": "ელ-ფოსტა (სურვილისამებრ)",
     "register.clinicCodeRequired": "კლინიკის კოდი (სავალდებულო)",
     "register.licenseRequired": "ლიცენზიის ნომერი (სავალდებულო)",
@@ -6214,6 +6226,10 @@ export const translations: Record<Language, Record<string, string>> = {
     "auth.full_name": "Полное имя",
     "auth.license_number": "Номер лицензии",
     "auth.password_create": "Пароль (мин. 6 символов)",
+    "register.phoneHint": "Укажите код страны, напр. +90 555 123 4567",
+    "register.phonePlaceholder": "+90 555 123 4567",
+    "register.phoneInvalidFormat":
+      "Неверный формат телефона. Введите номер с кодом страны в начале (напр. +90 555 123 4567).",
     "login.patientPhoneLabel": "Номер телефона",
     "login.patientPhonePlaceholder": "Введите номер телефона",
     "login.patientPhoneOnlyHint": "Вход пациента только по номеру телефона, указанному при регистрации.",
