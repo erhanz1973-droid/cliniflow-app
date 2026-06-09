@@ -41,6 +41,7 @@ import {
   resolveClinicInviteCodeForSignup,
 } from "../../lib/clinicInviteStorage";
 import { isValidInternationalPhone } from "../../lib/phoneFormat";
+import { isApplePrivateRelayEmail } from "../../lib/emailIdentity";
 
 const WARMUP_TIMEOUT_MS = 30_000;
 
@@ -112,6 +113,8 @@ export default function RegisterPatientScreen() {
   const [oauthSessionEmail, setOauthSessionEmail] = useState<string | null>(null);
   const [oauthProfilePending, setOauthProfilePending] = useState(fromOauthComplete);
   const oauthConfigured = isSupabaseAuthConfigured();
+  const oauthEmailLocked =
+    Boolean(oauthSessionEmail) && !isApplePrivateRelayEmail(oauthSessionEmail);
   const showOauthCompleteBanner = fromOauthComplete || oauthProfilePending || Boolean(oauthSessionEmail);
   const hideOauthButtons = showOauthCompleteBanner;
 
@@ -158,9 +161,10 @@ export default function RegisterPatientScreen() {
       setOauthSessionEmail(email);
       if (hasOauth) setOauthProfilePending(true);
     }
+    const contactEmail = email && !isApplePrivateRelayEmail(email) ? email : "";
     setFormData((prev) => ({
       ...prev,
-      email: email || prev.email,
+      email: contactEmail || prev.email,
       patientName: name || prev.patientName,
       clinicCode: (prefillClinicParam || prev.clinicCode).toUpperCase(),
     }));
@@ -386,7 +390,12 @@ export default function RegisterPatientScreen() {
           if (prov === "google" || prov === "apple") {
             oauthLink = { supabaseAccessToken: tok, oauthProvider: prov };
             const oauthEmail = String(sessData.session?.user?.email || "").trim();
-            if (oauthEmail) registrationEmail = oauthEmail;
+            const formEmail = formData.email.trim();
+            if (oauthEmail && !isApplePrivateRelayEmail(oauthEmail)) {
+              registrationEmail = oauthEmail;
+            } else if (formEmail) {
+              registrationEmail = formEmail;
+            }
           }
         }
       }
@@ -625,13 +634,18 @@ export default function RegisterPatientScreen() {
         <View style={styles.field}>
           <Text style={styles.label}>{t("register.patientEmail")}</Text>
           <TextInput
-            style={[styles.input, oauthSessionEmail ? styles.inputReadOnly : null]}
+            style={[styles.input, oauthEmailLocked ? styles.inputReadOnly : null]}
             value={formData.email}
             onChangeText={(text) => setFormData({ ...formData, email: text })}
             keyboardType="email-address"
             autoCapitalize="none"
-            editable={!oauthSessionEmail}
+            editable={!oauthEmailLocked}
+            placeholder={isApplePrivateRelayEmail(oauthSessionEmail) ? t("register.realEmailPlaceholder") : undefined}
+            placeholderTextColor="#9CA3AF"
           />
+          {isApplePrivateRelayEmail(oauthSessionEmail) ? (
+            <Text style={styles.fieldHint}>{t("register.appleRelayEmailHint")}</Text>
+          ) : null}
         </View>
 
         <View style={styles.field}>

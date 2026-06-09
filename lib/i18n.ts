@@ -1365,6 +1365,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.oauthDivider": "veya",
     "register.emailOauthMismatch":
       "Kayıt e-postası, Apple/Google hesabınızdaki e-posta ile aynı olmalıdır (Hide My Email kullandıysanız relay adresini aynen girin).",
+    "register.appleRelayEmailHint":
+      "Apple gizli e-posta kullandıysanız iletişim ve doğrulama için gerçek e-posta adresinizi yazın.",
+    "register.realEmailPlaceholder": "ornek@gmail.com",
     "register.isDoctor": "Doktor mu kayıt olacaksınız?",
     "otp.title": "Email Doğrulama",
     "otp.sentTo": "{email} adresine gönderilen 6 haneli kodu girin.",
@@ -3518,6 +3521,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.oauthDivider": "or",
     "register.emailOauthMismatch":
       "Your registration email must match the email on your Apple/Google account (if you used Hide My Email, enter the same relay address).",
+    "register.appleRelayEmailHint":
+      "If you used Apple Hide My Email, enter your real email address for contact and verification.",
+    "register.realEmailPlaceholder": "you@example.com",
     "register.isDoctor": "Are you a doctor?",
     "otp.title": "Email Verification",
     "otp.sentTo": "Enter the 6-digit code sent to {email}.",
@@ -5251,6 +5257,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.oauthDivider": "ან",
     "register.emailOauthMismatch":
       "რეგისტრაციის ელ-ფოსტა უნდა ემთხვეოდეს Apple/Google ანგარიშის ელ-ფოსტას.",
+    "register.appleRelayEmailHint":
+      "თუ Apple-ის ფარული ელფოსტა გამოიყენეთ, კონტაქტისა და დადასტურებისთვის ჩაწერეთ თქვენი ნამდვილი ელფოსტა.",
+    "register.realEmailPlaceholder": "example@gmail.com",
     "register.isDoctor": "ექიმი ხართ?",
     "otp.title": "ელ-ფოსტის დადასტურება",
     "otp.sentTo": "{email}-ზე გაგზავნილი 6-ნიშნა კოდი შეიყვანეთ.",
