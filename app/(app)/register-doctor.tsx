@@ -209,6 +209,7 @@ export default function RegisterDoctorScreen() {
           autoCapitalize="characters"
           style={styles.input}
         />
+        <Text style={styles.hintText}>{t("register.clinicCodeHintDoctor")}</Text>
       </View>
 
       <View style={styles.field}>

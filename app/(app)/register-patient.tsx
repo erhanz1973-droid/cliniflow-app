@@ -596,6 +596,7 @@ export default function RegisterPatientScreen() {
               onChangeText={(text) => setFormData({ ...formData, clinicCode: text.toUpperCase() })}
               autoCapitalize="characters"
             />
+            <Text style={styles.fieldHint}>{t("register.clinicCodeHint")}</Text>
           </View>
         )}
 
@@ -615,10 +616,10 @@ export default function RegisterPatientScreen() {
             value={formData.phone}
             onChangeText={(text) => setFormData({ ...formData, phone: text })}
             keyboardType="phone-pad"
-            placeholder="+90 555 123 4567"
+            placeholder={t("register.phonePlaceholder")}
             placeholderTextColor="#9CA3AF"
           />
-          <Text style={styles.phoneHint}>{t("register.phoneHint")}</Text>
+          <Text style={styles.fieldHint}>{t("register.phoneHint")}</Text>
         </View>
 
         <View style={styles.field}>
@@ -943,7 +944,7 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
     lineHeight: 17,
   },
-  phoneHint: {
+  fieldHint: {
     fontSize: 12,
     color: "#9CA3AF",
     lineHeight: 17,

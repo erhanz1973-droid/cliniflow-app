@@ -1325,8 +1325,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.doctorTitle": "Doktor Kayıt",
     "register.fullName": "Ad Soyad",
     "register.phone": "Telefon",
-    "register.phoneHint": "Ülke kodu ile birlikte yazın, örn. +90 555 123 4567",
+    "register.phoneHint": "Ülke kodu ile birlikte numaranızı girin.",
     "register.phonePlaceholder": "+90 555 123 4567",
+    "register.clinicCodeHint":
+      "Bağlanmak istediğiniz kliniğin kodunu biliyorsanız yazın. Sonradan da ekleyebilirsiniz.",
+    "register.clinicCodeHintDoctor":
+      "Bağlanmak istediğiniz kliniğin kodunu girin. Kodu kliniğinizden veya yöneticinizden alabilirsiniz.",
     "register.phoneInvalidFormat":
       "Telefon numarası formatı hatalı. Lütfen başında ülke kodu olacak şekilde yazın (ör. +90 555 123 4567).",
     "register.emailOptional": "Email (opsiyonel)",
@@ -3474,8 +3478,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.doctorTitle": "Doctor Registration",
     "register.fullName": "Full Name",
     "register.phone": "Phone",
-    "register.phoneHint": "Include country code, e.g. +90 555 123 4567",
+    "register.phoneHint": "Enter your number with the country code.",
     "register.phonePlaceholder": "+90 555 123 4567",
+    "register.clinicCodeHint":
+      "If you know the clinic code you want to join, enter it here. You can add it later too.",
+    "register.clinicCodeHintDoctor":
+      "Enter the clinic code you want to join. You can get it from your clinic or administrator.",
     "register.phoneInvalidFormat":
       "Invalid phone number format. Please enter it with the country code at the beginning (e.g. +90 555 123 4567).",
     "register.emailOptional": "Email (optional)",
@@ -5206,8 +5214,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "register.doctorTitle": "ექიმის რეგისტრაცია",
     "register.fullName": "სახელი გვარი",
     "register.phone": "ტელეფონი",
-    "register.phoneHint": "ქვეყნის კოდით, მაგ. +995 555 123 456",
+    "register.phoneHint": "შეიყვანეთ ნომერი ქვეყნის კოდით.",
     "register.phonePlaceholder": "+995 555 123 456",
+    "register.clinicCodeHint":
+      "თუ იცით იმ კლინიკის კოდი, რომელთან შეერთებაც გსურთ, შეიყვანეთ. შემდეგშიც შეგიძლიათ დაამატოთ.",
+    "register.clinicCodeHintDoctor":
+      "შეიყვანეთ იმ კლინიკის კოდი, რომელთან შეერთებაც გსურთ. კოდს კლინიკიდან ან ადმინისტრატორისგან მიიღებთ.",
     "register.phoneInvalidFormat":
       "ტელეფონის ფორმატი არასწორია. შეიყვანეთ ქვეყნის კოდით დასაწყისში (მაგ. +995 555 123 456).",
     "register.emailOptional": "ელ-ფოსტა (სურვილისამებრ)",
@@ -6226,8 +6238,12 @@ export const translations: Record<Language, Record<string, string>> = {
     "auth.full_name": "Полное имя",
     "auth.license_number": "Номер лицензии",
     "auth.password_create": "Пароль (мин. 6 символов)",
-    "register.phoneHint": "Укажите код страны, напр. +90 555 123 4567",
+    "register.phoneHint": "Введите номер с кодом страны.",
     "register.phonePlaceholder": "+90 555 123 4567",
+    "register.clinicCodeHint":
+      "Если знаете код клиники, к которой хотите подключиться, введите его. Можно добавить позже.",
+    "register.clinicCodeHintDoctor":
+      "Введите код клиники, к которой хотите подключиться. Получите его у клиники или администратора.",
     "register.phoneInvalidFormat":
       "Неверный формат телефона. Введите номер с кодом страны в начале (напр. +90 555 123 4567).",
     "login.patientPhoneLabel": "Номер телефона",
