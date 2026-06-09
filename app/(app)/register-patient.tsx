@@ -40,6 +40,7 @@ import {
   parseClinicInviteFromUrl,
   resolveClinicInviteCodeForSignup,
 } from "../../lib/clinicInviteStorage";
+import { isValidInternationalPhone } from "../../lib/phoneFormat";
 
 const WARMUP_TIMEOUT_MS = 30_000;
 
@@ -107,6 +108,8 @@ export default function RegisterPatientScreen() {
   const [oauthLoading, setOauthLoading] = useState(false);
   const [oauthStatusMsg, setOauthStatusMsg] = useState("");
   const [inviteLocked, setInviteLocked] = useState(fromClinicInviteFlow);
+  /** OAuth session email — locked on form so token email always matches registration. */
+  const [oauthSessionEmail, setOauthSessionEmail] = useState<string | null>(null);
   const oauthConfigured = isSupabaseAuthConfigured();
 
   const applyInvitePrefill = useCallback(async () => {
@@ -132,31 +135,34 @@ export default function RegisterPatientScreen() {
     }, [applyInvitePrefill]),
   );
 
-  useEffect(() => {
-    if (!fromOauthComplete) return;
-    let cancelled = false;
-    (async () => {
-      const supa = getSupabaseAuthClient();
-      if (!supa) return;
-      const { data } = await supa.auth.getSession();
-      if (cancelled || !data.session?.user) return;
-      const u = data.session.user;
-      const meta = (u.user_metadata || {}) as Record<string, unknown>;
-      const email = String(u.email || meta.email || "").trim();
-      const gn = String(meta.given_name || "").trim();
-      const fn = String(meta.family_name || "").trim();
-      const name = String(meta.full_name || meta.name || [gn, fn].filter(Boolean).join(" ")).trim();
-      setFormData((prev) => ({
-        ...prev,
-        email: email || prev.email,
-        patientName: name || prev.patientName,
-        clinicCode: (prefillClinicParam || prev.clinicCode).toUpperCase(),
-      }));
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const syncOauthSessionPrefill = useCallback(async () => {
+    const supa = getSupabaseAuthClient();
+    if (!supa) return;
+    const { data } = await supa.auth.getSession();
+    if (!data.session?.user) return;
+    const u = data.session.user;
+    const ids = Array.isArray(u.identities) ? u.identities : [];
+    const hasOauth = ids.some((i) =>
+      ["google", "apple"].includes(String(i?.provider || "").toLowerCase()),
+    );
+    if (!hasOauth && !fromOauthComplete) return;
+    const meta = (u.user_metadata || {}) as Record<string, unknown>;
+    const email = String(u.email || meta.email || "").trim();
+    const gn = String(meta.given_name || "").trim();
+    const fn = String(meta.family_name || "").trim();
+    const name = String(meta.full_name || meta.name || [gn, fn].filter(Boolean).join(" ")).trim();
+    if (email) setOauthSessionEmail(email);
+    setFormData((prev) => ({
+      ...prev,
+      email: email || prev.email,
+      patientName: name || prev.patientName,
+      clinicCode: (prefillClinicParam || prev.clinicCode).toUpperCase(),
+    }));
   }, [fromOauthComplete, prefillClinicParam]);
+
+  useEffect(() => {
+    void syncOauthSessionPrefill();
+  }, [syncOauthSessionPrefill]);
 
   const applyCliniflySessionFromPayload = async (payload: Record<string, unknown>, phoneFallback: string) => {
     const token = String(payload.token || "");
@@ -320,6 +326,10 @@ export default function RegisterPatientScreen() {
       Alert.alert(t("common.error"), t("register.patientFillRequired"));
       return;
     }
+    if (!isValidInternationalPhone(formData.phone.trim())) {
+      Alert.alert(t("common.error"), t("register.phoneInvalidFormat"));
+      return;
+    }
     if (!formData.password || formData.password.length < 6) {
       Alert.alert(t("common.error"), t("register.passwordTooShort"));
       return;
@@ -343,6 +353,7 @@ export default function RegisterPatientScreen() {
       const normalizedReferral = formData.referralCode.trim().toUpperCase();
 
       let oauthLink: { supabaseAccessToken: string; oauthProvider: "google" | "apple" } | undefined;
+      let registrationEmail = formData.email.trim();
       const supa = getSupabaseAuthClient();
       if (supa) {
         let { data: sessData } = await supa.auth.getSession();
@@ -367,13 +378,15 @@ export default function RegisterPatientScreen() {
           }
           if (prov === "google" || prov === "apple") {
             oauthLink = { supabaseAccessToken: tok, oauthProvider: prov };
+            const oauthEmail = String(sessData.session?.user?.email || "").trim();
+            if (oauthEmail) registrationEmail = oauthEmail;
           }
         }
       }
 
       await handlePatientRegistration({
         name: formData.patientName,
-        email: formData.email,
+        email: registrationEmail,
         phone: formData.phone,
         clinicCode: formData.clinicCode.trim() || undefined,
         joinedViaInvitation: inviteLocked && Boolean(formData.clinicCode.trim()),
@@ -427,6 +440,9 @@ export default function RegisterPatientScreen() {
           else if (msg.includes("email_required")) friendlyMsg = t("register.emailRequired");
           else if (msg.includes("invalid_referral")) friendlyMsg = t("register.invalidReferralCode");
           else if (code === "email_oauth_mismatch") friendlyMsg = t("register.emailOauthMismatch");
+          else if (code === "invalid_phone" || msg.includes("invalid_phone")) {
+            friendlyMsg = t("register.phoneInvalidFormat");
+          }
           Alert.alert(t("common.error"), friendlyMsg);
         }
       }
@@ -592,17 +608,21 @@ export default function RegisterPatientScreen() {
             value={formData.phone}
             onChangeText={(text) => setFormData({ ...formData, phone: text })}
             keyboardType="phone-pad"
+            placeholder="+90 555 123 4567"
+            placeholderTextColor="#9CA3AF"
           />
+          <Text style={styles.phoneHint}>{t("register.phoneHint")}</Text>
         </View>
 
         <View style={styles.field}>
           <Text style={styles.label}>{t("register.patientEmail")}</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, oauthSessionEmail ? styles.inputReadOnly : null]}
             value={formData.email}
             onChangeText={(text) => setFormData({ ...formData, email: text })}
             keyboardType="email-address"
             autoCapitalize="none"
+            editable={!oauthSessionEmail}
           />
         </View>
 
@@ -915,6 +935,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#9CA3AF",
     lineHeight: 17,
+  },
+  phoneHint: {
+    fontSize: 12,
+    color: "#9CA3AF",
+    lineHeight: 17,
+    marginTop: 6,
+  },
+  inputReadOnly: {
+    backgroundColor: "#F3F4F6",
+    color: "#6B7280",
   },
 
   inviteBanner: {
