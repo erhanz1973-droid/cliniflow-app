@@ -1,5 +1,5 @@
 // lib/doctor/api.ts
-import { apiGet, apiPost, apiPut } from '../api';
+import { apiGet, apiPost, apiPut, API_BASE, TIMEOUT_POST } from "../api";
 
 export interface DoctorRegisterRequest {
   name: string;
@@ -32,7 +32,7 @@ export interface DoctorResponse {
   error?: string;
 }
 
-// Doctor registration - CLEAN WHITELIST ONLY
+// Doctor registration — return JSON body on 4xx so UI can show localized errors (not raw HTTP text).
 export async function registerDoctor(data: DoctorRegisterRequest): Promise<DoctorResponse> {
   const payload = {
     name: data.name,
@@ -41,11 +41,42 @@ export async function registerDoctor(data: DoctorRegisterRequest): Promise<Docto
     password: data.password,
     clinicCode: data.clinicCode,
     licenseNumber: data.licenseNumber,
-    department: data.department || 'General',
-    specialties: data.specialties || 'General',
+    department: data.department || "General",
+    specialties: data.specialties || "General",
   };
-  
-  return apiPost<DoctorResponse>('/api/register/doctor', payload);
+
+  const url = `${API_BASE}/api/register/doctor`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_POST);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    const text = await res.text();
+    let json: DoctorResponse = { ok: false };
+    try {
+      json = text ? JSON.parse(text) : { ok: false };
+    } catch {
+      throw new Error(`Invalid JSON from register/doctor: ${text.slice(0, 200)}`);
+    }
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: json.error || `http_${res.status}`,
+        ...(typeof json === "object" && json ? json : {}),
+      };
+    }
+    return json;
+  } catch (e: unknown) {
+    clearTimeout(timeoutId);
+    const err = e as { name?: string };
+    if (err?.name === "AbortError") throw new Error("register_timeout");
+    throw e;
+  }
 }
 
 // ❌ OTP YOK – doktor için kapalı (imza uyumluluğu için argüman varsayılan yok sayılır)

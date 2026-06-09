@@ -99,13 +99,26 @@ export default function RegisterDoctorScreen() {
           );
         }
       } else {
-        Alert.alert(t('login.error'), result.error || t('register.failed'));
+        const code = String(result.error || "");
+        if (code === "invalid_phone") {
+          Alert.alert(t("login.error"), t("register.phoneInvalidFormat"));
+        } else if (code === "clinic_not_found") {
+          Alert.alert(t("login.error"), t("register.invalidClinic"));
+        } else if (code === "missing_required_fields") {
+          Alert.alert(t("login.error"), t("register.fillRequired"));
+        } else {
+          Alert.alert(t("login.error"), t("register.failed"));
+        }
       }
     } catch (error: any) {
       console.error("Doctor registration error:", error);
       const errMsg = String(error?.message || "");
       if (errMsg.includes("invalid_phone")) {
         Alert.alert(t('login.error'), t('register.phoneInvalidFormat'));
+        return;
+      }
+      if (errMsg.includes("clinic_not_found")) {
+        Alert.alert(t("login.error"), t("register.invalidClinic"));
         return;
       }
 
