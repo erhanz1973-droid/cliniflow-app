@@ -110,7 +110,10 @@ export default function RegisterPatientScreen() {
   const [inviteLocked, setInviteLocked] = useState(fromClinicInviteFlow);
   /** OAuth session email — locked on form so token email always matches registration. */
   const [oauthSessionEmail, setOauthSessionEmail] = useState<string | null>(null);
+  const [oauthProfilePending, setOauthProfilePending] = useState(fromOauthComplete);
   const oauthConfigured = isSupabaseAuthConfigured();
+  const showOauthCompleteBanner = fromOauthComplete || oauthProfilePending || Boolean(oauthSessionEmail);
+  const hideOauthButtons = showOauthCompleteBanner;
 
   const applyInvitePrefill = useCallback(async () => {
     const urlCode = parseClinicInviteFromUrl(incomingUrl);
@@ -151,7 +154,10 @@ export default function RegisterPatientScreen() {
     const gn = String(meta.given_name || "").trim();
     const fn = String(meta.family_name || "").trim();
     const name = String(meta.full_name || meta.name || [gn, fn].filter(Boolean).join(" ")).trim();
-    if (email) setOauthSessionEmail(email);
+    if (email) {
+      setOauthSessionEmail(email);
+      if (hasOauth) setOauthProfilePending(true);
+    }
     setFormData((prev) => ({
       ...prev,
       email: email || prev.email,
@@ -226,7 +232,8 @@ export default function RegisterPatientScreen() {
         if (r.step === "bridge") {
           if (r.code === "patient_not_found") {
             emitAuthTelemetryV1("oauth_patient_profile_missing", { provider, surface: "register" });
-            Alert.alert(t("login.error"), t("login.oauthPatientNotLinked"));
+            await syncOauthSessionPrefill();
+            setOauthProfilePending(true);
             return;
           }
           if (r.code === "patient_merge_conflict") {
@@ -486,14 +493,14 @@ export default function RegisterPatientScreen() {
 
         <Text style={styles.title}>{t("register.patientTitle")}</Text>
 
-        {fromOauthComplete && (
+        {showOauthCompleteBanner && (
           <View style={styles.oauthBanner}>
             <Text style={styles.oauthBannerTitle}>{t("register.oauthCompleteBannerTitle")}</Text>
             <Text style={styles.oauthBannerHint}>{t("register.oauthCompleteBannerHint")}</Text>
           </View>
         )}
 
-        {oauthConfigured && (
+        {oauthConfigured && !hideOauthButtons && (
           <View style={styles.oauthBlock}>
             <Pressable
               style={[styles.oauthGoogleBtn, (loading || oauthLoading) && styles.oauthBtnDisabled]}
