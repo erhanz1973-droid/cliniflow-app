@@ -604,6 +604,8 @@ export default function RegisterPatientScreen() {
               value={formData.clinicCode}
               onChangeText={(text) => setFormData({ ...formData, clinicCode: text.toUpperCase() })}
               autoCapitalize="characters"
+              placeholder={t("register.clinicCodePlaceholder")}
+              placeholderTextColor="#9CA3AF"
             />
             <Text style={styles.fieldHint}>{t("register.clinicCodeHint")}</Text>
           </View>
