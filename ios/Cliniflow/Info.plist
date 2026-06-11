@@ -57,7 +57,7 @@
     <key>NSUserTrackingUsageDescription</key>
     <string>Clinifly uses this identifier to measure ad performance and improve your experience.</string>
     <key>CFBundleVersion</key>
-    <string>72</string>
+    <string>73</string>
     <key>LSMinimumSystemVersion</key>
     <string>12.0</string>
     <key>LSRequiresIPhoneOS</key>

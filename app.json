@@ -8,7 +8,7 @@
     "owner": "erhanzorlu",
     "ios": {
       "bundleIdentifier": "net.clinifly.mobile",
-      "buildNumber": "72",
+      "buildNumber": "73",
       "supportsTablet": true,
       "usesAppleSignIn": true,
       "infoPlist": {
@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.clinifly.mobile",
-      "versionCode": 72,
+      "versionCode": 73,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundColor": "#FFFFFF"
