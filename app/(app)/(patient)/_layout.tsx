@@ -119,6 +119,10 @@ export default function PatientTabsLayout() {
         options={{ href: null }}
       />
       <Tabs.Screen
+        name="smile-ai-chat"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
         name="dental-camera"
         options={{ href: null }}
       />

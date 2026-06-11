@@ -15,13 +15,21 @@ import {
   clearDentalScanReminder,
 } from "../../../lib/patientOnboardingStorage";
 import { translateProcedureDisplay } from "../../../lib/procedureLabels";
-import { PrimaryCard } from "../../../components/home/PrimaryCard";
 import { SecondaryCard } from "../../../components/home/SecondaryCard";
+import { SmileScoreHeroCard } from "../../../components/home/SmileScoreHeroCard";
+import { HomeSmileScoreCard } from "../../../components/home/HomeSmileScoreCard";
 import { track } from "../../../lib/analytics";
 import { saveSelectedChatClinic } from "../../../lib/selectedChatClinic";
 import { useClinicStore } from "../../../store/useClinicStore";
 import { refreshActiveClinicFromApi } from "../../../lib/fetchPatientMyClinic";
 import { goToTreatmentGuide } from "../../../lib/treatmentGuideNavigation";
+import { goToDentalCamera } from "../../../lib/dentalPhotoNavigation";
+import {
+  loadLatestSmileScoreForPatient,
+  type LatestSmileScoreSnapshot,
+} from "../../../lib/loadLatestSmileScore";
+import { loadSmileScoreHistory, backfillSmileHistoryFromCache, type SmileScoreHistoryEntry } from "../../../lib/smileScoreHistory";
+import { SmileProgressSection } from "../../../components/SmileProgressSection";
 import { derivePatientClinicMembership } from "../../../lib/patientClinicMembership";
 import {
   subscribePatientClinicMembershipInvalidation,
@@ -199,6 +207,8 @@ export default function PatientDashboard() {
   } | null>(null);
 
   const [fetchError, setFetchError] = useState(false);
+  const [latestSmile, setLatestSmile] = useState<LatestSmileScoreSnapshot | null>(null);
+  const [smileHistory, setSmileHistory] = useState<SmileScoreHistoryEntry[]>([]);
   const patientId = String(user?.patientId || user?.id || "").trim();
   const patientName = String(user?.name || "").trim();
   const userClinicId = String((user as { clinicId?: string })?.clinicId || "").trim();
@@ -332,6 +342,18 @@ export default function PatientDashboard() {
     }
   }, [user, user?.token, userClinicId, userClinicCode]);
 
+  const refreshLatestSmile = useCallback(async () => {
+    if (!patientId) {
+      setLatestSmile(null);
+      setSmileHistory([]);
+      return;
+    }
+    const history = await backfillSmileHistoryFromCache(patientId);
+    const snap = await loadLatestSmileScoreForPatient(patientId);
+    setLatestSmile(snap);
+    setSmileHistory(history);
+  }, [patientId]);
+
   const fetchData = useCallback(async () => {
     if (!user?.token || !patientId) {
       setRefreshing(false);
@@ -418,6 +440,7 @@ export default function PatientDashboard() {
 
       setTreatmentsStale(false);
       setRefreshing(false);
+      void refreshLatestSmile();
 
       // ── Secondary data: timeline + files + inbox summary (parallel) ──
       const [timelineRes, filesRes, inboxRes] = await Promise.all([
@@ -470,7 +493,7 @@ export default function PatientDashboard() {
     } finally {
       setRefreshing(false);
     }
-  }, [user?.token, patientId, refetchPatientMe, userClinicId, userClinicCode]);
+  }, [user?.token, patientId, refetchPatientMe, refreshLatestSmile, userClinicId, userClinicCode]);
 
   fetchDataRef.current = fetchData;
 
@@ -621,11 +644,22 @@ export default function PatientDashboard() {
     goToTreatmentGuide(router, cid ? { clinicId: cid } : undefined);
   }, [router, patientMe?.clinic?.id, user?.clinicId]);
 
+  const goToSmileAnalysis = useCallback(() => {
+    track("home_smile_analysis_click");
+    goToDentalCamera(router);
+  }, [router]);
+
+  const goToViewSmileAnalysis = useCallback(() => {
+    track("home_smile_score_view_click");
+    goToGuide();
+  }, [goToGuide]);
+
   useFocusEffect(
     useCallback(() => {
       refreshInbox();
       void refetchPatientMe();
-    }, [refreshInbox, refetchPatientMe])
+      void refreshLatestSmile();
+    }, [refreshInbox, refetchPatientMe, refreshLatestSmile])
   );
 
   useEffect(() => {
@@ -647,6 +681,10 @@ export default function PatientDashboard() {
     () => (summary.total > 0 ? summary.done / summary.total : 0),
     [summary.total, summary.done]
   );
+
+  const hasTreatments = summary.total > 0;
+  const hasSmileScore = latestSmile != null;
+  const showNewUserOnboarding = !hasTreatments && !nextAppointment;
 
   return (
     <ScrollView
@@ -688,10 +726,10 @@ export default function PatientDashboard() {
         </TouchableOpacity>
       )}
 
-      {showDentalReminder && fileCounts.image === 0 && (
+      {showDentalReminder && fileCounts.image === 0 && !hasSmileScore && (
         <TouchableOpacity
           style={styles.dentalBanner}
-          onPress={goToGuide}
+          onPress={goToSmileAnalysis}
           activeOpacity={0.85}
         >
           <Text style={styles.dentalBannerIcon}>📸</Text>
@@ -739,29 +777,40 @@ export default function PatientDashboard() {
         </TouchableOpacity>
       )}
 
-      {/* Primary entry: AI Treatment Guide */}
+      {/* Primary entry: AI Smile Score */}
       <View style={styles.ctaSection}>
-        <PrimaryCard
-          title={t("home.ctaTreatmentGuide")}
-          subtitle={t("home.ctaTreatmentGuideSub")}
-          actionLabel={t("home.ctaTreatmentGuideAction")}
-          icon="heart-outline"
-          accentColor="#2563EB"
-          onPress={goToGuide}
-        />
+        {smileHistory.length >= 2 ? (
+          <View style={{ marginBottom: 12 }}>
+            <SmileProgressSection history={smileHistory} compact />
+          </View>
+        ) : null}
+        {hasSmileScore && latestSmile ? (
+          <>
+            <HomeSmileScoreCard snapshot={latestSmile} onViewAnalysis={goToViewSmileAnalysis} />
+            <TouchableOpacity
+              style={styles.retakeAnalysisBtn}
+              onPress={goToSmileAnalysis}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.retakeAnalysisText}>{t("home.smileScoreHeroCta")}</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <SmileScoreHeroCard onStart={goToSmileAnalysis} />
+        )}
         {isLoadingClinicSection ? null : !hasClinic ? (
-          <View style={styles.ctaSecondaryRow}>
-            <SecondaryCard
-              title={t("find_clinic")}
-              icon="search"
-              accentColor="#2563EB"
-              onPress={goToClinicSearch}
-            />
+          <View style={styles.ctaSecondaryRowCompact}>
             <SecondaryCard
               title={t("home.ctaJoinWithCode")}
               icon="key"
-              accentColor="#2563EB"
+              accentColor="#64748b"
               onPress={goToJoinClinic}
+            />
+            <SecondaryCard
+              title={t("home.ctaFindClinic")}
+              icon="search"
+              accentColor="#64748b"
+              onPress={goToClinicSearch}
             />
           </View>
         ) : (
@@ -868,7 +917,7 @@ export default function PatientDashboard() {
         </TouchableOpacity>
       )}
 
-      {/* NEXT APPOINTMENT */}
+      {/* NEXT APPOINTMENT — hidden for new users with no schedule */}
       {nextAppointment ? (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("home.nextAppointment")}</Text>
@@ -902,14 +951,7 @@ export default function PatientDashboard() {
             })()}
           </View>
         </View>
-      ) : (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("home.nextAppointment")}</Text>
-          <View style={styles.card}>
-            <Text style={styles.emptyText}>{t("home.noAppointment")}</Text>
-          </View>
-        </View>
-      )}
+      ) : null}
 
       {/* MY VISIT WIDGET */}
       {(() => {
@@ -990,31 +1032,31 @@ export default function PatientDashboard() {
         );
       })()}
 
-      {/* TREATMENT PROGRESS */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t("home.treatmentProgress")}</Text>
-        <View style={styles.card}>
-          {treatmentsStale && (
-            <View style={styles.inlineLoadRow}>
-              <ActivityIndicator size="small" color="#2563eb" />
-              <Text style={styles.inlineLoadText}>{t("common.loading")}</Text>
+      {/* TREATMENT PROGRESS — only when patient has treatments */}
+      {hasTreatments ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t("home.treatmentProgress")}</Text>
+          <View style={styles.card}>
+            {treatmentsStale && (
+              <View style={styles.inlineLoadRow}>
+                <ActivityIndicator size="small" color="#2563eb" />
+                <Text style={styles.inlineLoadText}>{t("common.loading")}</Text>
+              </View>
+            )}
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={[styles.statNum, { color: "#2563eb" }]}>{summary.total}</Text>
+                <Text style={styles.statLabel}>{t("home.total")}</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={[styles.statNum, { color: "#ea580c" }]}>{summary.active}</Text>
+                <Text style={styles.statLabel}>{t("home.activeStat")}</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={[styles.statNum, { color: "#16a34a" }]}>{summary.done}</Text>
+                <Text style={styles.statLabel}>{t("home.completedStat")}</Text>
+              </View>
             </View>
-          )}
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={[styles.statNum, { color: "#2563eb" }]}>{summary.total}</Text>
-              <Text style={styles.statLabel}>{t("home.total")}</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={[styles.statNum, { color: "#ea580c" }]}>{summary.active}</Text>
-              <Text style={styles.statLabel}>{t("home.activeStat")}</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={[styles.statNum, { color: "#16a34a" }]}>{summary.done}</Text>
-              <Text style={styles.statLabel}>{t("home.completedStat")}</Text>
-            </View>
-          </View>
-          {summary.total > 0 && (
             <View style={styles.progressSection}>
               <View style={styles.progressRow}>
                 <Text style={styles.progressLabel}>{t("home.completionRate")}</Text>
@@ -1024,9 +1066,17 @@ export default function PatientDashboard() {
                 <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
               </View>
             </View>
-          )}
+          </View>
         </View>
-      </View>
+      ) : showNewUserOnboarding && !hasSmileScore ? (
+        <View style={styles.section}>
+          <View style={styles.onboardingCard}>
+            <Text style={styles.onboardingLine}>{t("home.onboardingBullet1")}</Text>
+            <Text style={styles.onboardingLine}>{t("home.onboardingBullet2")}</Text>
+            <Text style={styles.onboardingLine}>{t("home.onboardingBullet3")}</Text>
+          </View>
+        </View>
+      ) : null}
 
       {/* RECENT PROCEDURES */}
       {recentProcedures.length > 0 && (
@@ -1064,6 +1114,36 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     marginTop: 12,
+  },
+  ctaSecondaryRowCompact: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+    opacity: 0.92,
+  },
+  onboardingCard: {
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    padding: 16,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  onboardingLine: {
+    fontSize: 15,
+    color: "#334155",
+    lineHeight: 22,
+    fontWeight: "500",
+  },
+  retakeAnalysisBtn: {
+    marginTop: 10,
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  retakeAnalysisText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#059669",
   },
   ctaClinicRow: {
     flexDirection: "row",

@@ -7,6 +7,8 @@ export const PENDING_AI_OFFER_KEY = "@cliniflow:pending_ai_offer_v1";
 export type PendingAiOfferPayload = {
   image: string;
   analysis: Record<string, unknown>;
+  /** Pre-filled clinic message (e.g. smile score quote). */
+  message?: string;
 };
 
 export async function persistPendingAiOfferForClinicSelect(payload: PendingAiOfferPayload) {
@@ -33,11 +35,12 @@ export async function clearPendingAiOfferForClinicSelect() {
  */
 export async function goToClinicSelect(
   router: Pick<Router, "push">,
-  opts: { image: string; analysis: Record<string, unknown> },
+  opts: { image: string; analysis: Record<string, unknown>; message?: string },
 ) {
   await persistPendingAiOfferForClinicSelect({
     image: String(opts.image || "").trim(),
     analysis: opts.analysis || {},
+    ...(opts.message?.trim() ? { message: opts.message.trim() } : {}),
   });
   router.push({ pathname: "/(patient)/clinic-select-for-offer" } as any);
 }

@@ -6,6 +6,7 @@ import { useAuth } from "../../lib/auth";
 import { ROLE_KEY } from "./(auth)/role-select";
 import { getPendingClinicInvite } from "../../lib/clinicInviteStorage";
 import { getAuthenticatedHomeRoute } from "../../lib/authRouting";
+import { logLaunchPhaseOnce } from "../../lib/launchAudit";
 
 export default function Index() {
   const router = useRouter();
@@ -26,6 +27,7 @@ export default function Index() {
         const pendingInvite = await getPendingClinicInvite();
         if (!alive) return;
         if (pendingInvite?.code) {
+          logLaunchPhaseOnce("Navigation Ready", { route: "/register-patient", fromClinicInvite: true });
           router.replace({
             pathname: "/register-patient",
             params: {
@@ -41,14 +43,20 @@ export default function Index() {
         if (!alive) return;
         const role = v === "doctor" || v === "patient" ? v : null;
         if (role === null) {
+          logLaunchPhaseOnce("Navigation Ready", { route: "/role-select" });
           router.replace("/role-select");
         } else if (role === "doctor") {
+          logLaunchPhaseOnce("Navigation Ready", { route: "/login/doctor" });
           router.replace("/login/doctor");
         } else {
+          logLaunchPhaseOnce("Navigation Ready", { route: "/login/patient" });
           router.replace("/login/patient");
         }
       } catch {
-        if (alive) router.replace("/role-select");
+        if (alive) {
+          logLaunchPhaseOnce("Navigation Ready", { route: "/role-select", fallback: true });
+          router.replace("/role-select");
+        }
       }
     })();
 

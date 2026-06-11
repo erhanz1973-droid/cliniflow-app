@@ -49,6 +49,13 @@ module.exports = {
     },
     plugins: [
       ...(Array.isArray(appJson.expo.plugins) ? appJson.expo.plugins : []),
+      [
+        "expo-tracking-transparency",
+        {
+          userTrackingPermission:
+            "Clinifly uses this identifier to measure ad performance and improve your experience.",
+        },
+      ],
       "./plugins/withFacebookSDK.js",
     ],
   },

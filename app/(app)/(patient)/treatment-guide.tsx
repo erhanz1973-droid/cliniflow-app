@@ -60,6 +60,9 @@ import {
   saveTreatmentGuideAnalysisCache,
 } from "../../../lib/treatmentGuide/analysisCache";
 import { GuidePhotoAnalysisCard, type PhotoAnalysisUiPhase } from "../../../components/treatmentGuide/GuidePhotoAnalysisCard";
+import { recordSmileAnalysis } from "../../../lib/recordSmileAnalysis";
+import { DEFAULT_SMILE_PHOTO_TYPE } from "../../../lib/smilePhotoCapture";
+import { parseClinicsFromAnalysisPayload } from "../../../lib/smileClinicMapping";
 import { sha256LocalFileUri, normalizeContentHash } from "../../../lib/treatmentGuide/imageContentHash";
 import {
   loadLastGuideImage,
@@ -155,6 +158,11 @@ export default function TreatmentGuideScreen() {
     if (phase === "idle" && displayImageUri) return "uploaded";
     return phase;
   }, [phase, displayImageUri, analysisPayload]);
+
+  const analysisClinics = useMemo(
+    () => parseClinicsFromAnalysisPayload(analysisPayload),
+    [analysisPayload],
+  );
 
   const resolveContentHash = useCallback(async (uri: string): Promise<string> => {
     const existing = normalizeContentHash(analyzedContentHashRef.current);
@@ -310,6 +318,11 @@ export default function TreatmentGuideScreen() {
 
       const analyzedAt = opts?.savedAt || new Date().toISOString();
       setGuidanceSavedAt(analyzedAt);
+      void recordSmileAnalysis(patientId, norm, {
+        fileUrl,
+        contentHash: hash,
+        analyzedAt: Date.parse(analyzedAt) || Date.now(),
+      });
       if (sessionId && !opts?.skipWorkspaceSave) {
         void saveTreatmentGuideWorkspace({
           sessionId,
@@ -554,7 +567,7 @@ export default function TreatmentGuideScreen() {
           patientId,
           token,
           sessionId,
-          photoType: "general",
+          photoType: DEFAULT_SMILE_PHOTO_TYPE,
           lang: currentLanguage,
           forceReanalyze: force,
           contentHash,
@@ -776,6 +789,9 @@ export default function TreatmentGuideScreen() {
             errorText={errorText}
             showTranslatedBadge={showTranslatedBadge}
             guidanceSavedAt={guidanceSavedAt}
+            clinicId={clinicId || undefined}
+            clinics={analysisClinics}
+            photoHttpUrl={dentalPhotoHttpUrl}
             onRetry={() => {
               analyzeFetchFailedRef.current = false;
               void runPhotoAnalysis({ forceReanalyze: true });

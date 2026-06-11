@@ -3,6 +3,7 @@
  */
 
 import type { AiLeadData } from "./leadData";
+import type { SmileScoreData } from "../smileScore";
 
 export type AiCoordinatorMessageRole = "patient" | "assistant" | "system";
 
@@ -55,6 +56,8 @@ export interface AiCoordinatorChatRequest {
   /** When `treatment_guide`, server omits travel/hotel context and uses guide tone. */
   contextMode?: AiCoordinatorContextMode;
   includeTravelContext?: boolean;
+  /** Latest smile analysis — powers "Ask AI About My Results". */
+  smileAnalysisContext?: SmileScoreData | null;
 }
 
 export type AiCoordinatorChatResponse =

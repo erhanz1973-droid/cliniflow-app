@@ -31,12 +31,35 @@ export function normalizeAnalyzeApiPayload(
 
   const recommendation = String(base.recommendation || "").trim();
 
+  const smileScore =
+    base.smileScore != null && Number.isFinite(Number(base.smileScore))
+      ? Number(base.smileScore)
+      : null;
+  const potentialScore =
+    base.potentialScore != null && Number.isFinite(Number(base.potentialScore))
+      ? Number(base.potentialScore)
+      : null;
+  const strengths = Array.isArray(base.strengths)
+    ? base.strengths.map((x) => String(x).trim()).filter(Boolean)
+    : [];
+  const improvementAreas = Array.isArray(base.improvementAreas)
+    ? base.improvementAreas.map((x) => String(x).trim()).filter(Boolean)
+    : [];
+  const recommendations = Array.isArray(base.recommendations)
+    ? base.recommendations.map((x) => String(x).trim()).filter(Boolean)
+    : [];
+
   return {
     ...base,
     ok: base.ok !== false,
     insights,
     summary,
     recommendation,
+    smileScore,
+    potentialScore,
+    strengths,
+    improvementAreas,
+    recommendations,
     reused: base.reused === true || base.cached === true,
     cached: base.cached === true,
   };
@@ -47,5 +70,11 @@ export function hasVisibleAnalysisContent(payload: Record<string, unknown> | nul
   const norm = normalizeAnalyzeApiPayload(payload);
   if (!norm) return false;
   const insights = Array.isArray(norm.insights) ? norm.insights : [];
-  return insights.length > 0 || !!String(norm.summary || "").trim();
+  const strengths = Array.isArray(norm.strengths) ? norm.strengths : [];
+  const improvementAreas = Array.isArray(norm.improvementAreas) ? norm.improvementAreas : [];
+  const hasSmile =
+    norm.smileScore != null &&
+    Number.isFinite(Number(norm.smileScore)) &&
+    (strengths.length > 0 || improvementAreas.length > 0);
+  return hasSmile || insights.length > 0 || !!String(norm.summary || "").trim();
 }

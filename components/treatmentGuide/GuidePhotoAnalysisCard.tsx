@@ -9,6 +9,12 @@ import {
 } from "react-native";
 import { useLanguage } from "../../lib/language-context";
 import { hasVisibleAnalysisContent } from "../../lib/dentalAnalysisNormalize";
+import { SmileScoreResult } from "../SmileScoreResult";
+import { SmileScoreActions } from "../SmileScoreActions";
+import { SmileScoreQuoteCta } from "../SmileScoreQuoteCta";
+import { SmileClinicRecommendations, type ClinicRecommendation } from "../SmileClinicRecommendations";
+import { extractSmileScoreFromPayload } from "../../lib/smileScore";
+import type { LocalizedDentalAnalysis } from "../../lib/dentalAnalysisView";
 
 export type PhotoAnalysisUiPhase =
   | "idle"
@@ -19,11 +25,7 @@ export type PhotoAnalysisUiPhase =
   | "analyzed"
   | "failed";
 
-type LocalizedAnalysis = {
-  insights: string[];
-  summary: string;
-  recommendation: string;
-};
+type LocalizedAnalysis = LocalizedDentalAnalysis;
 
 type Props = {
   displayUri?: string;
@@ -37,6 +39,10 @@ type Props = {
   guidanceSavedAt?: string | null;
   /** Step header provided by parent — guidance body only */
   embedded?: boolean;
+  clinicId?: string;
+  clinics?: ClinicRecommendation[];
+  /** Remote photo URL for quote requests (https). */
+  photoHttpUrl?: string;
 };
 
 export function GuidePhotoAnalysisCard({
@@ -50,14 +56,18 @@ export function GuidePhotoAnalysisCard({
   onRetakePhoto,
   guidanceSavedAt,
   embedded,
+  clinicId,
+  clinics,
+  photoHttpUrl,
 }: Props) {
   const { t } = useLanguage();
 
   const isProcessing =
     phase === "restoring" || phase === "uploading" || phase === "analyzing";
-  const hasResult = hasVisibleAnalysisContent(analysisPayload);
-  const showResult = hasResult && !isProcessing && !showFailed;
   const showFailed = phase === "failed";
+  const hasResult = hasVisibleAnalysisContent(analysisPayload);
+  const smileScore = extractSmileScoreFromPayload(analysisPayload, localized);
+  const showResult = hasResult && !isProcessing && !showFailed;
   const showWaiting =
     !embedded &&
     !!displayUri &&
@@ -135,7 +145,14 @@ export function GuidePhotoAnalysisCard({
               </View>
             ) : null}
           </View>
-          {localized.insights.length > 0 ? (
+          {smileScore ? (
+            <>
+              <SmileScoreResult data={smileScore} compact />
+              <SmileScoreActions data={smileScore} clinicId={clinicId} />
+              <SmileScoreQuoteCta data={smileScore} photoUrl={photoHttpUrl} />
+              <SmileClinicRecommendations smileData={smileScore} clinics={clinics} />
+            </>
+          ) : localized.insights.length > 0 ? (
             localized.insights.slice(0, 4).map((line, i) => (
               <Text key={i} style={styles.insightLine}>
                 {i + 1}. {line}

@@ -3,9 +3,26 @@
 Configured App ID: `1908819279802983`  
 Client Token: set in `eas.json`, `app.config.js`, and native `Info.plist` / `strings.xml`.
 
+## Launch audit (build 71)
+
+**Introducing commit:** `026b98d3` — *Add Meta App Events SDK (v126.0) for ad conversion tracking.*
+
+Build 69 (`41908d33`) was the last build without Meta SDK. Build 71 added native Facebook SDK + ATT on cold start.
+
+**Likely failure mode:** native crash or iOS watchdog kill during `expo-tracking-transparency@56.x` (wrong for Expo SDK 54 — use `~5.2.4`) when `requestTrackingPermissionsAsync()` ran before `initializeSDK()`.
+
+**Startup logs (TestFlight):** set `EXPO_PUBLIC_LAUNCH_AUDIT=1` in EAS env, connect device to Xcode → Devices → Open Console, filter `[launch]`. Expected order:
+
+1. `App Launch`
+2. `Root Layout Mounted`
+3. `App Shell Layout Mounted`
+4. `Meta Bootstrap Mounted`
+5. `Meta SDK Init Start` → `Meta SDK Init Complete`
+6. `Navigation Ready`
+
 ## Package
 
-- `react-native-fbsdk-next` + `expo-tracking-transparency`
+- `react-native-fbsdk-next` + `expo-tracking-transparency` (~5.2.4 for Expo 54)
 - Config plugin: `plugins/withFacebookSDK.js`
 - Bootstrap: `components/MetaAppEventsBootstrap.tsx` (mounted in `app/(app)/_layout.tsx`)
 

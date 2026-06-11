@@ -2,6 +2,8 @@ import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLanguage } from "../../lib/language-context";
+import { SmilePhotoCaptureGuidance } from "../smile/SmilePhotoCaptureGuidance";
+import { SmilePhotoCaptureMotivation } from "../smile/SmilePhotoCaptureMotivation";
 
 type Props = {
   hasPhoto: boolean;
@@ -36,6 +38,13 @@ export function GuidePhotoStart({
           <Text style={styles.title}>{t("treatmentGuide.photoStart.title")}</Text>
           <Text style={styles.hint}>{t("treatmentGuide.photoStart.hint")}</Text>
         </>
+      ) : null}
+
+      {!hasPhoto && !uploading ? (
+        <View style={styles.guidanceBlock}>
+          <SmilePhotoCaptureMotivation compact />
+          <SmilePhotoCaptureGuidance compact showModeBadge />
+        </View>
       ) : null}
 
       <TouchableOpacity
@@ -99,6 +108,7 @@ export function GuidePhotoStart({
 
 const styles = StyleSheet.create({
   embedded: {},
+  guidanceBlock: { marginBottom: 14, gap: 12 },
   card: {
     backgroundColor: "#fff",
     borderRadius: 14,

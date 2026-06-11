@@ -101,6 +101,9 @@ export async function postAiCoordinatorChat(
           : body.contextMode === "coordinator"
             ? { contextMode: "coordinator" }
             : {}),
+        ...(body.smileAnalysisContext
+          ? { smileAnalysisContext: body.smileAnalysisContext }
+          : {}),
       }),
       signal: controller.signal,
     });

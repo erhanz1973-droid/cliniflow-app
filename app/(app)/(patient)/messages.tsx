@@ -42,6 +42,12 @@ import { runSmileSimulationWithImageUrl } from "../../../lib/smileSimulation";
 import { QUOTE_REQUEST_PREFILL_IMAGE_KEY } from "../../../lib/quotePrefill";
 import { setLastCapturedImage } from "../../../lib/lastCapturedImage";
 import { analyzePhoto, type AnalyzePhotoResult } from "../../../lib/dentalAnalysisPipeline";
+import { SmileScoreResult } from "../../../components/SmileScoreResult";
+import { extractSmileScoreFromPayload } from "../../../lib/smileScore";
+import { recordSmileAnalysis } from "../../../lib/recordSmileAnalysis";
+import { SmileScoreActions } from "../../../components/SmileScoreActions";
+import { SmileScoreQuoteCta } from "../../../components/SmileScoreQuoteCta";
+import { SmileClinicRecommendations } from "../../../components/SmileClinicRecommendations";
 import { goToAnalysis } from "../../../lib/dentalPhotoNavigation";
 import { goToChat, openFilePicker } from "../../../lib/chatFlow";
 import { goToAiCoordinator } from "../../../lib/aiCoordinator";
@@ -110,6 +116,11 @@ type MissingToothGuidance = {
 
 type AiResult = {
   insights: string[];
+  smileScore?: number | null;
+  potentialScore?: number | null;
+  strengths?: string[];
+  improvementAreas?: string[];
+  recommendations?: string[];
   confidence?: "low" | "medium" | "high";
   summary?: string;
   recommendation?: string;
@@ -1129,6 +1140,9 @@ export default function MessagesScreen() {
 
       const aiData = result.aiData;
       const fileUrl = result.fileUrl;
+      if (user?.patientId) {
+        void recordSmileAnalysis(String(user.patientId), aiData, { fileUrl });
+      }
       setLastCapturedImage(fileUrl);
       __DEV__ && console.log(
         "[AI] Analysis complete for:",
@@ -1154,6 +1168,21 @@ export default function MessagesScreen() {
           fileType: "image",
           aiResult: {
             insights: aiData.insights ?? [],
+            smileScore:
+              aiData.smileScore != null && Number.isFinite(Number(aiData.smileScore))
+                ? Number(aiData.smileScore)
+                : null,
+            potentialScore:
+              aiData.potentialScore != null && Number.isFinite(Number(aiData.potentialScore))
+                ? Number(aiData.potentialScore)
+                : null,
+            strengths: Array.isArray(aiData.strengths) ? (aiData.strengths as string[]) : [],
+            improvementAreas: Array.isArray(aiData.improvementAreas)
+              ? (aiData.improvementAreas as string[])
+              : [],
+            recommendations: Array.isArray(aiData.recommendations)
+              ? (aiData.recommendations as string[])
+              : [],
             confidence: aiData.confidence ?? "medium",
             summary: aiData.summary ?? "",
             recommendation: aiData.recommendation ?? "",
@@ -1860,12 +1889,26 @@ function AiResultBubble({ msg }: { msg: Message }) {
     url.startsWith("http") ? url : `${API_BASE}${url}`;
 
   const conf = result.confidence ?? "medium";
+  const smileScoreData = extractSmileScoreFromPayload(
+    result as unknown as Record<string, unknown>,
+    {
+      smileScore: result.smileScore ?? undefined,
+      potentialScore: result.potentialScore ?? undefined,
+      strengths: result.strengths,
+      improvementAreas: result.improvementAreas,
+      recommendations: result.recommendations,
+    },
+  );
   const visibleInsights = (result.insights ?? []).slice(0, 3);
   const clinicalInsights = visibleInsights.map(strengthenInsightForUi);
   const priceBand = aggregatePriceEstimateLabel(result.priceEstimate);
+  const recommendationLabels =
+    smileScoreData?.recommendations?.length
+      ? smileScoreData.recommendations
+      : (result.treatments ?? []);
   const treatmentRows =
-    (result.treatments ?? []).length > 0
-      ? (result.treatments ?? []).map((label, i) => ({
+    recommendationLabels.length > 0
+      ? recommendationLabels.map((label, i) => ({
           icon: ["🦷", "✨", "↔️", "🩺", "💎"][i % 5],
           label,
         }))
@@ -2022,10 +2065,32 @@ function AiResultBubble({ msg }: { msg: Message }) {
           </View>
         ) : null}
 
-        {/* ── 2. AI Dental Analysis ── */}
+        {/* ── 2. Smile Score + analysis ── */}
         <View style={ai.analysisCard}>
-          <Text style={ai.analysisSectionTitle}>AI Dental Analysis</Text>
-          {clinicalInsights.length > 0 ? (
+          {smileScoreData ? (
+            <>
+              <SmileScoreResult data={smileScoreData} />
+              <SmileScoreActions
+                data={smileScoreData}
+                clinicId={
+                  result.clinics?.[0]?.id ||
+                  (user?.clinicId ? String(user.clinicId) : undefined)
+                }
+              />
+              <SmileClinicRecommendations
+                smileData={smileScoreData}
+                clinics={result.clinics}
+              />
+              <SmileScoreQuoteCta
+                data={smileScoreData}
+                photoUrl={result.originalImageUrl}
+              />
+            </>
+          ) : null}
+          {!smileScoreData ? (
+            <Text style={ai.analysisSectionTitle}>AI Dental Analysis</Text>
+          ) : null}
+          {!smileScoreData && clinicalInsights.length > 0 ? (
             <View style={ai.analysisList}>
               {clinicalInsights.map((line, i) => (
                 <View key={i} style={ai.analysisRow}>
@@ -2034,14 +2099,16 @@ function AiResultBubble({ msg }: { msg: Message }) {
                 </View>
               ))}
             </View>
-          ) : (
+          ) : !smileScoreData ? (
             <Text style={ai.analysisPlaceholder}>
               Kişisel tedavi planınızı oluşturmak için devam edin.
             </Text>
-          )}
-          <Text style={ai.analysisDisclaimer}>
-            Bu analiz AI tarafından oluşturulmuştur ve kesin teşhis değildir.
-          </Text>
+          ) : null}
+          {!smileScoreData ? (
+            <Text style={ai.analysisDisclaimer}>
+              Bu analiz AI tarafından oluşturulmuştur ve kesin teşhis değildir.
+            </Text>
+          ) : null}
         </View>
 
         {/* ── 3. Klinik özet blokları (koşullu) ── */}
@@ -2078,10 +2145,13 @@ function AiResultBubble({ msg }: { msg: Message }) {
             </>
           )}
 
-          {/* ── Önerilen Tedaviler ── */}
+          {/* ── Recommended options (hidden when Smile Score block lists them) ── */}
+          {!smileScoreData?.recommendations?.length ? (
           <Text style={[ai.treatmentSectionTitle, { marginTop: result.missingTooth || result.dentalCondition || showBackendIssues ? 12 : 0 }]}>
             Önerilen Tedaviler
           </Text>
+          ) : null}
+          {!smileScoreData?.recommendations?.length ? (
           <View style={ai.treatmentSuggestList}>
             {treatmentRows.map((row, i) => (
               <View key={`tr-${i}`} style={ai.treatmentSuggestRow}>
@@ -2090,6 +2160,7 @@ function AiResultBubble({ msg }: { msg: Message }) {
               </View>
             ))}
           </View>
+          ) : null}
 
           {/* ── Yaklaşık fiyat ── */}
           <View style={ai.priceCard}>

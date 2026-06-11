@@ -1,5 +1,6 @@
 import { Slot } from "expo-router";
-import { memo } from "react";
+import { memo, useEffect } from "react";
+import { logLaunchPhaseOnce } from "../../lib/launchAudit";
 import { LanguageProvider } from "../../lib/language-context";
 import { AuthProvider } from "../../lib/auth";
 import { DeviceGuidanceProvider } from "../../lib/deviceGuidanceContext";
@@ -17,6 +18,10 @@ const AppOutlet = memo(function AppOutlet() {
 
 /** All app routes + providers live under this shell so the root navigator stays isolated from context churn. */
 export default function AppShellLayout() {
+  useEffect(() => {
+    logLaunchPhaseOnce("App Shell Layout Mounted");
+  }, []);
+
   return (
     <LanguageProvider>
       <AuthProvider>

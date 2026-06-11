@@ -29,6 +29,10 @@ import {
   goToOffers,
   type SendOfferRequestResult,
 } from "../../../lib/offerRequestFlow";
+import {
+  buildSmileQuoteClinicMessageFromAnalysis,
+  isSmileScoreQuoteAnalysis,
+} from "../../../lib/smileQuoteRequest";
 import { leaveToPatientHome } from "../../../lib/safePatientNavigation";
 import {
   extractDentalSearchTokens,
@@ -84,14 +88,24 @@ export default function ClinicSelectForOfferScreen() {
   const [cityRefine, setCityRefine] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState("");
-  const [payload, setPayload] = useState<{ image: string; analysis: Record<string, unknown> } | null>(
+  const [payload, setPayload] = useState<{ image: string; analysis: Record<string, unknown>; message?: string } | null>(
     null
   );
   const [filterHint, setFilterHint] = useState<string | null>(null);
+  const isSmileQuote = isSmileScoreQuoteAnalysis(payload?.analysis);
 
   useEffect(() => {
+    if (payload?.message?.trim()) {
+      setMessage(payload.message.trim());
+      return;
+    }
+    const built = buildSmileQuoteClinicMessageFromAnalysis(payload?.analysis);
+    if (built) {
+      setMessage(built);
+      return;
+    }
     setMessage(t("messages.defaultComposerText"));
-  }, [t]);
+  }, [payload, t]);
 
   useEffect(() => {
     const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -332,9 +346,13 @@ export default function ClinicSelectForOfferScreen() {
             { paddingBottom: 24 + keyboardHeight },
           ]}
         >
-          <Text style={styles.title}>{t("quoteRequest.title")}</Text>
+          <Text style={styles.title}>
+            {isSmileQuote ? t("smileQuote.selectClinicTitle") : t("quoteRequest.title")}
+          </Text>
           <Text style={styles.sub}>
-            {singleTarget
+            {isSmileQuote
+              ? t("smileQuote.selectClinicSub")
+              : singleTarget
               ? safeT(
                   "quoteRequest.singleClinicSub",
                   "We will send this only to your clinic — no marketplace broadcast."

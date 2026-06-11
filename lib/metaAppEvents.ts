@@ -2,8 +2,9 @@
  * Meta App Events (Facebook SDK) — conversion tracking for App Promotion campaigns.
  * Requires EXPO_PUBLIC_FACEBOOK_CLIENT_TOKEN on EAS production builds.
  */
-import { Platform } from "react-native";
+import { InteractionManager, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { logLaunchPhase, logLaunchPhaseOnce } from "./launchAudit";
 
 export const META_FACEBOOK_APP_ID =
   String(process.env.EXPO_PUBLIC_FACEBOOK_APP_ID || "1908819279802983").trim();
@@ -15,6 +16,7 @@ const CONTACT_FLAG_PREFIX = "meta_contact_clinic_logged:";
 
 let initPromise: Promise<boolean> | null = null;
 let sdkReady = false;
+let attRequested = false;
 
 type FbSdk = typeof import("react-native-fbsdk-next");
 
@@ -24,37 +26,69 @@ async function loadSdk(): Promise<FbSdk | null> {
     return await import("react-native-fbsdk-next");
   } catch (e) {
     console.warn("[metaAppEvents] SDK import failed:", (e as Error)?.message || e);
+    logLaunchPhase("Meta SDK Init Failed", { stage: "import", error: String((e as Error)?.message || e) });
     return null;
   }
 }
 
-/** Initialize Meta SDK once at app startup. */
+async function requestAttWhenIdle(): Promise<void> {
+  if (Platform.OS !== "ios" || attRequested) return;
+  attRequested = true;
+  await new Promise<void>((resolve) => {
+    InteractionManager.runAfterInteractions(() => resolve());
+  });
+  try {
+    const { requestTrackingPermissionsAsync } = await import("expo-tracking-transparency");
+    const result = await requestTrackingPermissionsAsync();
+    logLaunchPhaseOnce("ATT Permission Result", { status: result?.status || "unknown" });
+  } catch (e) {
+    console.warn("[metaAppEvents] ATT request failed:", (e as Error)?.message || e);
+    logLaunchPhase("ATT Permission Failed", { error: String((e as Error)?.message || e) });
+  }
+}
+
+/** Initialize Meta SDK once at app startup (after root layout is mounted). */
 export async function initMetaAppEvents(): Promise<boolean> {
   if (initPromise) return initPromise;
   initPromise = (async () => {
     if (Platform.OS === "web") return false;
+    logLaunchPhaseOnce("Meta SDK Init Start", {
+      appId: META_FACEBOOK_APP_ID,
+      hasClientToken: Boolean(META_CLIENT_TOKEN),
+    });
     if (!META_CLIENT_TOKEN) {
       console.warn(
         "[metaAppEvents] EXPO_PUBLIC_FACEBOOK_CLIENT_TOKEN missing — Meta App Events disabled.",
       );
+      logLaunchPhase("Meta SDK Init Skipped", { reason: "missing_client_token" });
       return false;
     }
     const sdk = await loadSdk();
-    if (!sdk) return false;
+    if (!sdk) {
+      logLaunchPhase("Meta SDK Init Failed", { stage: "loadSdk" });
+      return false;
+    }
     try {
       sdk.Settings.setAppID(META_FACEBOOK_APP_ID);
       sdk.Settings.setClientToken(META_CLIENT_TOKEN);
-      if (Platform.OS === "ios") {
-        const { requestTrackingPermissionsAsync } = await import("expo-tracking-transparency");
-        await requestTrackingPermissionsAsync().catch(() => null);
-      }
       sdk.Settings.initializeSDK();
-      sdk.Settings.setAdvertiserIDCollectionEnabled(true);
       sdk.Settings.setAutoLogAppEventsEnabled(true);
       sdkReady = true;
+      logLaunchPhaseOnce("Meta SDK Init Complete");
+      void requestAttWhenIdle().then(async () => {
+        try {
+          sdk.Settings.setAdvertiserIDCollectionEnabled(true);
+        } catch (e) {
+          console.warn("[metaAppEvents] setAdvertiserIDCollectionEnabled failed:", (e as Error)?.message || e);
+        }
+      });
       return true;
     } catch (e) {
       console.warn("[metaAppEvents] init failed:", (e as Error)?.message || e);
+      logLaunchPhase("Meta SDK Init Failed", {
+        stage: "initializeSDK",
+        error: String((e as Error)?.message || e),
+      });
       return false;
     }
   })();
@@ -140,4 +174,8 @@ export function trackMetaContactClinic(): void {
 /** Alias for Meta custom event naming in dashboards. */
 export function trackMetaClinicContactInitiated(): void {
   trackMetaContactClinic();
+}
+
+export function trackMetaSmileScoreShare(channel = "facebook"): void {
+  logMetaEvent("SmileScoreShare", { channel });
 }

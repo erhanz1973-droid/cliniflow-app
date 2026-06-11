@@ -1,12 +1,18 @@
 import { useEffect, useRef } from "react";
 import { AppState, type AppStateStatus } from "react-native";
+import { logLaunchPhaseOnce } from "../lib/launchAudit";
 import { initMetaAppEvents, trackMetaAppOpen } from "../lib/metaAppEvents";
 
-/** Initializes Meta SDK and logs App Open / Activate App on startup and foreground. */
+/** Initializes Meta SDK after shell mount; logs App Open on foreground. */
 export function MetaAppEventsBootstrap() {
   const appState = useRef(AppState.currentState);
+  const initStarted = useRef(false);
 
   useEffect(() => {
+    if (initStarted.current) return;
+    initStarted.current = true;
+    logLaunchPhaseOnce("Meta Bootstrap Mounted");
+
     let cancelled = false;
     void (async () => {
       const ok = await initMetaAppEvents();
