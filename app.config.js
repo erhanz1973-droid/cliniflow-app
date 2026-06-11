@@ -14,12 +14,32 @@ const BLOCKED_ANDROID_MEDIA_PERMISSIONS = [
   "android.permission.WRITE_EXTERNAL_STORAGE",
 ];
 
+const FACEBOOK_APP_ID =
+  process.env.EXPO_PUBLIC_FACEBOOK_APP_ID || "1908819279802983";
+const FACEBOOK_CLIENT_TOKEN =
+  process.env.EXPO_PUBLIC_FACEBOOK_CLIENT_TOKEN || "4a49a212a086eb531b7f78ba7fa33efe";
+
 module.exports = {
   expo: {
     ...appJson.expo,
+    facebook: {
+      appId: FACEBOOK_APP_ID,
+      clientToken: FACEBOOK_CLIENT_TOKEN,
+      displayName: "Cliniflow",
+      iosUserTrackingPermission:
+        "Clinifly uses this identifier to measure ad performance and improve your experience.",
+    },
     ios: {
       ...(appJson.expo.ios || {}),
       usesAppleSignIn: true,
+      infoPlist: {
+        ...(appJson.expo.ios?.infoPlist || {}),
+        FacebookAppID: FACEBOOK_APP_ID,
+        FacebookDisplayName: "Cliniflow",
+        ...(FACEBOOK_CLIENT_TOKEN ? { FacebookClientToken: FACEBOOK_CLIENT_TOKEN } : {}),
+        NSUserTrackingUsageDescription:
+          "Clinifly uses this identifier to measure ad performance and improve your experience.",
+      },
     },
     android: {
       ...(appJson.expo.android || {}),
@@ -27,5 +47,9 @@ module.exports = {
       blockedPermissions: BLOCKED_ANDROID_MEDIA_PERMISSIONS,
       softwareKeyboardLayoutMode: "resize",
     },
+    plugins: [
+      ...(Array.isArray(appJson.expo.plugins) ? appJson.expo.plugins : []),
+      "./plugins/withFacebookSDK.js",
+    ],
   },
 };

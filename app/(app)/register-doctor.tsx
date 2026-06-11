@@ -6,6 +6,7 @@ import { handleDoctorRegistration } from "../../lib/doctor/register";
 import { useAuth } from "../../lib/auth";
 import { useLanguage } from "../../lib/language-context";
 import { isValidInternationalPhone } from "../../lib/phoneFormat";
+import { trackMetaDoctorRegistration } from "../../lib/metaAppEvents";
 
 export default function RegisterDoctorScreen() {
   const router = useRouter();
@@ -59,6 +60,7 @@ export default function RegisterDoctorScreen() {
       });
 
       if (result.ok) {
+        trackMetaDoctorRegistration();
         // Check if doctor is already approved
         if (result.status === 'APPROVED' || result.status === 'ACTIVE') {
           if (result.token) {

@@ -14,6 +14,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../../lib/auth";
 import { useLanguage } from "../../lib/language-context";
 import { API_BASE, ADMIN_API_BASE } from "../../lib/api";
+import { trackMetaCompleteRegistration } from "../../lib/metaAppEvents";
 import {
   clearPendingOtpSession,
   loadPendingOtpSession,
@@ -235,6 +236,9 @@ export default function OtpScreen() {
       }
 
       if (json?.ok && json?.token) {
+        if (ctx.flow === "register") {
+          trackMetaCompleteRegistration("otp");
+        }
         await clearPendingOtpSession();
         await signIn({
           token: json.token,

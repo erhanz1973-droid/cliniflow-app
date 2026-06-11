@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { Alert } from 'react-native';
 import { apiGet, apiPost, API_BASE, TIMEOUT_POST } from '../api';
 import { savePendingOtpSession } from '../pendingOtpSession';
+import { trackMetaCompleteRegistration } from '../metaAppEvents';
 
 export interface PatientRegisterRequest {
   name: string;
@@ -137,6 +138,7 @@ export function usePatientRegistration() {
 
     // If OTP is required, go to verification screen
     if ((result as any).requiresOTP) {
+      // OTP completion fires CompleteRegistration in otp.tsx after verify.
       await savePendingOtpSession({
         email: data.email || "",
         phone: data.phone,
@@ -159,6 +161,8 @@ export function usePatientRegistration() {
       });
       return result;
     }
+
+    trackMetaCompleteRegistration(data.oauthProvider ? `oauth_${data.oauthProvider}` : "email");
 
     // No OTP required (e.g. reviewer bypass) → go directly to login
     Alert.alert(

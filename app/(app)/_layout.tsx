@@ -9,6 +9,7 @@ import { PatientOfferUnreadWatcher } from "../../components/PatientOfferUnreadWa
 import { PatientForegroundClinicMessageWatcher } from "../../components/PatientForegroundClinicMessageWatcher";
 import { DoctorForegroundMessageWatcher } from "../../components/DoctorForegroundMessageWatcher";
 import { ClinicInviteBootstrap } from "../../components/ClinicInviteBootstrap";
+import { MetaAppEventsBootstrap } from "../../components/MetaAppEventsBootstrap";
 
 const AppOutlet = memo(function AppOutlet() {
   return <Slot />;
@@ -20,6 +21,7 @@ export default function AppShellLayout() {
     <LanguageProvider>
       <AuthProvider>
         <DeviceGuidanceProvider>
+          <MetaAppEventsBootstrap />
           <ClinicBootstrap />
           <ClinicInviteBootstrap />
           <PushNotificationNavigation />

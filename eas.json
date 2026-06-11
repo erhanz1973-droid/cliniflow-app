@@ -8,16 +8,24 @@
       "distribution": "internal",
       "env": {
         "LANG": "en_US.UTF-8",
-        "LC_ALL": "en_US.UTF-8"
+        "LC_ALL": "en_US.UTF-8",
+        "EXPO_PUBLIC_FACEBOOK_APP_ID": "1908819279802983",
+        "EXPO_PUBLIC_FACEBOOK_CLIENT_TOKEN": "4a49a212a086eb531b7f78ba7fa33efe"
       }
     },
     "preview": {
       "distribution": "internal",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_FACEBOOK_APP_ID": "1908819279802983",
+        "EXPO_PUBLIC_FACEBOOK_CLIENT_TOKEN": "4a49a212a086eb531b7f78ba7fa33efe"
+      }
     },
     "production": {
       "env": {
-        "ORG_GRADLE_PROJECT_reactNativeArchitectures": "armeabi-v7a,arm64-v8a,x86,x86_64"
+        "ORG_GRADLE_PROJECT_reactNativeArchitectures": "armeabi-v7a,arm64-v8a,x86,x86_64",
+        "EXPO_PUBLIC_FACEBOOK_APP_ID": "1908819279802983",
+        "EXPO_PUBLIC_FACEBOOK_CLIENT_TOKEN": "4a49a212a086eb531b7f78ba7fa33efe"
       }
     }
   },

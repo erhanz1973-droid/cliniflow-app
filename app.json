@@ -3,12 +3,12 @@
     "scheme": "clinifly",
     "name": "Cliniflow",
     "slug": "clinifly-new",
-    "version": "125.9",
+    "version": "126.0",
     "icon": "./assets/images/icon.png",
     "owner": "erhanzorlu",
     "ios": {
       "bundleIdentifier": "net.clinifly.mobile",
-      "buildNumber": "69",
+      "buildNumber": "71",
       "supportsTablet": true,
       "usesAppleSignIn": true,
       "infoPlist": {
@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.clinifly.mobile",
-      "versionCode": 69,
+      "versionCode": 71,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundColor": "#FFFFFF"

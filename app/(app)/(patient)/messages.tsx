@@ -48,6 +48,10 @@ import { goToAiCoordinator } from "../../../lib/aiCoordinator";
 import { goToTreatmentGuide } from "../../../lib/treatmentGuideNavigation";
 import { saveToFiles } from "../../../lib/saveToFiles";
 import { sendMessage } from "../../../lib/sendMessage";
+import {
+  trackMetaContactClinicOnce,
+  trackMetaPhotoUpload,
+} from "../../../lib/metaAppEvents";
 import { loadClinicInquiryDraftForQuote } from "../../../lib/clinicInquiryDraftStorage";
 import {
   setGlobalChatOpen,
@@ -896,6 +900,9 @@ export default function MessagesScreen() {
         }
         return;
       }
+      if (patientId && chatClinicId) {
+        void trackMetaContactClinicOnce(patientId, chatClinicId);
+      }
     } catch {
       setText(msgSnapshot);
       setPendingAttachments(attSnapshot);
@@ -1026,7 +1033,11 @@ export default function MessagesScreen() {
         ]);
         return null;
       }
-      return json.files?.[0]?.url ?? null;
+      const url = json.files?.[0]?.url ?? null;
+      if (url && mimeType.startsWith("image/")) {
+        trackMetaPhotoUpload("messages_chat");
+      }
+      return url;
     } catch (uploadErr) {
       const err = uploadErr as Error;
       if (isLowStorageLikeError(err)) deviceGuidance?.reportLowStorageLikeError(err, { operation: "attachment_upload" });
