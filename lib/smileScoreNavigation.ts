@@ -24,10 +24,13 @@ export function goToSmileAiChat(
 export function serializeSmileContextForRoute(data: SmileScoreData): string {
   return JSON.stringify({
     smileScore: data.smileScore,
+    dentalSmileScore: data.dentalSmileScore,
+    facialHarmonyScore: data.facialHarmonyScore,
     potentialScore: data.potentialScore,
     strengths: data.strengths,
     improvementAreas: data.improvementAreas,
     recommendations: data.recommendations,
+    categoryScores: data.categoryScores,
   });
 }
 

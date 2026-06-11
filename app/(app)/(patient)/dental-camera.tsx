@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useMemo } from "react";
 import {
   Text,
   StyleSheet,
@@ -9,21 +9,40 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useFocusEffect } from "expo-router";
 import { useLanguage } from "../../../lib/language-context";
-import { goToAnalysis } from "../../../lib/dentalPhotoNavigation";
+import { returnFromSmileCapture } from "../../../lib/dentalPhotoNavigation";
 import { leaveToPatientHome } from "../../../lib/safePatientNavigation";
 import { SmilePhotoCaptureGuidance } from "../../../components/smile/SmilePhotoCaptureGuidance";
 import { SmilePhotoCaptureMotivation } from "../../../components/smile/SmilePhotoCaptureMotivation";
-import { pickIntakeImageFromLibrary, pickIntakeImageFromCamera } from "../../../lib/treatmentGuide/uploadDocument";
+import {
+  pickIntakeImageFromLibrary,
+  pickIntakeImageFromCamera,
+} from "../../../lib/treatmentGuide/uploadDocument";
+import {
+  DEFAULT_SMILE_PHOTO_CAPTURE_MODE,
+  smilePhotoCaptureLabelKeys,
+  type SmilePhotoCaptureMode,
+} from "../../../lib/smilePhotoCapture";
+import { useSmilePhotoPair } from "../../../lib/smilePhotoPair";
 
 /**
- * Smile photo capture entry — guidance first, then camera or gallery.
+ * Smile photo capture — step 1 (smile) or step 2 (teeth close-up).
  */
 export default function DentalCameraScreen() {
   const router = useRouter();
   const { t } = useLanguage();
+  const params = useLocalSearchParams<{ mode?: string }>();
+  const { smileUri, teethUri } = useSmilePhotoPair();
+
+  const mode: SmilePhotoCaptureMode = useMemo(() => {
+    const m = String(params.mode || "").trim();
+    return m === "closeup_teeth" ? "closeup_teeth" : DEFAULT_SMILE_PHOTO_CAPTURE_MODE;
+  }, [params.mode]);
+
+  const labels = useMemo(() => smilePhotoCaptureLabelKeys(mode), [mode]);
+  const screenTitle = t(labels.captureTitle);
 
   useFocusEffect(
     useCallback(() => {
@@ -39,9 +58,14 @@ export default function DentalCameraScreen() {
     (imageUri: string) => {
       const uri = String(imageUri || "").trim();
       if (!uri) return;
-      goToAnalysis(router, { imageUri: uri }, { replace: true });
+      returnFromSmileCapture(router, {
+        mode,
+        uri,
+        smileUri,
+        teethUri,
+      });
     },
-    [router],
+    [router, mode, smileUri, teethUri],
   );
 
   const openCamera = useCallback(async () => {
@@ -64,7 +88,7 @@ export default function DentalCameraScreen() {
         >
           <Ionicons name="chevron-back" size={26} color="#111827" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{t("smilePhotoGuide.screenTitle")}</Text>
+        <Text style={styles.headerTitle}>{screenTitle}</Text>
         <View style={{ width: 26 }} />
       </View>
 
@@ -73,17 +97,22 @@ export default function DentalCameraScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <SmilePhotoCaptureMotivation />
-        <SmilePhotoCaptureGuidance />
+        <View style={styles.stepHeader}>
+          <Text style={styles.stepLabel}>{t(labels.stepTitle)}</Text>
+          <Text style={styles.stepPurpose}>{t(labels.purpose)}</Text>
+        </View>
+
+        {mode === "smile" ? <SmilePhotoCaptureMotivation /> : null}
+        <SmilePhotoCaptureGuidance mode={mode} />
 
         <TouchableOpacity style={styles.primaryBtn} onPress={() => void openCamera()} activeOpacity={0.88}>
           <Ionicons name="camera" size={20} color="#fff" />
-          <Text style={styles.primaryBtnText}>{t("treatmentGuide.photoStart.takePhoto")}</Text>
+          <Text style={styles.primaryBtnText}>{t(labels.takePhoto)}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.secondaryBtn} onPress={() => void openGallery()} activeOpacity={0.88}>
           <Ionicons name="images-outline" size={20} color="#2563eb" />
-          <Text style={styles.secondaryBtnText}>{t("treatmentGuide.photoStart.uploadPhoto")}</Text>
+          <Text style={styles.secondaryBtnText}>{t(labels.uploadPhoto)}</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -101,9 +130,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f1f5f9",
   },
-  headerTitle: { fontSize: 17, fontWeight: "800", color: "#0f172a" },
+  headerTitle: { fontSize: 17, fontWeight: "800", color: "#0f172a", flex: 1, textAlign: "center" },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, gap: 14, paddingBottom: 28 },
+  stepHeader: { gap: 6, marginBottom: 2 },
+  stepLabel: { fontSize: 16, fontWeight: "800", color: "#0f172a" },
+  stepPurpose: { fontSize: 14, color: "#64748b", lineHeight: 20 },
   primaryBtn: {
     flexDirection: "row",
     alignItems: "center",

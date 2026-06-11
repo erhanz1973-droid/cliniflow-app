@@ -8,8 +8,10 @@ const HERO_STEP_KEYS = [
   "smilePhotoGuide.heroStep3",
 ] as const;
 
-const SAMPLE_SMILE_SCORE = "7.2";
-const SAMPLE_POTENTIAL_SCORE = "8.6";
+const SAMPLE_OVERALL_SCORE = "7.8";
+const SAMPLE_DENTAL_SCORE = "7.1";
+const SAMPLE_FACIAL_SCORE = "8.4";
+const SAMPLE_POTENTIAL_SCORE = "9.0";
 
 type Props = {
   compact?: boolean;
@@ -34,11 +36,15 @@ export function SmilePhotoCaptureMotivation({ compact }: Props) {
 
       <View style={[styles.sampleCard, compact && styles.sampleCardCompact]}>
         <Text style={styles.sampleLabel}>{t("smilePhotoGuide.sampleLabel")}</Text>
-        <View style={styles.scoreRow}>
-          <Text style={styles.scoreMain}>
-            {t("smileScore.title")}: {SAMPLE_SMILE_SCORE} / 10
-          </Text>
-        </View>
+        <Text style={styles.scoreMain}>
+          😁 {t("smileScore.overallTitle")}: {SAMPLE_OVERALL_SCORE} / 10
+        </Text>
+        <Text style={styles.categoryLine}>
+          🦷 {t("smileScore.dentalTitle")}: {SAMPLE_DENTAL_SCORE} / 10
+        </Text>
+        <Text style={styles.categoryLine}>
+          😊 {t("smileScore.facialHarmonyTitle")}: {SAMPLE_FACIAL_SCORE} / 10
+        </Text>
         <Text style={styles.potentialLine}>
           ✨ {t("smileScore.potentialValue", { score: SAMPLE_POTENTIAL_SCORE })}
         </Text>
@@ -94,9 +100,9 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
-  scoreRow: { marginTop: 2 },
-  scoreMain: { fontSize: 20, fontWeight: "800", color: "#047857" },
-  potentialLine: { fontSize: 14, fontWeight: "700", color: "#0369a1", lineHeight: 20 },
+  scoreMain: { fontSize: 18, fontWeight: "800", color: "#047857", lineHeight: 24 },
+  categoryLine: { fontSize: 14, fontWeight: "600", color: "#334155", lineHeight: 20 },
+  potentialLine: { fontSize: 14, fontWeight: "700", color: "#0369a1", lineHeight: 20, marginTop: 2 },
   sampleDisclaimer: {
     fontSize: 12,
     color: "#94a3b8",

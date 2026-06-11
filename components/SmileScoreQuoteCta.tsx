@@ -7,30 +7,37 @@ import { startSmileQuoteRequest } from "../lib/smileQuoteRequest";
 
 type Props = {
   data: SmileScoreData;
-  /** Remote https URL required — local file:// URIs cannot be sent to clinics yet. */
+  /** Remote https smile photo URL. */
   photoUrl?: string | null;
+  /** Remote https teeth photo URL. */
+  teethPhotoUrl?: string | null;
 };
 
-export function SmileScoreQuoteCta({ data, photoUrl }: Props) {
+export function SmileScoreQuoteCta({ data, photoUrl, teethPhotoUrl }: Props) {
   const { t } = useLanguage();
   const router = useRouter();
 
   const onGetQuotes = () => {
-    const url = String(photoUrl || "").trim();
-    if (!/^https?:\/\//i.test(url)) {
+    const smileUrl = String(photoUrl || "").trim();
+    const teethUrl = String(teethPhotoUrl || "").trim();
+    if (!/^https?:\/\//i.test(smileUrl)) {
       Alert.alert(t("common.error"), t("smileQuote.photoRequired"));
       return;
     }
-    void startSmileQuoteRequest(router, { imageUrl: url, smileData: data });
+    void startSmileQuoteRequest(router, {
+      imageUrl: smileUrl,
+      teethImageUrl: teethUrl,
+      smileData: data,
+    });
   };
 
   return (
     <View style={styles.wrap}>
       <Text style={styles.prompt}>{t("smileQuote.conversionPrompt")}</Text>
       <TouchableOpacity style={styles.btn} onPress={onGetQuotes} activeOpacity={0.88}>
-        <Text style={styles.btnText}>{t("smileQuote.getQuotes")}</Text>
+        <Text style={styles.btnText}>💰 {t("smileQuote.getQuotes")}</Text>
       </TouchableOpacity>
-      <Text style={styles.hint}>{t("smileQuote.conversionHint")}</Text>
+      <Text style={styles.hint}>{t("smileQuote.conversionHintDual")}</Text>
     </View>
   );
 }

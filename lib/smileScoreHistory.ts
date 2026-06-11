@@ -47,6 +47,8 @@ export async function appendSmileScoreHistory(
     id: entry.id || `ss_${entry.analyzedAt}_${Math.random().toString(36).slice(2, 8)}`,
     analyzedAt: entry.analyzedAt,
     smileScore: entry.smileScore,
+    dentalSmileScore: entry.dentalSmileScore,
+    facialHarmonyScore: entry.facialHarmonyScore,
     potentialScore: entry.potentialScore,
     strengths: entry.strengths || [],
     improvementAreas: entry.improvementAreas || [],
@@ -72,12 +74,15 @@ export async function recordSmileAnalysisFromPayload(
   const rows = await appendSmileScoreHistory(patientId, {
     analyzedAt: opts?.analyzedAt ?? Date.now(),
     smileScore: smile.smileScore,
+    dentalSmileScore: smile.dentalSmileScore,
+    facialHarmonyScore: smile.facialHarmonyScore,
     potentialScore: smile.potentialScore,
     strengths: smile.strengths,
     improvementAreas: smile.improvementAreas,
     recommendations: smile.recommendations,
     fileUrl: opts?.fileUrl,
     contentHash: opts?.contentHash || undefined,
+    categoryScores: smile.categoryScores,
   });
   return rows[rows.length - 1] ?? null;
 }

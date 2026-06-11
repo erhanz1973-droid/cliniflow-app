@@ -6,12 +6,21 @@ import * as ImageManipulator from "expo-image-manipulator";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Location from "expo-location";
 import { API_BASE } from "./api";
-import { sha256LocalFileUri, normalizeContentHash } from "./treatmentGuide/imageContentHash";
+import {
+  sha256LocalFileUri,
+  normalizeContentHash,
+  combineContentHashes,
+} from "./treatmentGuide/imageContentHash";
 import {
   getUploadedImageByHash,
   saveUploadedImageRecord,
 } from "./treatmentGuide/workflowState";
 import { normalizeImageFingerprint } from "./treatmentGuide/analysisCache";
+import {
+  DEFAULT_SMILE_PHOTO_TYPE,
+  SMILE_DUAL_ANALYSIS_MODE,
+} from "./smilePhotoCapture";
+import { isAnalysisFallbackPayload } from "./dentalAnalysisNormalize";
 
 export type UserLocation = { latitude: number; longitude: number } | null;
 
@@ -89,7 +98,7 @@ export async function compressImageForAi(
 }
 
 const UPLOAD_TIMEOUT_MS = 90_000;
-const ANALYZE_TIMEOUT_MS = 60_000;
+const ANALYZE_TIMEOUT_MS = 90_000;
 
 type UploadOk = { ok: true; url: string; storagePath?: string; reused?: boolean };
 type UploadErr = { ok: false; message: string; aborted?: boolean };
@@ -373,6 +382,185 @@ export async function analyzePhoto(params: {
       };
     }
     return { ok: true, fileUrl: stableRemoteUrlKey(analyzeImageUrl), aiData };
+  } catch (e) {
+    const aborted = (e as Error)?.name === "AbortError";
+    return {
+      ok: false,
+      phase: "analyze",
+      message: aborted ? "timeout" : String((e as Error)?.message || e),
+    };
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
+async function ensureUploadedForAnalyze(
+  imageUri: string,
+  patientId: string,
+  token: string,
+  contentHashIn?: string | null,
+): Promise<
+  | { ok: true; url: string; storagePath?: string; contentHash: string }
+  | { ok: false; phase: "upload"; message: string }
+> {
+  let contentHash = normalizeContentHash(contentHashIn);
+  const mimeGuess =
+    /\.png(\?|$)/i.test(imageUri) ? "image/png" :
+    /\.heic(\?|$)/i.test(imageUri) ? "image/heic" :
+    "image/jpeg";
+
+  if (isAlreadyUploadedRemoteUrl(imageUri)) {
+    return {
+      ok: true,
+      url: String(imageUri).trim(),
+      contentHash: contentHash || "",
+    };
+  }
+
+  if (!contentHash) {
+    const compressedProbe = await compressImageForAi(imageUri, mimeGuess);
+    contentHash = normalizeContentHash(await sha256LocalFileUri(compressedProbe.uri));
+  }
+
+  const prior = contentHash ? await getUploadedImageByHash(patientId, contentHash) : null;
+  if (prior?.remoteUrl) {
+    return {
+      ok: true,
+      url: prior.remoteUrl,
+      storagePath: prior.storagePath,
+      contentHash,
+    };
+  }
+
+  const compressed = await compressImageForAi(imageUri, mimeGuess);
+  if (!contentHash) {
+    contentHash = normalizeContentHash(await sha256LocalFileUri(compressed.uri));
+  }
+  const uploadName = `photo_${Date.now()}.jpg`;
+  const up = await uploadImageForAi(compressed.uri, uploadName, compressed.mimeType, token, {
+    contentHash,
+    patientId,
+  });
+  if (!up.ok) {
+    return { ok: false, phase: "upload", message: up.message };
+  }
+  return {
+    ok: true,
+    url: up.url,
+    storagePath: up.storagePath,
+    contentHash,
+  };
+}
+
+/** Two-photo smile analysis: smiling face + teeth close-up. */
+export async function analyzeDualSmilePhotos(params: {
+  smileUri: string;
+  teethUri: string;
+  patientId: string;
+  token: string;
+  sessionId?: string | null;
+  lang?: string;
+  forceReanalyze?: boolean;
+  smileContentHash?: string | null;
+  teethContentHash?: string | null;
+}): Promise<AnalyzePhotoResult> {
+  const {
+    smileUri,
+    teethUri,
+    patientId,
+    token,
+    sessionId,
+    lang,
+    forceReanalyze = false,
+    smileContentHash: smileHashIn,
+    teethContentHash: teethHashIn,
+  } = params;
+
+  if (!String(patientId || "").trim()) {
+    return { ok: false, phase: "session", message: "no_patient" };
+  }
+  if (!String(smileUri || "").trim() || !String(teethUri || "").trim()) {
+    return { ok: false, phase: "session", message: "both_photos_required" };
+  }
+
+  const smileUp = await ensureUploadedForAnalyze(smileUri, patientId, token, smileHashIn);
+  if (!smileUp.ok) {
+    return { ok: false, phase: smileUp.phase, message: smileUp.message };
+  }
+  const teethUp = await ensureUploadedForAnalyze(teethUri, patientId, token, teethHashIn);
+  if (!teethUp.ok) {
+    return { ok: false, phase: teethUp.phase, message: teethUp.message };
+  }
+
+  const combinedHash = await combineContentHashes(smileUp.contentHash, teethUp.contentHash);
+  const userLocation = await getUserLocationForAnalysis();
+  const effectiveLang = (lang && String(lang).trim()) || "en";
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), ANALYZE_TIMEOUT_MS);
+
+  try {
+    const aiRes = await fetch(`${API_BASE}/api/chat/ai-analyze`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        patientId,
+        imageUrl: smileUp.url,
+        storagePath: smileUp.storagePath || undefined,
+        teethImageUrl: teethUp.url,
+        teethStoragePath: teethUp.storagePath || undefined,
+        teethContentHash: teethUp.contentHash || undefined,
+        sessionId: sessionId || undefined,
+        photoType: DEFAULT_SMILE_PHOTO_TYPE,
+        analysisMode: SMILE_DUAL_ANALYSIS_MODE,
+        userLocation,
+        preferredCountry: null,
+        lang: effectiveLang,
+        forceReanalyze: forceReanalyze === true,
+        contentHash: combinedHash || undefined,
+      }),
+      signal: controller.signal,
+    });
+    const rawText = await aiRes.text().catch((e) => `[text() failed: ${(e as Error).message}]`);
+    let aiData: Record<string, unknown> = {};
+    try {
+      aiData = JSON.parse(rawText) as Record<string, unknown>;
+    } catch {
+      return { ok: false, phase: "parse", message: rawText.slice(0, 200), status: aiRes.status };
+    }
+    if (!aiRes.ok) {
+      const errCode = String(aiData.error || "");
+      return {
+        ok: false,
+        phase: "analyze",
+        message: String(aiData.message || aiData.error || rawText.slice(0, 200)),
+        status: aiRes.status,
+        errorCode: errCode || undefined,
+        retryable: aiData.retryable === true || errCode === "image_fetch_failed",
+        aiData,
+      };
+    }
+    if (isAnalysisFallbackPayload(aiData)) {
+      return {
+        ok: false,
+        phase: "analyze",
+        message: String(aiData.summary || aiData.message || "analysis_failed"),
+        errorCode: "analysis_fallback",
+        aiData,
+      };
+    }
+    return {
+      ok: true,
+      fileUrl: stableRemoteUrlKey(smileUp.url),
+      aiData: {
+        ...aiData,
+        teethImageUrl: teethUp.url,
+        smileImageUrl: smileUp.url,
+      },
+    };
   } catch (e) {
     const aborted = (e as Error)?.name === "AbortError";
     return {

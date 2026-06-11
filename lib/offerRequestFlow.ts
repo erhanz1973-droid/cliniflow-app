@@ -6,6 +6,7 @@ export const PENDING_AI_OFFER_KEY = "@cliniflow:pending_ai_offer_v1";
 
 export type PendingAiOfferPayload = {
   image: string;
+  photos?: string[];
   analysis: Record<string, unknown>;
   /** Pre-filled clinic message (e.g. smile score quote). */
   message?: string;
@@ -35,10 +36,13 @@ export async function clearPendingAiOfferForClinicSelect() {
  */
 export async function goToClinicSelect(
   router: Pick<Router, "push">,
-  opts: { image: string; analysis: Record<string, unknown>; message?: string },
+  opts: { image: string; photos?: string[]; analysis: Record<string, unknown>; message?: string },
 ) {
+  const image = String(opts.image || "").trim();
+  const photos = (opts.photos || [image]).map((u) => String(u || "").trim()).filter(Boolean);
   await persistPendingAiOfferForClinicSelect({
-    image: String(opts.image || "").trim(),
+    image,
+    photos,
     analysis: opts.analysis || {},
     ...(opts.message?.trim() ? { message: opts.message.trim() } : {}),
   });
@@ -49,6 +53,7 @@ export type SendOfferRequestParams = {
   token: string;
   clinicIds: string[];
   image: string;
+  photos?: string[];
   analysis: Record<string, unknown>;
   message: string;
 };
@@ -60,9 +65,12 @@ export type SendOfferRequestResult =
 export async function sendOfferRequest(
   params: SendOfferRequestParams,
 ): Promise<SendOfferRequestResult> {
-  const { token, clinicIds, image, analysis, message } = params;
+  const { token, clinicIds, image, photos, analysis, message } = params;
   const imageUrl = String(image || "").trim();
-  if (!/^https?:\/\//i.test(imageUrl)) {
+  const photoList = (photos?.length ? photos : [imageUrl])
+    .map((u) => String(u || "").trim())
+    .filter((u) => /^https?:\/\//i.test(u));
+  if (!photoList.length) {
     return {
       ok: false,
       error: "photo_url_required",
@@ -79,7 +87,8 @@ export async function sendOfferRequest(
       },
       body: JSON.stringify({
         clinicIds,
-        image: imageUrl,
+        image: photoList[0],
+        photos: photoList,
         analysis,
         message: String(message || "").trim(),
       }),

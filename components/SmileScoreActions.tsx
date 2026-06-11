@@ -46,7 +46,7 @@ export function SmileScoreActions({ data, clinicId }: Props) {
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: 10, marginTop: 4 },
+  wrap: { gap: 10, marginTop: 12 },
   primaryBtn: {
     backgroundColor: "#2563eb",
     borderRadius: 12,

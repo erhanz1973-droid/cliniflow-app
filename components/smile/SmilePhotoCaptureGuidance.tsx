@@ -9,13 +9,20 @@ type Props = {
   showModeBadge?: boolean;
 };
 
-const DO_KEYS = [
+const DO_KEYS_SMILE = [
   "smilePhotoGuide.do1",
   "smilePhotoGuide.do2",
   "smilePhotoGuide.do3",
   "smilePhotoGuide.do4",
   "smilePhotoGuide.do5",
   "smilePhotoGuide.do6",
+] as const;
+
+const DO_KEYS_TEETH = [
+  "smilePhotoGuide.teethDo1",
+  "smilePhotoGuide.teethDo2",
+  "smilePhotoGuide.teethDo3",
+  "smilePhotoGuide.teethDo4",
 ] as const;
 
 const AVOID_KEYS = [
@@ -69,6 +76,9 @@ export function SmilePhotoCaptureGuidance({
 
   const modeLabelKey =
     mode === "closeup_teeth" ? "smilePhotoGuide.modeCloseup" : "smilePhotoGuide.modeSmile";
+  const titleKey =
+    mode === "closeup_teeth" ? "smilePhotoGuide.teethTitle" : "smilePhotoGuide.title";
+  const doKeys = mode === "closeup_teeth" ? DO_KEYS_TEETH : DO_KEYS_SMILE;
 
   const incorrectBullets = useMemo(
     () => [
@@ -97,10 +107,10 @@ export function SmilePhotoCaptureGuidance({
         </View>
       ) : null}
 
-      <Text style={[styles.title, compact && styles.titleCompact]}>{t("smilePhotoGuide.title")}</Text>
+      <Text style={[styles.title, compact && styles.titleCompact]}>{t(titleKey)}</Text>
 
       <View style={styles.doSection}>
-        {DO_KEYS.map((key) => (
+        {doKeys.map((key) => (
           <Text key={key} style={styles.doLine}>
             ✅ {t(key)}
           </Text>

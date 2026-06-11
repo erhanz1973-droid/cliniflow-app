@@ -10,16 +10,15 @@ import {
   KeyboardAvoidingView,
   Platform,
   BackHandler,
-  Image,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useLanguage } from "../../../lib/language-context";
 import { useAuth } from "../../../lib/auth";
-import { setLastCapturedImage, useLastCapturedImage } from "../../../lib/lastCapturedImage";
+import { setLastCapturedImage } from "../../../lib/lastCapturedImage";
 import {
-  analyzePhoto,
+  analyzeDualSmilePhotos,
   compressImageForAi,
   type AnalyzePhotoResult,
 } from "../../../lib/dentalAnalysisPipeline";
@@ -29,8 +28,10 @@ import {
   hasVisibleAnalysisContent,
 } from "../../../lib/dentalAnalysisNormalize";
 import { goToDentalCamera } from "../../../lib/dentalPhotoNavigation";
+import { setSmilePhotoPair, useSmilePhotoPair } from "../../../lib/smilePhotoPair";
+import { SmilePhotoStepCard } from "../../../components/smile/SmilePhotoStepCard";
+import { SmilePhotoCaptureMotivation } from "../../../components/smile/SmilePhotoCaptureMotivation";
 import { pickIntakeImageFromLibrary } from "../../../lib/treatmentGuide/uploadDocument";
-import { GuidePhotoStart } from "../../../components/treatmentGuide/GuidePhotoStart";
 import { GuideFlowSection } from "../../../components/treatmentGuide/GuideFlowSection";
 import { IntakeProgressSummary } from "../../../components/treatmentGuide/IntakeProgressSummary";
 import { leaveToPatientHome } from "../../../lib/safePatientNavigation";
@@ -60,10 +61,15 @@ import {
   saveTreatmentGuideAnalysisCache,
 } from "../../../lib/treatmentGuide/analysisCache";
 import { GuidePhotoAnalysisCard, type PhotoAnalysisUiPhase } from "../../../components/treatmentGuide/GuidePhotoAnalysisCard";
+import { SmileClinicRecommendations } from "../../../components/SmileClinicRecommendations";
+import { extractSmileScoreFromPayload } from "../../../lib/smileScore";
 import { recordSmileAnalysis } from "../../../lib/recordSmileAnalysis";
-import { DEFAULT_SMILE_PHOTO_TYPE } from "../../../lib/smilePhotoCapture";
 import { parseClinicsFromAnalysisPayload } from "../../../lib/smileClinicMapping";
-import { sha256LocalFileUri, normalizeContentHash } from "../../../lib/treatmentGuide/imageContentHash";
+import {
+  sha256LocalFileUri,
+  normalizeContentHash,
+  combineContentHashes,
+} from "../../../lib/treatmentGuide/imageContentHash";
 import {
   loadLastGuideImage,
   saveLastGuideImage,
@@ -74,8 +80,14 @@ export default function TreatmentGuideScreen() {
   const insets = useSafeAreaInsets();
   const { t, currentLanguage } = useLanguage();
   const { user } = useAuth();
-  const params = useLocalSearchParams<{ imageUri?: string; clinicId?: string; clinic_id?: string }>();
-  const storeUri = useLastCapturedImage();
+  const params = useLocalSearchParams<{
+    imageUri?: string;
+    smileUri?: string;
+    teethUri?: string;
+    clinicId?: string;
+    clinic_id?: string;
+  }>();
+  const storePair = useSmilePhotoPair();
   const [sessionId, setSessionId] = useState("");
   const scrollRef = useRef<ScrollView>(null);
   const chipSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,6 +100,7 @@ export default function TreatmentGuideScreen() {
   const narrativeRestoredRef = useRef(false);
   const inquiryRestoredRef = useRef(false);
   const [guidanceSavedAt, setGuidanceSavedAt] = useState<string | null>(null);
+  const [showClinicPrep, setShowClinicPrep] = useState(false);
 
   const patientId = String(user?.patientId || user?.id || "").trim();
   const token = user?.token;
@@ -108,13 +121,38 @@ export default function TreatmentGuideScreen() {
     useTreatmentGuideIntake({ sessionId, clinicId });
 
   const [restoredDisplayUri, setRestoredDisplayUri] = useState<string | null>(null);
+  const [restoredTeethDisplayUri, setRestoredTeethDisplayUri] = useState<string | null>(null);
+  const [retakeTarget, setRetakeTarget] = useState<"smile" | "teeth" | "both" | null>(null);
 
-  const imageUri = useMemo(() => {
-    const p = typeof params.imageUri === "string" ? params.imageUri.trim() : "";
-    return p || String(storeUri || "").trim() || String(restoredDisplayUri || "").trim();
-  }, [params.imageUri, storeUri, restoredDisplayUri]);
+  useEffect(() => {
+    const smileParam =
+      (typeof params.smileUri === "string" ? params.smileUri.trim() : "") ||
+      (typeof params.imageUri === "string" ? params.imageUri.trim() : "");
+    const teethParam = typeof params.teethUri === "string" ? params.teethUri.trim() : "";
+    if (smileParam || teethParam) {
+      setSmilePhotoPair({
+        smileUri: smileParam || storePair.smileUri,
+        teethUri: teethParam || storePair.teethUri,
+      });
+    }
+  }, [params.smileUri, params.teethUri, params.imageUri]);
 
-  const displayImageUri = imageUri;
+  const smilePhotoUri = useMemo(() => {
+    const p =
+      (typeof params.smileUri === "string" ? params.smileUri.trim() : "") ||
+      (typeof params.imageUri === "string" ? params.imageUri.trim() : "");
+    return p || String(storePair.smileUri || "").trim() || String(restoredDisplayUri || "").trim();
+  }, [params.smileUri, params.imageUri, storePair.smileUri, restoredDisplayUri]);
+
+  const teethPhotoUri = useMemo(() => {
+    const p = typeof params.teethUri === "string" ? params.teethUri.trim() : "";
+    return p || String(storePair.teethUri || "").trim() || String(restoredTeethDisplayUri || "").trim();
+  }, [params.teethUri, storePair.teethUri, restoredTeethDisplayUri]);
+
+  const displayImageUri = smilePhotoUri;
+  const displayTeethUri = teethPhotoUri;
+
+  const imageUri = smilePhotoUri;
 
   const imageFingerprint = useMemo(() => normalizeImageFingerprint(imageUri), [imageUri]);
 
@@ -122,6 +160,7 @@ export default function TreatmentGuideScreen() {
     "idle" | "restoring" | "uploading" | "analyzing" | "done" | "error" | "skipped"
   >("idle");
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [remoteTeethHttpUrl, setRemoteTeethHttpUrl] = useState<string | null>(null);
   const [analysisPayload, setAnalysisPayload] = useState<Record<string, unknown> | null>(null);
   const [patientNarrative, setPatientNarrative] = useState("");
   const [selectedChipIds, setSelectedChipIds] = useState<TreatmentGoalChipId[]>([]);
@@ -153,15 +192,20 @@ export default function TreatmentGuideScreen() {
   const photoUiPhase = useMemo((): PhotoAnalysisUiPhase => {
     if (phase === "error") return "failed";
     if (phase === "done") return "analyzed";
-    if (phase === "skipped") return displayImageUri ? "uploaded" : "idle";
-    if (phase === "idle" && displayImageUri && analysisPayload) return "analyzed";
-    if (phase === "idle" && displayImageUri) return "uploaded";
+    if (phase === "skipped") return displayImageUri && displayTeethUri ? "uploaded" : "idle";
+    if (phase === "idle" && displayImageUri && displayTeethUri && analysisPayload) return "analyzed";
+    if (phase === "idle" && displayImageUri && displayTeethUri) return "uploaded";
     return phase;
-  }, [phase, displayImageUri, analysisPayload]);
+  }, [phase, displayImageUri, displayTeethUri, analysisPayload]);
 
   const analysisClinics = useMemo(
     () => parseClinicsFromAnalysisPayload(analysisPayload),
     [analysisPayload],
+  );
+
+  const smileScoreData = useMemo(
+    () => extractSmileScoreFromPayload(analysisPayload, localized),
+    [analysisPayload, localized],
   );
 
   const resolveContentHash = useCallback(async (uri: string): Promise<string> => {
@@ -521,7 +565,7 @@ export default function TreatmentGuideScreen() {
 
   const runPhotoAnalysis = useCallback(
     async (opts: { forceReanalyze?: boolean } = {}) => {
-      if (!imageUri || !token || !patientId || !imageFingerprint) return;
+      if (!smilePhotoUri || !teethPhotoUri || !token || !patientId) return;
       if (analysisInFlightRef.current) return;
 
       const force = opts.forceReanalyze === true;
@@ -547,39 +591,49 @@ export default function TreatmentGuideScreen() {
       analysisInFlightRef.current = true;
       setPhase(force ? "analyzing" : "uploading");
       setErrorText(null);
+      setRetakeTarget(null);
       if (force) {
         setAnalysisPayload(null);
         analyzeFetchFailedRef.current = false;
       }
 
       try {
-        let contentHash = await resolveContentHash(imageUri);
-        if (contentHash) analyzedContentHashRef.current = contentHash;
+        const smileHash = await resolveContentHash(smilePhotoUri);
+        const teethHash = await resolveContentHash(teethPhotoUri);
+        const combinedFingerprint = normalizeImageFingerprint(
+          `${smilePhotoUri}|${teethPhotoUri}`,
+        );
+        if (smileHash && teethHash) {
+          analyzedContentHashRef.current = await combineContentHashes(smileHash, teethHash);
+        }
 
         if (!force) {
-          const restored = await restoreAnalysisOnly(imageFingerprint, contentHash);
+          const restored = await restoreAnalysisOnly(combinedFingerprint, analyzedContentHashRef.current);
           if (restored) return;
         }
 
         setPhase("analyzing");
-        const result = await analyzePhoto({
-          imageUri,
+        const result = await analyzeDualSmilePhotos({
+          smileUri: smilePhotoUri,
+          teethUri: teethPhotoUri,
           patientId,
           token,
           sessionId,
-          photoType: DEFAULT_SMILE_PHOTO_TYPE,
           lang: currentLanguage,
           forceReanalyze: force,
-          contentHash,
+          smileContentHash: smileHash,
+          teethContentHash: teethHash,
         });
 
         if (result.ok) {
           analyzeFetchFailedRef.current = false;
+          const teethRemote = String(result.aiData?.teethImageUrl || "").trim();
+          if (/^https?:\/\//i.test(teethRemote)) setRemoteTeethHttpUrl(teethRemote);
           applyAnalysisResult(
             result.fileUrl,
             result.aiData,
-            imageFingerprint,
-            contentHash,
+            combinedFingerprint,
+            analyzedContentHashRef.current,
             [localImageFingerprintRef.current].filter(Boolean) as string[],
           );
           if (!result.aiData?.reused && !result.aiData?.cached) {
@@ -589,8 +643,15 @@ export default function TreatmentGuideScreen() {
           const err = result as Extract<AnalyzePhotoResult, { ok: false }>;
           const fetchFailed =
             err.errorCode === "image_fetch_failed" ||
+            err.errorCode === "teeth_image_fetch_failed" ||
             err.errorCode === "image_fetch_timeout";
           if (fetchFailed) analyzeFetchFailedRef.current = true;
+          const retake = String(err.aiData?.retakeTarget || "").trim();
+          if (retake === "smile" || retake === "teeth" || retake === "both") {
+            setRetakeTarget(retake);
+          } else if (err.errorCode === "photo_unusable") {
+            setRetakeTarget("both");
+          }
           setPhase("error");
           setErrorText(
             err.phase === "session"
@@ -605,8 +666,8 @@ export default function TreatmentGuideScreen() {
       }
     },
     [
-      imageUri,
-      imageFingerprint,
+      smilePhotoUri,
+      teethPhotoUri,
       patientId,
       token,
       currentLanguage,
@@ -632,25 +693,40 @@ export default function TreatmentGuideScreen() {
     return cities.slice(0, 4).join(", ");
   }, [hasClinic, intake.clinicDirectory?.cities]);
 
-  const addPhoto = useCallback(() => {
-    goToDentalCamera(router);
+  const addSmilePhoto = useCallback(() => {
+    goToDentalCamera(router, "smile");
   }, [router]);
 
-  const uploadPhotoFromLibrary = useCallback(async () => {
+  const addTeethPhoto = useCallback(() => {
+    goToDentalCamera(router, "closeup_teeth");
+  }, [router]);
+
+  const uploadSmileFromLibrary = useCallback(async () => {
     const picked = await pickIntakeImageFromLibrary();
     if (!picked?.uri) return;
     const uri = picked.uri.trim();
-    analyzedFingerprintRef.current = null;
-    analyzedContentHashRef.current = null;
-    localImageFingerprintRef.current = normalizeImageFingerprint(uri);
-    analyzeFetchFailedRef.current = false;
+    setSmilePhotoPair({ smileUri: uri });
+    setRestoredDisplayUri(null);
     setAnalysisPayload(null);
     setGuidanceSavedAt(null);
-    setRestoredDisplayUri(null);
     setPhase("idle");
     setLastCapturedImage(uri);
-    router.setParams({ imageUri: uri } as never);
+    router.setParams({ smileUri: uri } as never);
   }, [router]);
+
+  const uploadTeethFromLibrary = useCallback(async () => {
+    const picked = await pickIntakeImageFromLibrary();
+    if (!picked?.uri) return;
+    const uri = picked.uri.trim();
+    setSmilePhotoPair({ teethUri: uri });
+    setRestoredTeethDisplayUri(null);
+    setAnalysisPayload(null);
+    setGuidanceSavedAt(null);
+    setPhase("idle");
+    router.setParams({ teethUri: uri } as never);
+  }, [router]);
+
+  const bothPhotosReady = !!smilePhotoUri && !!teethPhotoUri;
 
   const isPhotoBusy =
     phase === "uploading" || phase === "analyzing" || phase === "restoring";
@@ -665,6 +741,13 @@ export default function TreatmentGuideScreen() {
     const uri = String(displayImageUri || "").trim();
     return /^https?:\/\//i.test(uri) ? uri : undefined;
   }, [displayImageUri]);
+
+  const teethPhotoHttpUrl = useMemo(() => {
+    const fromPayload = String(analysisPayload?.teethImageUrl || "").trim();
+    if (/^https?:\/\//i.test(fromPayload)) return fromPayload;
+    const uri = String(remoteTeethHttpUrl || displayTeethUri || "").trim();
+    return /^https?:\/\//i.test(uri) ? uri : undefined;
+  }, [analysisPayload?.teethImageUrl, remoteTeethHttpUrl, displayTeethUri]);
 
   const buildIncludedInquiryAttachments = useCallback((): InquiryAttachment[] => {
     const all = collectInquiryAttachments({
@@ -721,7 +804,11 @@ export default function TreatmentGuideScreen() {
         </TouchableOpacity>
         <View style={styles.topBarCenter}>
           <Text style={styles.pageTitle}>{t("treatmentGuide.title")}</Text>
-          <Text style={styles.pageSub}>{t("treatmentGuide.flow.pageIntro")}</Text>
+          <Text style={styles.pageSub}>
+            {hasSavedGuidance
+              ? t("treatmentGuide.flow.resultPageIntro")
+              : t("treatmentGuide.flow.pageIntro")}
+          </Text>
         </View>
         <View style={styles.backBtn} />
       </View>
@@ -733,155 +820,329 @@ export default function TreatmentGuideScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.flowIntro}>{t("treatmentGuide.flow.intro")}</Text>
-        {hasSavedGuidance ? (
-          <Text style={styles.savedWorkspaceHint}>{t("treatmentGuide.workspace.guidanceSaved")}</Text>
-        ) : intake.treatmentGuideWorkspace?.photoUrl ? (
+        {!hasSavedGuidance ? (
+          <View style={styles.heroWrap}>
+            <SmilePhotoCaptureMotivation compact />
+          </View>
+        ) : null}
+        {!hasSavedGuidance && intake.treatmentGuideWorkspace?.photoUrl ? (
           <Text style={styles.savedWorkspaceHint}>{t("treatmentGuide.workspace.savedHint")}</Text>
         ) : null}
 
+        {hasSavedGuidance ? (
+          <View style={styles.resultFirstWrap}>
+            <GuidePhotoAnalysisCard
+              embedded
+              resultFirst
+              displayUri={displayImageUri || undefined}
+              teethDisplayUri={displayTeethUri || undefined}
+              phase={photoUiPhase}
+              analysisPayload={analysisPayload}
+              localized={localized}
+              errorText={errorText}
+              retakeTarget={retakeTarget}
+              showTranslatedBadge={showTranslatedBadge}
+              guidanceSavedAt={guidanceSavedAt}
+              clinicId={clinicId || undefined}
+              clinics={analysisClinics}
+              photoHttpUrl={dentalPhotoHttpUrl}
+              teethPhotoHttpUrl={teethPhotoHttpUrl}
+              onRetry={() => {
+                analyzeFetchFailedRef.current = false;
+                void runPhotoAnalysis({ forceReanalyze: true });
+              }}
+              onRetakeSmilePhoto={addSmilePhoto}
+              onRetakeTeethPhoto={addTeethPhoto}
+            />
+          </View>
+        ) : null}
+
         <GuideFlowSection
-          step={1}
-          title={t("treatmentGuide.flow.step1.title")}
-          hint={t("treatmentGuide.flow.step1.hint")}
+          step={hasSavedGuidance ? 2 : 1}
+          title={t("smileDualFlow.sectionTitle")}
+          hint={
+            hasSavedGuidance
+              ? t("treatmentGuide.flow.photosRetakeHint")
+              : t("smileDualFlow.sectionHint")
+          }
         >
-          <GuidePhotoStart
-            embedded
-            hasPhoto={!!displayImageUri}
-            onTakePhoto={addPhoto}
-            onUploadPhoto={() => void uploadPhotoFromLibrary()}
-            uploading={isPhotoBusy}
-            showAnalyzeGuidance={
-              !!displayImageUri && !hasSavedGuidance && !isPhotoBusy && phase !== "error"
-            }
-            onAnalyzeGuidance={() => {
-              analyzeFetchFailedRef.current = false;
-              void runPhotoAnalysis({ forceReanalyze: false });
-            }}
-            showAnalyzeAgain={hasSavedGuidance && !isPhotoBusy}
-            onAnalyzeAgain={() => {
-              analyzeFetchFailedRef.current = false;
-              void runPhotoAnalysis({ forceReanalyze: true });
-            }}
+          <SmilePhotoStepCard
+            stepNumber={1}
+            mode="smile"
+            photoUri={smilePhotoUri || undefined}
+            onCapture={addSmilePhoto}
+            onUpload={() => void uploadSmileFromLibrary()}
+            onRetake={addSmilePhoto}
+            disabled={isPhotoBusy}
+            completed={!!smilePhotoUri}
+          />
+          <SmilePhotoStepCard
+            stepNumber={2}
+            mode="closeup_teeth"
+            photoUri={teethPhotoUri || undefined}
+            onCapture={addTeethPhoto}
+            onUpload={() => void uploadTeethFromLibrary()}
+            onRetake={addTeethPhoto}
+            disabled={isPhotoBusy}
+            completed={!!teethPhotoUri}
           />
 
-          {displayImageUri ? (
-            <View style={styles.photoPreviewBlock}>
-              <Image source={{ uri: displayImageUri }} style={styles.preview} resizeMode="cover" />
-              <TouchableOpacity style={styles.linkBtn} onPress={addPhoto} activeOpacity={0.85}>
-                <Text style={styles.linkBtnText}>{t("treatmentGuide.retakePhoto")}</Text>
-              </TouchableOpacity>
-            </View>
+          {bothPhotosReady && !hasSavedGuidance && !isPhotoBusy && phase !== "error" ? (
+            <TouchableOpacity
+              style={styles.analyzePrimaryBtn}
+              onPress={() => {
+                analyzeFetchFailedRef.current = false;
+                void runPhotoAnalysis({ forceReanalyze: false });
+              }}
+              activeOpacity={0.88}
+            >
+              <Text style={styles.analyzePrimaryText}>{t("treatmentGuide.photoStart.getGuidance")}</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {hasSavedGuidance && !isPhotoBusy ? (
+            <TouchableOpacity
+              style={styles.analyzeAgainBtn}
+              onPress={() => {
+                analyzeFetchFailedRef.current = false;
+                void runPhotoAnalysis({ forceReanalyze: true });
+              }}
+              activeOpacity={0.88}
+            >
+              <Text style={styles.analyzeAgainText}>{t("treatmentGuide.photoStart.analyzeAgain")}</Text>
+            </TouchableOpacity>
           ) : null}
         </GuideFlowSection>
 
-        <GuideFlowSection
-          step={2}
-          title={t("treatmentGuide.flow.step2.title")}
-          hint={t("treatmentGuide.flow.step2.hint")}
-        >
-          <GuidePhotoAnalysisCard
-            embedded
-            displayUri={displayImageUri || undefined}
-            phase={photoUiPhase}
-            analysisPayload={analysisPayload}
-            localized={localized}
-            errorText={errorText}
-            showTranslatedBadge={showTranslatedBadge}
-            guidanceSavedAt={guidanceSavedAt}
-            clinicId={clinicId || undefined}
-            clinics={analysisClinics}
-            photoHttpUrl={dentalPhotoHttpUrl}
-            onRetry={() => {
-              analyzeFetchFailedRef.current = false;
-              void runPhotoAnalysis({ forceReanalyze: true });
-            }}
-          />
-        </GuideFlowSection>
+        {!hasSavedGuidance ? (
+          <GuideFlowSection
+            step={2}
+            title={t("treatmentGuide.flow.step2.title")}
+            hint={t("treatmentGuide.flow.step2.hint")}
+          >
+            <GuidePhotoAnalysisCard
+              embedded
+              displayUri={displayImageUri || undefined}
+              teethDisplayUri={displayTeethUri || undefined}
+              phase={photoUiPhase}
+              analysisPayload={analysisPayload}
+              localized={localized}
+              errorText={errorText}
+              retakeTarget={retakeTarget}
+              showTranslatedBadge={showTranslatedBadge}
+              guidanceSavedAt={guidanceSavedAt}
+              clinicId={clinicId || undefined}
+              clinics={analysisClinics}
+              photoHttpUrl={dentalPhotoHttpUrl}
+              teethPhotoHttpUrl={teethPhotoHttpUrl}
+              onRetry={() => {
+                analyzeFetchFailedRef.current = false;
+                void runPhotoAnalysis({ forceReanalyze: true });
+              }}
+              onRetakeSmilePhoto={addSmilePhoto}
+              onRetakeTeethPhoto={addTeethPhoto}
+            />
+          </GuideFlowSection>
+        ) : null}
 
-        <GuideFlowSection
-          step={3}
-          title={t("treatmentGuide.flow.step3.title")}
-          hint={t("treatmentGuide.flow.step3.hint")}
-        >
-          <Text style={styles.concernPrompt}>{t("treatmentGuide.flow.step3.prompt")}</Text>
-          <GoalChips selectedIds={selectedChipIds} onToggle={handleToggleGoal} saving={savingGoals} />
-          {goalsError ? <Text style={styles.errorText}>{goalsError}</Text> : null}
-          <TextInput
-            style={styles.narrativeInput}
-            value={patientNarrative}
-            onChangeText={(v) => {
-              narrativeRestoredRef.current = true;
-              setPatientNarrative(v);
-            }}
-            placeholder={t("treatmentGuide.narrativePlaceholder")}
-            placeholderTextColor="#94a3b8"
-            multiline
-            textAlignVertical="top"
-            maxLength={2000}
-          />
-        </GuideFlowSection>
+        {hasSavedGuidance ? (
+          <GuideFlowSection
+            step={3}
+            title={t("treatmentGuide.flow.step4.title")}
+            hint={t("treatmentGuide.flow.step4.hint")}
+            isLast={!showClinicPrep}
+          >
+            <TouchableOpacity
+              style={styles.clinicPrepToggle}
+              onPress={() => setShowClinicPrep((v) => !v)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.clinicPrepToggleText}>
+                {showClinicPrep
+                  ? t("treatmentGuide.flow.hideClinicPrep")
+                  : t("treatmentGuide.flow.showClinicPrep")}
+              </Text>
+              <Ionicons
+                name={showClinicPrep ? "chevron-up" : "chevron-down"}
+                size={18}
+                color="#64748b"
+              />
+            </TouchableOpacity>
 
-        <GuideFlowSection
-          step={4}
-          title={t("treatmentGuide.flow.step4.title")}
-          hint={t("treatmentGuide.flow.step4.hint")}
-          isLast
-        >
-          <IntakeProgressSummary
-            subtle
-            loading={intakeLoading}
-            intakeJourney={intake.intakeJourney}
-            flags={flags}
-          />
+            {showClinicPrep ? (
+              <View style={styles.clinicPrepBody}>
+                {smileScoreData ? (
+                  <View style={styles.optionalClinicBlock}>
+                    <SmileClinicRecommendations
+                      smileData={smileScoreData}
+                      clinics={analysisClinics}
+                    />
+                  </View>
+                ) : null}
+                <Text style={styles.concernPrompt}>{t("treatmentGuide.flow.step3.prompt")}</Text>
+                <GoalChips
+                  selectedIds={selectedChipIds}
+                  onToggle={handleToggleGoal}
+                  saving={savingGoals}
+                />
+                {goalsError ? <Text style={styles.errorText}>{goalsError}</Text> : null}
+                <TextInput
+                  style={styles.narrativeInput}
+                  value={patientNarrative}
+                  onChangeText={(v) => {
+                    narrativeRestoredRef.current = true;
+                    setPatientNarrative(v);
+                  }}
+                  placeholder={t("treatmentGuide.narrativePlaceholder")}
+                  placeholderTextColor="#94a3b8"
+                  multiline
+                  textAlignVertical="top"
+                  maxLength={2000}
+                />
 
-          <UploadGuidance
-            embedded
-            flags={flags}
-            documents={intake.documents}
-            sessionId={sessionId}
-            clinicId={clinicId}
-            patientId={patientId}
-            intake={intake}
-            onIntakeUpdate={applyIntakeState}
-            onRefresh={refreshIntake}
-            onOpenFiles={goToFiles}
-          />
+                <IntakeProgressSummary
+                  subtle
+                  loading={intakeLoading}
+                  intakeJourney={intake.intakeJourney}
+                  flags={flags}
+                />
 
-          {!hasClinic && clinicRegionHint ? (
-            <Text style={styles.regionHint}>
-              {t("treatmentGuide.clinicNetwork.regionAvailable", { cities: clinicRegionHint })}
-            </Text>
-          ) : null}
+                <UploadGuidance
+                  embedded
+                  flags={flags}
+                  documents={intake.documents}
+                  sessionId={sessionId}
+                  clinicId={clinicId}
+                  patientId={patientId}
+                  intake={intake}
+                  onIntakeUpdate={applyIntakeState}
+                  onRefresh={refreshIntake}
+                  onOpenFiles={goToFiles}
+                />
 
-          <ClinicInquiryDraftPanel
-            flags={flags}
-            leadData={intake.leadData}
-            documents={intake.documents}
-            patientNarrative={patientNarrative}
-            photoGuidanceSummary={photoGuidanceSummary || undefined}
-            hasDentalPhoto={!!displayImageUri}
-            dentalPhotoUrl={dentalPhotoHttpUrl}
-            draftText={inquiryDraftText}
-            onDraftTextChange={(v) => {
-              inquiryRestoredRef.current = true;
-              setInquiryDraftText(v);
-            }}
-            excludedAttachmentIds={excludedInquiryAttachmentIds}
-            onToggleAttachmentExclude={handleToggleInquiryAttachment}
-            onIncludedAttachmentsChange={(atts) => {
-              includedInquiryAttachmentsRef.current = atts;
-            }}
-            onRequestOffers={handleRequestOffers}
-          />
+                {!hasClinic && clinicRegionHint ? (
+                  <Text style={styles.regionHint}>
+                    {t("treatmentGuide.clinicNetwork.regionAvailable", { cities: clinicRegionHint })}
+                  </Text>
+                ) : null}
 
-          <ClinicNetworkHint
-            embedded
-            flags={flags}
-            directory={intake.clinicDirectory}
-            countryHint={intake.leadData.country}
-          />
-        </GuideFlowSection>
+                <ClinicInquiryDraftPanel
+                  flags={flags}
+                  leadData={intake.leadData}
+                  documents={intake.documents}
+                  patientNarrative={patientNarrative}
+                  photoGuidanceSummary={photoGuidanceSummary || undefined}
+                  hasDentalPhoto={!!displayImageUri}
+                  dentalPhotoUrl={dentalPhotoHttpUrl}
+                  draftText={inquiryDraftText}
+                  onDraftTextChange={(v) => {
+                    inquiryRestoredRef.current = true;
+                    setInquiryDraftText(v);
+                  }}
+                  excludedAttachmentIds={excludedInquiryAttachmentIds}
+                  onToggleAttachmentExclude={handleToggleInquiryAttachment}
+                  onIncludedAttachmentsChange={(atts) => {
+                    includedInquiryAttachmentsRef.current = atts;
+                  }}
+                  onRequestOffers={handleRequestOffers}
+                />
+
+                <ClinicNetworkHint
+                  embedded
+                  flags={flags}
+                  directory={intake.clinicDirectory}
+                  countryHint={intake.leadData.country}
+                />
+              </View>
+            ) : null}
+          </GuideFlowSection>
+        ) : (
+          <>
+            <GuideFlowSection
+              step={3}
+              title={t("treatmentGuide.flow.step3.title")}
+              hint={t("treatmentGuide.flow.step3.hint")}
+            >
+              <Text style={styles.concernPrompt}>{t("treatmentGuide.flow.step3.prompt")}</Text>
+              <GoalChips selectedIds={selectedChipIds} onToggle={handleToggleGoal} saving={savingGoals} />
+              {goalsError ? <Text style={styles.errorText}>{goalsError}</Text> : null}
+              <TextInput
+                style={styles.narrativeInput}
+                value={patientNarrative}
+                onChangeText={(v) => {
+                  narrativeRestoredRef.current = true;
+                  setPatientNarrative(v);
+                }}
+                placeholder={t("treatmentGuide.narrativePlaceholder")}
+                placeholderTextColor="#94a3b8"
+                multiline
+                textAlignVertical="top"
+                maxLength={2000}
+              />
+            </GuideFlowSection>
+
+            <GuideFlowSection
+              step={4}
+              title={t("treatmentGuide.flow.step4.title")}
+              hint={t("treatmentGuide.flow.step4.hint")}
+              isLast
+            >
+              <IntakeProgressSummary
+                subtle
+                loading={intakeLoading}
+                intakeJourney={intake.intakeJourney}
+                flags={flags}
+              />
+
+              <UploadGuidance
+                embedded
+                flags={flags}
+                documents={intake.documents}
+                sessionId={sessionId}
+                clinicId={clinicId}
+                patientId={patientId}
+                intake={intake}
+                onIntakeUpdate={applyIntakeState}
+                onRefresh={refreshIntake}
+                onOpenFiles={goToFiles}
+              />
+
+              {!hasClinic && clinicRegionHint ? (
+                <Text style={styles.regionHint}>
+                  {t("treatmentGuide.clinicNetwork.regionAvailable", { cities: clinicRegionHint })}
+                </Text>
+              ) : null}
+
+              <ClinicInquiryDraftPanel
+                flags={flags}
+                leadData={intake.leadData}
+                documents={intake.documents}
+                patientNarrative={patientNarrative}
+                photoGuidanceSummary={photoGuidanceSummary || undefined}
+                hasDentalPhoto={!!displayImageUri}
+                dentalPhotoUrl={dentalPhotoHttpUrl}
+                draftText={inquiryDraftText}
+                onDraftTextChange={(v) => {
+                  inquiryRestoredRef.current = true;
+                  setInquiryDraftText(v);
+                }}
+                excludedAttachmentIds={excludedInquiryAttachmentIds}
+                onToggleAttachmentExclude={handleToggleInquiryAttachment}
+                onIncludedAttachmentsChange={(atts) => {
+                  includedInquiryAttachmentsRef.current = atts;
+                }}
+                onRequestOffers={handleRequestOffers}
+              />
+
+              <ClinicNetworkHint
+                embedded
+                flags={flags}
+                directory={intake.clinicDirectory}
+                countryHint={intake.leadData.country}
+              />
+            </GuideFlowSection>
+          </>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -904,6 +1165,8 @@ const styles = StyleSheet.create({
   pageSub: { fontSize: 12, color: "#64748b", marginTop: 2, textAlign: "center", paddingHorizontal: 8 },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 18, paddingTop: 12 },
+  heroWrap: { marginBottom: 16 },
+  resultFirstWrap: { marginBottom: 24, paddingBottom: 24, borderBottomWidth: 1, borderBottomColor: "#e2e8f0" },
   flowIntro: {
     fontSize: 14,
     color: "#64748b",
@@ -949,6 +1212,34 @@ const styles = StyleSheet.create({
   },
   linkBtn: { paddingVertical: 4, alignSelf: "flex-start" },
   linkBtnText: { fontSize: 13, fontWeight: "600", color: "#2563eb" },
+  analyzePrimaryBtn: {
+    marginTop: 4,
+    backgroundColor: "#0f172a",
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  analyzePrimaryText: { fontSize: 15, fontWeight: "700", color: "#fff" },
+  analyzeAgainBtn: {
+    marginTop: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  analyzeAgainText: { fontSize: 13, fontWeight: "600", color: "#64748b" },
+  optionalClinicBlock: { marginBottom: 20 },
+  clinicPrepToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: "#f8fafc",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  clinicPrepToggleText: { fontSize: 14, fontWeight: "600", color: "#475569", flex: 1 },
+  clinicPrepBody: { marginTop: 16, gap: 0 },
   secondaryBtn: {
     backgroundColor: "#f8fafc",
     borderRadius: 12,

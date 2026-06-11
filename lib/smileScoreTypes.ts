@@ -12,6 +12,8 @@ export type SmileScoreHistoryEntry = {
   id: string;
   analyzedAt: number;
   smileScore: number;
+  dentalSmileScore?: number | null;
+  facialHarmonyScore?: number | null;
   potentialScore: number;
   strengths: string[];
   improvementAreas: string[];

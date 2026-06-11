@@ -35,6 +35,18 @@ export function normalizeAnalyzeApiPayload(
     base.smileScore != null && Number.isFinite(Number(base.smileScore))
       ? Number(base.smileScore)
       : null;
+  const dentalSmileScore =
+    base.dentalSmileScore != null && Number.isFinite(Number(base.dentalSmileScore))
+      ? Number(base.dentalSmileScore)
+      : base.dental_smile_score != null && Number.isFinite(Number(base.dental_smile_score))
+        ? Number(base.dental_smile_score)
+        : null;
+  const facialHarmonyScore =
+    base.facialHarmonyScore != null && Number.isFinite(Number(base.facialHarmonyScore))
+      ? Number(base.facialHarmonyScore)
+      : base.facial_harmony_score != null && Number.isFinite(Number(base.facial_harmony_score))
+        ? Number(base.facial_harmony_score)
+        : null;
   const potentialScore =
     base.potentialScore != null && Number.isFinite(Number(base.potentialScore))
       ? Number(base.potentialScore)
@@ -49,6 +61,22 @@ export function normalizeAnalyzeApiPayload(
     ? base.recommendations.map((x) => String(x).trim()).filter(Boolean)
     : [];
 
+  const rawCats = base.categoryScores ?? base.category_scores;
+  let categoryScores: Record<string, number | null> | null = null;
+  if (rawCats && typeof rawCats === "object") {
+    const cs = rawCats as Record<string, unknown>;
+    categoryScores = {
+      whiteness: Number.isFinite(Number(cs.whiteness ?? cs.brightness))
+        ? Number(cs.whiteness ?? cs.brightness)
+        : null,
+      alignment: Number.isFinite(Number(cs.alignment)) ? Number(cs.alignment) : null,
+      symmetry: Number.isFinite(Number(cs.symmetry)) ? Number(cs.symmetry) : null,
+      aesthetics: Number.isFinite(Number(cs.aesthetics ?? cs.smileAesthetics))
+        ? Number(cs.aesthetics ?? cs.smileAesthetics)
+        : null,
+    };
+  }
+
   return {
     ...base,
     ok: base.ok !== false,
@@ -56,17 +84,32 @@ export function normalizeAnalyzeApiPayload(
     summary,
     recommendation,
     smileScore,
+    dentalSmileScore,
+    facialHarmonyScore,
     potentialScore,
     strengths,
     improvementAreas,
     recommendations,
+    ...(categoryScores ? { categoryScores } : {}),
     reused: base.reused === true || base.cached === true,
     cached: base.cached === true,
   };
 }
 
+export function isAnalysisFallbackPayload(payload: Record<string, unknown> | null | undefined): boolean {
+  if (!payload || typeof payload !== "object") return false;
+  if (payload._fallback === true) return true;
+  const summary = String(payload.summary || "").trim().toLowerCase();
+  return (
+    summary.includes("net bir değerlendirme yapılamadı") ||
+    summary.includes("a clear assessment could not be made") ||
+    summary.includes("could not be fully analyzed")
+  );
+}
+
 export function hasVisibleAnalysisContent(payload: Record<string, unknown> | null): boolean {
   if (!payload) return false;
+  if (isAnalysisFallbackPayload(payload)) return false;
   const norm = normalizeAnalyzeApiPayload(payload);
   if (!norm) return false;
   const insights = Array.isArray(norm.insights) ? norm.insights : [];

@@ -19,6 +19,7 @@ import { SecondaryCard } from "../../../components/home/SecondaryCard";
 import { SmileScoreHeroCard } from "../../../components/home/SmileScoreHeroCard";
 import { HomeSmileScoreCard } from "../../../components/home/HomeSmileScoreCard";
 import { track } from "../../../lib/analytics";
+import { AnalyticsEvents } from "../../../lib/analytics/events";
 import { saveSelectedChatClinic } from "../../../lib/selectedChatClinic";
 import { useClinicStore } from "../../../store/useClinicStore";
 import { refreshActiveClinicFromApi } from "../../../lib/fetchPatientMyClinic";
@@ -337,6 +338,11 @@ export default function PatientDashboard() {
         });
 
       setPatientMe(nextRecord);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (__DEV__ && msg) {
+        console.warn("[PATIENT_HOME] patient/me fetch failed:", msg);
+      }
     } finally {
       setPatientMeSynced(true);
     }
@@ -520,7 +526,7 @@ export default function PatientDashboard() {
   const inboxBadgeTotal = useMemo(() => patientInboxBadgeTotal(inboxSummary), [inboxSummary]);
 
   const goToJoinClinic = useCallback(() => {
-    track("home_join_clinic_click");
+    track(AnalyticsEvents.homeJoinClinicClick);
     router.push({
       pathname: "/(patient)/profile" as const,
       params: { openJoinModal: "1" },
@@ -528,7 +534,7 @@ export default function PatientDashboard() {
   }, [router]);
 
   const goToClinicSearch = useCallback(() => {
-    track("home_clinic_search_click");
+    track(AnalyticsEvents.homeClinicSearchClick);
     router.push("/clinic-onboarding" as any);
   }, [router]);
 
@@ -639,18 +645,18 @@ export default function PatientDashboard() {
   }, [leavingClinic, t, linkedClinicTitle, openClinicMaps, handleLeaveClinic]);
 
   const goToGuide = useCallback(() => {
-    track("home_treatment_guide_click");
+    track(AnalyticsEvents.homeTreatmentGuideClick);
     const cid = String(patientMe?.clinic?.id || user?.clinicId || "").trim();
     goToTreatmentGuide(router, cid ? { clinicId: cid } : undefined);
   }, [router, patientMe?.clinic?.id, user?.clinicId]);
 
   const goToSmileAnalysis = useCallback(() => {
-    track("home_smile_analysis_click");
+    track(AnalyticsEvents.homeSmileAnalysisClick);
     goToDentalCamera(router);
   }, [router]);
 
   const goToViewSmileAnalysis = useCallback(() => {
-    track("home_smile_score_view_click");
+    track(AnalyticsEvents.homeSmileScoreViewClick);
     goToGuide();
   }, [goToGuide]);
 

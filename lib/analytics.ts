@@ -1,13 +1,11 @@
 /**
- * Lightweight analytics facade — swap implementation (PostHog, Segment, etc.) in one place.
+ * Product analytics facade — local queue only (no network). See `trackEvent` flush hook for providers.
  */
+import { trackEvent } from "./analytics/trackEvent";
+
 export function track(event: string, props?: Record<string, unknown>): void {
-  try {
-    if (__DEV__) {
-      console.log(`[analytics] ${event}`, props ?? {});
-    }
-    // Hook your provider here, e.g. posthog?.capture(event, props);
-  } catch {
-    /* non-fatal */
+  trackEvent(event, props);
+  if (__DEV__ && String(process.env.EXPO_PUBLIC_ANALYTICS_DEBUG || "").trim() === "1") {
+    console.log(`[analytics] ${event}`, props ?? {});
   }
 }

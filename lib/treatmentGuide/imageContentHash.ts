@@ -9,6 +9,22 @@ export function normalizeContentHash(raw: string | null | undefined): string {
 }
 
 /** SHA-256 of local file bytes (base64 read — works for camera / picker URIs). */
+/** Stable SHA-256 for dual-photo analyze cache (smile hash + teeth hash). */
+export async function combineContentHashes(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): Promise<string> {
+  const a = normalizeContentHash(left);
+  const b = normalizeContentHash(right);
+  if (!a || !b) return "";
+  const digest = await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    `${a}|${b}`,
+    { encoding: Crypto.CryptoEncoding.HEX },
+  );
+  return normalizeContentHash(digest);
+}
+
 export async function sha256LocalFileUri(uri: string): Promise<string | null> {
   const path = String(uri || "").trim();
   if (!path || path.startsWith("http://") || path.startsWith("https://")) return null;

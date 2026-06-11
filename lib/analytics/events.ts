@@ -3,6 +3,11 @@
  * Dashboard: wire `flushNow()` in trackEvent.ts to PostHog, Firebase, or your API.
  */
 export const AnalyticsEvents = {
+  homeSmileAnalysisClick: "home_smile_analysis_click",
+  homeSmileScoreViewClick: "home_smile_score_view_click",
+  homeTreatmentGuideClick: "home_treatment_guide_click",
+  homeJoinClinicClick: "home_join_clinic_click",
+  homeClinicSearchClick: "home_clinic_search_click",
   notificationPermissionMissing: "notification_permission_missing",
   storageLowDetected: "storage_low_detected",
   deviceLowStorageDetected: "device_low_storage_detected",

@@ -301,6 +301,7 @@ export default function ClinicSelectForOfferScreen() {
         token,
         clinicIds,
         image: img,
+        photos: payload.photos?.length ? payload.photos : [img],
         analysis: payload.analysis,
         message: message.trim(),
       });

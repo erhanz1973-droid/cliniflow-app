@@ -29,36 +29,50 @@ type LocalizedAnalysis = LocalizedDentalAnalysis;
 
 type Props = {
   displayUri?: string;
+  teethDisplayUri?: string;
   phase: PhotoAnalysisUiPhase;
   analysisPayload: Record<string, unknown> | null;
   localized: LocalizedAnalysis;
   errorText?: string | null;
+  retakeTarget?: "smile" | "teeth" | "both" | null;
   showTranslatedBadge?: boolean;
   onRetry: () => void;
   onRetakePhoto?: () => void;
+  onRetakeSmilePhoto?: () => void;
+  onRetakeTeethPhoto?: () => void;
   guidanceSavedAt?: string | null;
   /** Step header provided by parent — guidance body only */
   embedded?: boolean;
+  /** Result-first layout: minimal chrome, scores at top */
+  resultFirst?: boolean;
   clinicId?: string;
   clinics?: ClinicRecommendation[];
-  /** Remote photo URL for quote requests (https). */
+  /** Remote smile photo URL for quote requests (https). */
   photoHttpUrl?: string;
+  /** Remote teeth photo URL for quote requests (https). */
+  teethPhotoHttpUrl?: string;
 };
 
 export function GuidePhotoAnalysisCard({
   displayUri,
+  teethDisplayUri,
   phase,
   analysisPayload,
   localized,
   errorText,
+  retakeTarget,
   showTranslatedBadge,
   onRetry,
   onRetakePhoto,
+  onRetakeSmilePhoto,
+  onRetakeTeethPhoto,
   guidanceSavedAt,
   embedded,
+  resultFirst,
   clinicId,
   clinics,
   photoHttpUrl,
+  teethPhotoHttpUrl,
 }: Props) {
   const { t } = useLanguage();
 
@@ -71,15 +85,16 @@ export function GuidePhotoAnalysisCard({
   const showWaiting =
     !embedded &&
     !!displayUri &&
+    !!teethDisplayUri &&
     !isProcessing &&
     !showResult &&
     !showFailed &&
     (phase === "uploaded" || phase === "idle");
 
   if (embedded && !showResult && !showFailed && !isProcessing) {
-    if (!displayUri) {
+    if (!displayUri || !teethDisplayUri) {
       return (
-        <Text style={styles.emptyPlaceholder}>{t("treatmentGuide.flow.step2.empty")}</Text>
+        <Text style={styles.emptyPlaceholder}>{t("smileDualFlow.awaitingBothPhotos")}</Text>
       );
     }
     return (
@@ -95,7 +110,14 @@ export function GuidePhotoAnalysisCard({
           <Text style={styles.sectionHint}>{t("treatmentGuide.section.analysisHint")}</Text>
           {displayUri ? (
             <View style={styles.previewCard}>
+              <Text style={styles.previewLabel}>{t("smilePhotoGuide.modeSmile")}</Text>
               <Image source={{ uri: displayUri }} style={styles.preview} resizeMode="cover" />
+            </View>
+          ) : null}
+          {teethDisplayUri ? (
+            <View style={styles.previewCard}>
+              <Text style={styles.previewLabel}>{t("smilePhotoGuide.modeCloseup")}</Text>
+              <Image source={{ uri: teethDisplayUri }} style={styles.preview} resizeMode="cover" />
             </View>
           ) : null}
         </>
@@ -119,18 +141,59 @@ export function GuidePhotoAnalysisCard({
       {showFailed ? (
         <View style={styles.errorBox}>
           <Text style={styles.errorTitle}>{t("treatmentGuide.analysis.failed")}</Text>
-          <Text style={styles.errorBody}>{errorText || t("treatmentGuide.analysis.failedHint")}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={onRetry} activeOpacity={0.88}>
-            <Text style={styles.retryBtnText}>{t("treatmentGuide.analysis.tryAgain")}</Text>
-          </TouchableOpacity>
+          <Text style={styles.errorBody}>
+            {errorText ||
+              (retakeTarget === "smile"
+                ? t("smileDualFlow.retakeSmileHint")
+                : retakeTarget === "teeth"
+                  ? t("smileDualFlow.retakeTeethHint")
+                  : t("treatmentGuide.analysis.failedHint"))}
+          </Text>
+          {retakeTarget === "smile" && onRetakeSmilePhoto ? (
+            <TouchableOpacity style={styles.retryBtn} onPress={onRetakeSmilePhoto} activeOpacity={0.88}>
+              <Text style={styles.retryBtnText}>{t("smileDualFlow.retakeSmile")}</Text>
+            </TouchableOpacity>
+          ) : null}
+          {retakeTarget === "teeth" && onRetakeTeethPhoto ? (
+            <TouchableOpacity style={styles.retryBtn} onPress={onRetakeTeethPhoto} activeOpacity={0.88}>
+              <Text style={styles.retryBtnText}>{t("smileDualFlow.retakeTeeth")}</Text>
+            </TouchableOpacity>
+          ) : null}
+          {!retakeTarget || retakeTarget === "both" ? (
+            <TouchableOpacity style={styles.retryBtn} onPress={onRetry} activeOpacity={0.88}>
+              <Text style={styles.retryBtnText}>{t("treatmentGuide.analysis.tryAgain")}</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       ) : null}
 
       {showResult || (hasResult && !isProcessing && !showFailed) ? (
-        <View style={styles.resultCard}>
-          <View style={styles.resultTitleRow}>
-            <View style={styles.resultTitleCol}>
-              <Text style={styles.resultTitle}>{t("treatmentGuide.analysisResultTitle")}</Text>
+        <View style={[styles.resultCard, resultFirst && styles.resultCardFirst]}>
+          {!resultFirst ? (
+            <View style={styles.resultTitleRow}>
+              <View style={styles.resultTitleCol}>
+                <Text style={styles.resultTitle}>{t("treatmentGuide.analysisResultTitle")}</Text>
+                {guidanceSavedAt ? (
+                  <Text style={styles.savedAt}>
+                    {t("treatmentGuide.analysis.savedAt", {
+                      date: new Date(guidanceSavedAt).toLocaleDateString(),
+                    })}
+                  </Text>
+                ) : null}
+              </View>
+              {showTranslatedBadge ? (
+                <View style={styles.translatedBadge}>
+                  <Text style={styles.translatedBadgeText}>{t("analysis.translatedBadge")}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : (
+            <View style={styles.resultFirstMeta}>
+              {showTranslatedBadge ? (
+                <View style={styles.translatedBadge}>
+                  <Text style={styles.translatedBadgeText}>{t("analysis.translatedBadge")}</Text>
+                </View>
+              ) : null}
               {guidanceSavedAt ? (
                 <Text style={styles.savedAt}>
                   {t("treatmentGuide.analysis.savedAt", {
@@ -139,18 +202,26 @@ export function GuidePhotoAnalysisCard({
                 </Text>
               ) : null}
             </View>
-            {showTranslatedBadge ? (
-              <View style={styles.translatedBadge}>
-                <Text style={styles.translatedBadgeText}>{t("analysis.translatedBadge")}</Text>
-              </View>
-            ) : null}
-          </View>
+          )}
           {smileScore ? (
             <>
-              <SmileScoreResult data={smileScore} compact />
+              <SmileScoreResult
+                data={smileScore}
+                compact
+                summary={localized.summary}
+                recommendation={localized.recommendation}
+                insights={localized.insights}
+                showNotes={!resultFirst}
+              />
+              <SmileScoreQuoteCta
+                data={smileScore}
+                photoUrl={photoHttpUrl}
+                teethPhotoUrl={teethPhotoHttpUrl}
+              />
               <SmileScoreActions data={smileScore} clinicId={clinicId} />
-              <SmileScoreQuoteCta data={smileScore} photoUrl={photoHttpUrl} />
-              <SmileClinicRecommendations smileData={smileScore} clinics={clinics} />
+              {!resultFirst ? (
+                <SmileClinicRecommendations smileData={smileScore} clinics={clinics} />
+              ) : null}
             </>
           ) : localized.insights.length > 0 ? (
             localized.insights.slice(0, 4).map((line, i) => (
@@ -161,14 +232,18 @@ export function GuidePhotoAnalysisCard({
           ) : (
             <Text style={styles.summaryText}>{localized.summary || t("treatmentGuide.analysisEmpty")}</Text>
           )}
-          {localized.recommendation ? (
-            <Text style={styles.nextStep}>
-              {t("treatmentGuide.analysis.nextStep")}: {localized.recommendation}
-            </Text>
-          ) : (
-            <Text style={styles.nextStep}>{t("treatmentGuide.analysis.nextStepDefault")}</Text>
-          )}
-          <Text style={styles.microDisclaimer}>{t("analysis.disclaimer")}</Text>
+          {!smileScore ? (
+            localized.recommendation ? (
+              <Text style={styles.nextStep}>
+                {t("treatmentGuide.analysis.nextStep")}: {localized.recommendation}
+              </Text>
+            ) : (
+              <Text style={styles.nextStep}>{t("treatmentGuide.analysis.nextStepDefault")}</Text>
+            )
+          ) : null}
+          <Text style={[styles.microDisclaimer, resultFirst && styles.microDisclaimerFirst]}>
+            {t("analysis.disclaimer")}
+          </Text>
         </View>
       ) : null}
 
@@ -200,6 +275,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
+  previewLabel: { fontSize: 12, fontWeight: "700", color: "#64748b", marginBottom: 6 },
   preview: { width: "100%", aspectRatio: 4 / 3, borderRadius: 10, backgroundColor: "#e2e8f0" },
   statusBox: { alignItems: "center", paddingVertical: 16, gap: 8 },
   statusTitle: { fontSize: 15, fontWeight: "700", color: "#334155", textAlign: "center" },
@@ -232,6 +308,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
+  resultCardFirst: {
+    marginBottom: 0,
+    borderWidth: 0,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    backgroundColor: "transparent",
+  },
+  resultFirstMeta: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
   resultTitleRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 8, marginBottom: 10 },
   resultTitleCol: { flex: 1, minWidth: 120 },
   resultTitle: { fontSize: 15, fontWeight: "800", color: "#0f172a" },
@@ -242,6 +332,7 @@ const styles = StyleSheet.create({
   summaryText: { fontSize: 14, color: "#334155", lineHeight: 21, marginBottom: 8 },
   nextStep: { fontSize: 13, color: "#475569", lineHeight: 19, marginTop: 8, fontWeight: "600" },
   microDisclaimer: { fontSize: 11, color: "#94a3b8", marginTop: 10, lineHeight: 16 },
+  microDisclaimerFirst: { marginTop: 14 },
   linkBtn: { paddingVertical: 8, alignSelf: "flex-start" },
   linkBtnText: { fontSize: 14, fontWeight: "600", color: "#2563eb" },
 });
