@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.clinifly.mobile",
-      "versionCode": 74,
+      "versionCode": 75,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundColor": "#FFFFFF"

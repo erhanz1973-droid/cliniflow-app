@@ -106,6 +106,10 @@ function withFacebookAndroid(config) {
 function withFacebookSDK(config) {
   config = withFacebookIos(config);
   config = withFacebookAndroid(config);
+  // Meta App Events + Play Console "uses Advertising ID" require AD_ID in the release manifest.
+  config = AndroidConfig.Permissions.withPermissions(config, [
+    "com.google.android.gms.permission.AD_ID",
+  ]);
   return config;
 }
 

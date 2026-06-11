@@ -16,6 +16,8 @@
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
   <uses-permission android:name="android.permission.CAMERA"/>
   <uses-permission android:name="android.permission.INTERNET"/>
+  <!-- Required for Meta App Events / Play Console Advertising ID declaration (API 33+) -->
+  <uses-permission android:name="com.google.android.gms.permission.AD_ID"/>
   <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
   <!-- Play Store: system photo picker only — strip broad media/storage from merged manifests -->
   <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove"/>
