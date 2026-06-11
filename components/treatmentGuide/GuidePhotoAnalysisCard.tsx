@@ -51,6 +51,8 @@ type Props = {
   photoHttpUrl?: string;
   /** Remote teeth photo URL for quote requests (https). */
   teethPhotoHttpUrl?: string;
+  /** Server workspace photo when display URI is still local. */
+  workspacePhotoUrl?: string | null;
 };
 
 export function GuidePhotoAnalysisCard({
@@ -73,6 +75,7 @@ export function GuidePhotoAnalysisCard({
   clinics,
   photoHttpUrl,
   teethPhotoHttpUrl,
+  workspacePhotoUrl,
 }: Props) {
   const { t } = useLanguage();
 
@@ -217,6 +220,8 @@ export function GuidePhotoAnalysisCard({
                 data={smileScore}
                 photoUrl={photoHttpUrl}
                 teethPhotoUrl={teethPhotoHttpUrl}
+                analysisPayload={analysisPayload}
+                workspacePhotoUrl={workspacePhotoUrl}
               />
               <SmileScoreActions data={smileScore} clinicId={clinicId} />
               {!resultFirst ? (

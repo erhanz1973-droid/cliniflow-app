@@ -62,6 +62,7 @@ import {
 } from "../../../lib/treatmentGuide/analysisCache";
 import { GuidePhotoAnalysisCard, type PhotoAnalysisUiPhase } from "../../../components/treatmentGuide/GuidePhotoAnalysisCard";
 import { SmileClinicRecommendations } from "../../../components/SmileClinicRecommendations";
+import { resolveSmileQuotePhotoUrls } from "../../../lib/smileQuotePhotoUrls";
 import { extractSmileScoreFromPayload } from "../../../lib/smileScore";
 import { recordSmileAnalysis } from "../../../lib/recordSmileAnalysis";
 import { parseClinicsFromAnalysisPayload } from "../../../lib/smileClinicMapping";
@@ -141,7 +142,13 @@ export default function TreatmentGuideScreen() {
     const p =
       (typeof params.smileUri === "string" ? params.smileUri.trim() : "") ||
       (typeof params.imageUri === "string" ? params.imageUri.trim() : "");
-    return p || String(storePair.smileUri || "").trim() || String(restoredDisplayUri || "").trim();
+    const candidates = [
+      p,
+      String(storePair.smileUri || "").trim(),
+      String(restoredDisplayUri || "").trim(),
+    ].filter(Boolean);
+    const https = candidates.find((u) => /^https?:\/\//i.test(u));
+    return https || candidates[0] || "";
   }, [params.smileUri, params.imageUri, storePair.smileUri, restoredDisplayUri]);
 
   const teethPhotoUri = useMemo(() => {
@@ -327,6 +334,14 @@ export default function TreatmentGuideScreen() {
       if (hash) analyzedContentHashRef.current = hash;
       setLastCapturedImage(fileUrl);
       setRestoredDisplayUri(fileUrl);
+      if (/^https?:\/\//i.test(fileUrl)) {
+        const teethRemote = String(norm.teethImageUrl || aiData.teethImageUrl || "").trim();
+        setSmilePhotoPair({
+          smileUri: fileUrl,
+          ...( /^https?:\/\//i.test(teethRemote) ? { teethUri: teethRemote } : {} ),
+        });
+        if (/^https?:\/\//i.test(teethRemote)) setRemoteTeethHttpUrl(teethRemote);
+      }
       setAnalysisPayload(norm);
       setPhase("done");
       setErrorText(null);
@@ -743,16 +758,19 @@ export default function TreatmentGuideScreen() {
   }, [localized.summary, localized.recommendation]);
 
   const dentalPhotoHttpUrl = useMemo(() => {
-    const uri = String(displayImageUri || "").trim();
-    return /^https?:\/\//i.test(uri) ? uri : undefined;
-  }, [displayImageUri]);
+    return resolveSmileQuotePhotoUrls({
+      smileUri: displayImageUri,
+      analysisPayload,
+      workspacePhotoUrl: intake.treatmentGuideWorkspace?.photoUrl,
+    }).smileUrl;
+  }, [displayImageUri, analysisPayload, intake.treatmentGuideWorkspace?.photoUrl]);
 
   const teethPhotoHttpUrl = useMemo(() => {
-    const fromPayload = String(analysisPayload?.teethImageUrl || "").trim();
-    if (/^https?:\/\//i.test(fromPayload)) return fromPayload;
-    const uri = String(remoteTeethHttpUrl || displayTeethUri || "").trim();
-    return /^https?:\/\//i.test(uri) ? uri : undefined;
-  }, [analysisPayload?.teethImageUrl, remoteTeethHttpUrl, displayTeethUri]);
+    return resolveSmileQuotePhotoUrls({
+      teethUri: remoteTeethHttpUrl || displayTeethUri,
+      analysisPayload,
+    }).teethUrl;
+  }, [analysisPayload, displayTeethUri, remoteTeethHttpUrl]);
 
   const buildIncludedInquiryAttachments = useCallback((): InquiryAttachment[] => {
     const all = collectInquiryAttachments({
@@ -908,6 +926,7 @@ export default function TreatmentGuideScreen() {
                 clinics={analysisClinics}
                 photoHttpUrl={dentalPhotoHttpUrl}
                 teethPhotoHttpUrl={teethPhotoHttpUrl}
+                workspacePhotoUrl={intake.treatmentGuideWorkspace?.photoUrl}
                 onRetry={() => {
                   analyzeFetchFailedRef.current = false;
                   void runPhotoAnalysis({ forceReanalyze: true });

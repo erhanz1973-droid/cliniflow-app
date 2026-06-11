@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { useLanguage } from "../lib/language-context";
 import type { SmileScoreData } from "../lib/smileScore";
 import { startSmileQuoteRequest } from "../lib/smileQuoteRequest";
+import { resolveSmileQuotePhotoUrls } from "../lib/smileQuotePhotoUrls";
 
 type Props = {
   data: SmileScoreData;
@@ -11,16 +12,31 @@ type Props = {
   photoUrl?: string | null;
   /** Remote https teeth photo URL. */
   teethPhotoUrl?: string | null;
+  /** Used when UI still shows local file URIs after analysis. */
+  analysisPayload?: Record<string, unknown> | null;
+  workspacePhotoUrl?: string | null;
 };
 
-export function SmileScoreQuoteCta({ data, photoUrl, teethPhotoUrl }: Props) {
+export function SmileScoreQuoteCta({
+  data,
+  photoUrl,
+  teethPhotoUrl,
+  analysisPayload,
+  workspacePhotoUrl,
+}: Props) {
   const { t } = useLanguage();
   const router = useRouter();
 
   const onGetQuotes = () => {
-    const smileUrl = String(photoUrl || "").trim();
-    const teethUrl = String(teethPhotoUrl || "").trim();
-    if (!/^https?:\/\//i.test(smileUrl)) {
+    const resolved = resolveSmileQuotePhotoUrls({
+      smileUri: photoUrl,
+      teethUri: teethPhotoUrl,
+      analysisPayload,
+      workspacePhotoUrl,
+    });
+    const smileUrl = resolved.smileUrl || firstHttpPhotoUrl(photoUrl);
+    const teethUrl = resolved.teethUrl || firstHttpPhotoUrl(teethPhotoUrl);
+    if (!smileUrl) {
       Alert.alert(t("common.error"), t("smileQuote.photoRequired"));
       return;
     }
