@@ -5,6 +5,7 @@
 import { InteractionManager, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { logLaunchPhase, logLaunchPhaseOnce } from "./launchAudit";
+import { isMetaNativeSdkAvailable } from "./isExpoGo";
 
 export const META_FACEBOOK_APP_ID =
   String(process.env.EXPO_PUBLIC_FACEBOOK_APP_ID || "1908819279802983").trim();
@@ -21,7 +22,12 @@ let attRequested = false;
 type FbSdk = typeof import("react-native-fbsdk-next");
 
 async function loadSdk(): Promise<FbSdk | null> {
-  if (Platform.OS === "web") return null;
+  if (!isMetaNativeSdkAvailable()) {
+    if (__DEV__) {
+      console.log("[metaAppEvents] skipped — Expo Go has no native Facebook SDK (use dev/prod build)");
+    }
+    return null;
+  }
   try {
     return await import("react-native-fbsdk-next");
   } catch (e) {
@@ -51,7 +57,10 @@ async function requestAttWhenIdle(): Promise<void> {
 export async function initMetaAppEvents(): Promise<boolean> {
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    if (Platform.OS === "web") return false;
+    if (!isMetaNativeSdkAvailable()) {
+      logLaunchPhaseOnce("Meta SDK Init Skipped", { reason: "expo_go_or_web" });
+      return false;
+    }
     logLaunchPhaseOnce("Meta SDK Init Start", {
       appId: META_FACEBOOK_APP_ID,
       hasClientToken: Boolean(META_CLIENT_TOKEN),
@@ -64,8 +73,8 @@ export async function initMetaAppEvents(): Promise<boolean> {
       return false;
     }
     const sdk = await loadSdk();
-    if (!sdk) {
-      logLaunchPhase("Meta SDK Init Failed", { stage: "loadSdk" });
+    if (!sdk?.Settings?.setAppID) {
+      logLaunchPhase("Meta SDK Init Failed", { stage: "loadSdk", error: "Settings unavailable" });
       return false;
     }
     try {

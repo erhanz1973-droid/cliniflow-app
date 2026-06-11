@@ -16,6 +16,7 @@ import type { SmileScoreData } from "../../lib/smileScore";
 import { SmileShareCardPreview } from "./SmileShareCardPreview";
 import { shareSmileScoreOnFacebook } from "../../lib/shareSmileScoreFacebook";
 import { trackMetaSmileScoreShare } from "../../lib/metaAppEvents";
+import { isExpoGoRuntime } from "../../lib/isExpoGo";
 import {
   claimSmileFacebookShareReward,
   fetchSmileShareRewardStatus,
@@ -48,6 +49,8 @@ export function SmileShareSheet({ visible, data, onClose }: Props) {
     if (visible) void refreshReward();
   }, [visible, refreshReward]);
 
+  const inExpoGo = isExpoGoRuntime();
+
   const onShareFacebook = async () => {
     setSharing(true);
     try {
@@ -61,9 +64,9 @@ export function SmileShareSheet({ visible, data, onClose }: Props) {
         return;
       }
 
-      trackMetaSmileScoreShare("facebook");
+      trackMetaSmileScoreShare(result.channel === "facebook" ? "facebook" : "system");
 
-      if (reward?.canClaimReward) {
+      if (result.channel === "facebook" && reward?.canClaimReward) {
         const claim = await claimSmileFacebookShareReward();
         if (claim.ok && !claim.alreadyClaimed) {
           Alert.alert(t("smileShare.rewardTitle"), t("smileShare.rewardBody"));
@@ -93,13 +96,17 @@ export function SmileShareSheet({ visible, data, onClose }: Props) {
             <SmileShareCardPreview data={data} />
             <Text style={styles.positiveNote}>{t("smileShare.positiveNote")}</Text>
 
+            {inExpoGo ? (
+              <Text style={styles.expoGoNote}>{t("smileShare.expoGoNote")}</Text>
+            ) : null}
+
             {loadingReward ? (
               <ActivityIndicator color="#059669" style={{ marginTop: 8 }} />
-            ) : reward?.canClaimReward ? (
+            ) : !inExpoGo && reward?.canClaimReward ? (
               <View style={styles.rewardBanner}>
                 <Text style={styles.rewardBannerText}>{t("smileShare.rewardTeaser")}</Text>
               </View>
-            ) : reward?.rewardClaimed ? (
+            ) : !inExpoGo && reward?.rewardClaimed ? (
               <Text style={styles.rewardClaimed}>{t("smileShare.rewardAlreadyClaimed")}</Text>
             ) : null}
 
@@ -113,8 +120,14 @@ export function SmileShareSheet({ visible, data, onClose }: Props) {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <>
-                  <Ionicons name="logo-facebook" size={22} color="#fff" />
-                  <Text style={styles.fbBtnText}>{t("smileShare.shareFacebook")}</Text>
+                  <Ionicons
+                    name={inExpoGo ? "share-outline" : "logo-facebook"}
+                    size={22}
+                    color="#fff"
+                  />
+                  <Text style={styles.fbBtnText}>
+                    {inExpoGo ? t("smileShare.shareSystem") : t("smileShare.shareFacebook")}
+                  </Text>
                 </>
               )}
             </TouchableOpacity>
@@ -156,6 +169,13 @@ const styles = StyleSheet.create({
     color: "#64748b",
     textAlign: "center",
     lineHeight: 19,
+  },
+  expoGoNote: {
+    fontSize: 12,
+    color: "#64748b",
+    textAlign: "center",
+    lineHeight: 17,
+    fontStyle: "italic",
   },
   rewardBanner: {
     backgroundColor: "#fef3c7",
