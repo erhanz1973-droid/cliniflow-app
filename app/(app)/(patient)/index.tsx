@@ -259,14 +259,14 @@ export default function PatientDashboard() {
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
   }, [patientMe?.clinic?.googleMapsUrl, patientMe?.branding?.address]);
 
-  const refetchPatientMe = useCallback(async (tokenOverride?: string) => {
+  const refetchPatientMe = useCallback(async (tokenOverride?: string): Promise<boolean | undefined> => {
     const tok = tokenOverride ?? user?.token;
-    if (!tok) return;
+    if (!tok) return undefined;
     try {
       const headers = { Authorization: `Bearer ${tok}`, Accept: "application/json" };
       const meRes = await fetch(`${API_BASE}/api/patient/me`, { headers });
       const meJson = await meRes.json().catch(() => ({}));
-      if (!meJson.ok) return;
+      if (!meJson.ok) return undefined;
 
       const cidRaw =
         meJson.clinic_id != null && String(meJson.clinic_id).trim() !== ""
@@ -338,11 +338,13 @@ export default function PatientDashboard() {
         });
 
       setPatientMe(nextRecord);
+      return derivePatientClinicMembership({ user, patientRecord: nextRecord }).hasClinic;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       if (__DEV__ && msg) {
         console.warn("[PATIENT_HOME] patient/me fetch failed:", msg);
       }
+      return undefined;
     } finally {
       setPatientMeSynced(true);
     }
@@ -378,19 +380,29 @@ export default function PatientDashboard() {
     }
 
     try {
-      await refetchPatientMe();
+      const linkedFromMe = await refetchPatientMe();
+      const clinicLinked = linkedFromMe ?? hasClinic;
 
-      // ── Critical data: treatments + health form (show UI as soon as these arrive) ──
-      const [treatRes, healthRes] = await Promise.all([
-        fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/treatments`, { headers }),
-        fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/health`, { headers }).catch(() => null),
-      ]);
+      let teeth: any[] = [];
+      let treatEvents: any[] = [];
+      let healthComplete = true;
+      if (clinicLinked) {
+        // ── Critical data: treatments + health form (show UI as soon as these arrive) ──
+        const [treatRes, healthRes] = await Promise.all([
+          fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/treatments`, { headers }),
+          fetch(`${API_BASE}/api/patient/${encodeURIComponent(patientId)}/health`, { headers }).catch(() => null),
+        ]);
 
-      const healthJson = healthRes ? await healthRes.json().catch(() => ({})) : {};
-      setHealthFormFilled(!!healthJson.isComplete);
+        const healthJson = healthRes ? await healthRes.json().catch(() => ({})) : {};
+        healthComplete = !!healthJson.isComplete;
+        setHealthFormFilled(healthComplete);
 
-      const json = await treatRes.json().catch(() => ({}));
-      const teeth: any[] = Array.isArray(json.teeth) ? json.teeth : [];
+        const json = await treatRes.json().catch(() => ({}));
+        teeth = Array.isArray(json.teeth) ? json.teeth : [];
+        treatEvents = Array.isArray(json.events) ? json.events : [];
+      } else {
+        setHealthFormFilled(true);
+      }
 
       let total = 0, done = 0, active = 0;
       const allProcs: any[] = [];
@@ -425,7 +437,7 @@ export default function PatientDashboard() {
       });
 
       if (!next) {
-        const fromEv = pickNextFromEvents(Array.isArray(json.events) ? json.events : [], now);
+        const fromEv = pickNextFromEvents(treatEvents, now);
         if (fromEv) next = fromEv;
       }
 
@@ -441,7 +453,7 @@ export default function PatientDashboard() {
         summary: { total, done, active },
         nextAppointment: next,
         recentProcedures: recentSlice,
-        healthFormFilled: !!healthJson.isComplete,
+        healthFormFilled: healthComplete,
       };
 
       setTreatmentsStale(false);
@@ -499,7 +511,7 @@ export default function PatientDashboard() {
     } finally {
       setRefreshing(false);
     }
-  }, [user?.token, patientId, refetchPatientMe, refreshLatestSmile, userClinicId, userClinicCode]);
+  }, [user?.token, patientId, refetchPatientMe, refreshLatestSmile, userClinicId, userClinicCode, hasClinic]);
 
   fetchDataRef.current = fetchData;
 

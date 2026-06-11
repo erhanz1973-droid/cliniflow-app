@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import { useAuth } from "../../../lib/auth";
 import { postAiCoordinatorChat } from "../../../lib/aiCoordinator/api";
 import { parseSmileContextFromRoute } from "../../../lib/smileScoreNavigation";
 import { formatSmileScore } from "../../../lib/smileScore";
+import { getStableTreatmentGuideSessionId } from "../../../lib/treatmentGuide/stableSession";
 
 type ChatRow = { id: string; role: "user" | "assistant"; text: string };
 
@@ -56,6 +57,15 @@ export default function SmileAiChatScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const summaryRef = useRef("");
+  const sessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const pid = String(user?.patientId || user?.id || "").trim();
+    if (!pid) return;
+    void getStableTreatmentGuideSessionId(pid).then((sid) => {
+      sessionIdRef.current = sid;
+    });
+  }, [user?.patientId, user?.id]);
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -85,6 +95,7 @@ export default function SmileAiChatScreen() {
           message: msg,
           patientId: user?.patientId || user?.id,
           clinicId: params.clinicId,
+          sessionId: sessionIdRef.current || undefined,
           contextMode: "treatment_guide",
           history,
           conversationSummary: summaryRef.current || null,
