@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Modal,
   View,
@@ -15,6 +15,7 @@ import { useLanguage } from "../../lib/language-context";
 import type { SmileScoreData } from "../../lib/smileScore";
 import { SmileShareCardPreview } from "./SmileShareCardPreview";
 import { shareSmileScoreOnFacebook } from "../../lib/shareSmileScoreFacebook";
+import { captureSmileShareCardImage } from "../../lib/captureSmileShareCard";
 import { trackMetaSmileScoreShare } from "../../lib/metaAppEvents";
 import { isExpoGoRuntime } from "../../lib/isExpoGo";
 import {
@@ -35,6 +36,7 @@ export function SmileShareSheet({ visible, data, onClose }: Props) {
   const [sharing, setSharing] = useState(false);
   const [reward, setReward] = useState<SmileShareRewardStatus | null>(null);
   const [loadingReward, setLoadingReward] = useState(false);
+  const cardRef = useRef<View>(null);
 
   const refreshReward = useCallback(async () => {
     setLoadingReward(true);
@@ -54,7 +56,9 @@ export function SmileShareSheet({ visible, data, onClose }: Props) {
   const onShareFacebook = async () => {
     setSharing(true);
     try {
-      const result = await shareSmileScoreOnFacebook(data);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      const imageUri = await captureSmileShareCardImage(cardRef);
+      const result = await shareSmileScoreOnFacebook(data, { imageUri });
       if (!result.ok) {
         if (result.error === "facebook_not_available") {
           Alert.alert(t("common.error"), t("smileShare.facebookUnavailable"));
@@ -93,7 +97,9 @@ export function SmileShareSheet({ visible, data, onClose }: Props) {
           </View>
 
           <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-            <SmileShareCardPreview data={data} />
+            <View ref={cardRef} collapsable={false}>
+              <SmileShareCardPreview data={data} />
+            </View>
             <Text style={styles.positiveNote}>{t("smileShare.positiveNote")}</Text>
 
             {inExpoGo ? (

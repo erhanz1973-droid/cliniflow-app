@@ -593,7 +593,6 @@ export default function TreatmentGuideScreen() {
       setErrorText(null);
       setRetakeTarget(null);
       if (force) {
-        setAnalysisPayload(null);
         analyzeFetchFailedRef.current = false;
       }
 
@@ -731,6 +730,12 @@ export default function TreatmentGuideScreen() {
   const isPhotoBusy =
     phase === "uploading" || phase === "analyzing" || phase === "restoring";
 
+  const showAnalysisCard =
+    bothPhotosReady &&
+    (hasSavedGuidance ||
+      isPhotoBusy ||
+      phase === "error" ||
+      hasVisibleAnalysisContent(analysisPayload));
 
   const photoGuidanceSummary = useMemo(() => {
     const parts = [localized.summary, localized.recommendation].map((s) => String(s || "").trim()).filter(Boolean);
@@ -829,34 +834,6 @@ export default function TreatmentGuideScreen() {
           <Text style={styles.savedWorkspaceHint}>{t("treatmentGuide.workspace.savedHint")}</Text>
         ) : null}
 
-        {hasSavedGuidance ? (
-          <View style={styles.resultFirstWrap}>
-            <GuidePhotoAnalysisCard
-              embedded
-              resultFirst
-              displayUri={displayImageUri || undefined}
-              teethDisplayUri={displayTeethUri || undefined}
-              phase={photoUiPhase}
-              analysisPayload={analysisPayload}
-              localized={localized}
-              errorText={errorText}
-              retakeTarget={retakeTarget}
-              showTranslatedBadge={showTranslatedBadge}
-              guidanceSavedAt={guidanceSavedAt}
-              clinicId={clinicId || undefined}
-              clinics={analysisClinics}
-              photoHttpUrl={dentalPhotoHttpUrl}
-              teethPhotoHttpUrl={teethPhotoHttpUrl}
-              onRetry={() => {
-                analyzeFetchFailedRef.current = false;
-                void runPhotoAnalysis({ forceReanalyze: true });
-              }}
-              onRetakeSmilePhoto={addSmilePhoto}
-              onRetakeTeethPhoto={addTeethPhoto}
-            />
-          </View>
-        ) : null}
-
         <GuideFlowSection
           step={hasSavedGuidance ? 2 : 1}
           title={t("smileDualFlow.sectionTitle")}
@@ -912,38 +889,35 @@ export default function TreatmentGuideScreen() {
               <Text style={styles.analyzeAgainText}>{t("treatmentGuide.photoStart.analyzeAgain")}</Text>
             </TouchableOpacity>
           ) : null}
-        </GuideFlowSection>
 
-        {!hasSavedGuidance ? (
-          <GuideFlowSection
-            step={2}
-            title={t("treatmentGuide.flow.step2.title")}
-            hint={t("treatmentGuide.flow.step2.hint")}
-          >
-            <GuidePhotoAnalysisCard
-              embedded
-              displayUri={displayImageUri || undefined}
-              teethDisplayUri={displayTeethUri || undefined}
-              phase={photoUiPhase}
-              analysisPayload={analysisPayload}
-              localized={localized}
-              errorText={errorText}
-              retakeTarget={retakeTarget}
-              showTranslatedBadge={showTranslatedBadge}
-              guidanceSavedAt={guidanceSavedAt}
-              clinicId={clinicId || undefined}
-              clinics={analysisClinics}
-              photoHttpUrl={dentalPhotoHttpUrl}
-              teethPhotoHttpUrl={teethPhotoHttpUrl}
-              onRetry={() => {
-                analyzeFetchFailedRef.current = false;
-                void runPhotoAnalysis({ forceReanalyze: true });
-              }}
-              onRetakeSmilePhoto={addSmilePhoto}
-              onRetakeTeethPhoto={addTeethPhoto}
-            />
-          </GuideFlowSection>
-        ) : null}
+          {showAnalysisCard ? (
+            <View style={styles.resultsBelowActions}>
+              <GuidePhotoAnalysisCard
+                embedded
+                resultFirst
+                displayUri={displayImageUri || undefined}
+                teethDisplayUri={displayTeethUri || undefined}
+                phase={photoUiPhase}
+                analysisPayload={analysisPayload}
+                localized={localized}
+                errorText={errorText}
+                retakeTarget={retakeTarget}
+                showTranslatedBadge={showTranslatedBadge}
+                guidanceSavedAt={guidanceSavedAt}
+                clinicId={clinicId || undefined}
+                clinics={analysisClinics}
+                photoHttpUrl={dentalPhotoHttpUrl}
+                teethPhotoHttpUrl={teethPhotoHttpUrl}
+                onRetry={() => {
+                  analyzeFetchFailedRef.current = false;
+                  void runPhotoAnalysis({ forceReanalyze: true });
+                }}
+                onRetakeSmilePhoto={addSmilePhoto}
+                onRetakeTeethPhoto={addTeethPhoto}
+              />
+            </View>
+          ) : null}
+        </GuideFlowSection>
 
         {hasSavedGuidance ? (
           <GuideFlowSection
@@ -1166,7 +1140,7 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 18, paddingTop: 12 },
   heroWrap: { marginBottom: 16 },
-  resultFirstWrap: { marginBottom: 24, paddingBottom: 24, borderBottomWidth: 1, borderBottomColor: "#e2e8f0" },
+  resultsBelowActions: { marginTop: 16 },
   flowIntro: {
     fontSize: 14,
     color: "#64748b",
