@@ -135,20 +135,25 @@ export default function TreatmentGuideScreen() {
         smileUri: smileParam || storePair.smileUri,
         teethUri: teethParam || storePair.teethUri,
       });
+      // New local capture must win over a stale restored Supabase URL in the preview.
+      if (smileParam && !/^https?:\/\//i.test(smileParam)) {
+        setRestoredDisplayUri(null);
+      }
+      if (teethParam && !/^https?:\/\//i.test(teethParam)) {
+        setRestoredTeethDisplayUri(null);
+      }
     }
   }, [params.smileUri, params.teethUri, params.imageUri]);
 
   const smilePhotoUri = useMemo(() => {
-    const p =
+    const paramSmile =
       (typeof params.smileUri === "string" ? params.smileUri.trim() : "") ||
       (typeof params.imageUri === "string" ? params.imageUri.trim() : "");
-    const candidates = [
-      p,
-      String(storePair.smileUri || "").trim(),
-      String(restoredDisplayUri || "").trim(),
-    ].filter(Boolean);
-    const https = candidates.find((u) => /^https?:\/\//i.test(u));
-    return https || candidates[0] || "";
+    const storeSmile = String(storePair.smileUri || "").trim();
+    if (paramSmile || storeSmile) {
+      return paramSmile || storeSmile;
+    }
+    return String(restoredDisplayUri || "").trim();
   }, [params.smileUri, params.imageUri, storePair.smileUri, restoredDisplayUri]);
 
   const teethPhotoUri = useMemo(() => {
@@ -445,7 +450,9 @@ export default function TreatmentGuideScreen() {
     let cancelled = false;
     void (async () => {
       const photoFromServer = ws?.photoUrl?.trim() || "";
-      const paramUri = typeof params.imageUri === "string" ? params.imageUri.trim() : "";
+      const paramUri =
+        (typeof params.smileUri === "string" ? params.smileUri.trim() : "") ||
+        (typeof params.imageUri === "string" ? params.imageUri.trim() : "");
 
       if (photoFromServer && !paramUri) {
         setRestoredDisplayUri(photoFromServer);

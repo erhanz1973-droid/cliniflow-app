@@ -19,6 +19,7 @@ import { normalizeImageFingerprint } from "./treatmentGuide/analysisCache";
 import {
   DEFAULT_SMILE_PHOTO_TYPE,
   SMILE_DUAL_ANALYSIS_MODE,
+  TEETH_CLOSEUP_PHOTO_TYPE,
 } from "./smilePhotoCapture";
 import { isAnalysisFallbackPayload } from "./dentalAnalysisNormalize";
 
@@ -125,7 +126,7 @@ export async function uploadImageForAi(
   name: string,
   mimeType: string,
   token: string,
-  opts?: { contentHash?: string | null; patientId?: string },
+  opts?: { contentHash?: string | null; patientId?: string; photoType?: string },
 ): Promise<UploadOk | UploadErr> {
   const patientId = String(opts?.patientId || "").trim();
   const contentHash = normalizeContentHash(opts?.contentHash);
@@ -173,6 +174,8 @@ export async function uploadImageForAi(
     const formData = new FormData();
     formData.append("file", { uri, name: fileName, type: partType } as unknown as Blob);
     if (contentHash) formData.append("contentHash", contentHash);
+    const photoType = String(opts?.photoType || "").trim();
+    if (photoType) formData.append("photoType", photoType);
 
     const controller = new AbortController();
     const tid = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
@@ -399,6 +402,7 @@ async function ensureUploadedForAnalyze(
   patientId: string,
   token: string,
   contentHashIn?: string | null,
+  photoType?: string,
 ): Promise<
   | { ok: true; url: string; storagePath?: string; contentHash: string }
   | { ok: false; phase: "upload"; message: string }
@@ -440,6 +444,7 @@ async function ensureUploadedForAnalyze(
   const up = await uploadImageForAi(compressed.uri, uploadName, compressed.mimeType, token, {
     contentHash,
     patientId,
+    photoType,
   });
   if (!up.ok) {
     return { ok: false, phase: "upload", message: up.message };
@@ -483,11 +488,23 @@ export async function analyzeDualSmilePhotos(params: {
     return { ok: false, phase: "session", message: "both_photos_required" };
   }
 
-  const smileUp = await ensureUploadedForAnalyze(smileUri, patientId, token, smileHashIn);
+  const smileUp = await ensureUploadedForAnalyze(
+    smileUri,
+    patientId,
+    token,
+    smileHashIn,
+    DEFAULT_SMILE_PHOTO_TYPE,
+  );
   if (!smileUp.ok) {
     return { ok: false, phase: smileUp.phase, message: smileUp.message };
   }
-  const teethUp = await ensureUploadedForAnalyze(teethUri, patientId, token, teethHashIn);
+  const teethUp = await ensureUploadedForAnalyze(
+    teethUri,
+    patientId,
+    token,
+    teethHashIn,
+    TEETH_CLOSEUP_PHOTO_TYPE,
+  );
   if (!teethUp.ok) {
     return { ok: false, phase: teethUp.phase, message: teethUp.message };
   }
